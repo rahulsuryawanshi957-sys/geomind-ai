@@ -113,3 +113,4 @@ backend (FastAPI)
 3. Never invent a clause number, page number, or code number.
 4. Never fabricate an equation or coefficient.
 5. In Engineering Mode: always ask for missing inputs, always show units, equations, and assumptions.
+# redeploy Thu Jul 16 00:57:35 IST 2026
