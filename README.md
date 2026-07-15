@@ -1,4 +1,4 @@
-# GeoMind AI
+# RaahiGeo
 
 A RAG-based geotechnical engineering assistant with a premium, ChatGPT/Linear/Perplexity-style
 workspace UI (dark navy/slate/violet/cyan theme, glassmorphism, Framer Motion animation,

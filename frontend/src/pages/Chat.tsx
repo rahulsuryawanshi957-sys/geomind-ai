@@ -166,7 +166,7 @@ export default function Chat() {
                 ) : (
                   <div className="glass px-4 py-4 rounded-tl-sm">
                     <div className="flex items-center justify-between mb-2">
-                      <div className="text-xs uppercase tracking-wide text-violet-300 font-medium">GeoMind AI</div>
+                      <div className="text-xs uppercase tracking-wide text-violet-300 font-medium">RaahiGeo</div>
                       {m.pinned && <Pin size={12} className="text-cyan-400" />}
                     </div>
 

@@ -1,5 +1,5 @@
 """
-Central configuration for GeoMind AI backend.
+Central configuration for RaahiGeo backend.
 All secrets are read from environment variables (.env). Never hard-code keys.
 """
 from pydantic_settings import BaseSettings

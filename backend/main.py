@@ -7,7 +7,7 @@ from app.routers import chat, documents, search, calculators, reports, clause_fi
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
-    title="GeoMind AI",
+    title="RaahiGeo",
     description="RAG-based geotechnical engineering assistant",
     version="0.1.0",
 )
@@ -31,4 +31,4 @@ app.include_router(history.router)
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "service": "GeoMind AI"}
+    return {"status": "ok", "service": "RaahiGeo"}

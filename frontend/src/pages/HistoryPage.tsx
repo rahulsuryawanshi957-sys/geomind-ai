@@ -31,7 +31,7 @@ export default function HistoryPage() {
           <div className="space-y-3 max-w-2xl">
             {selected.messages.map((m: any, i: number) => (
               <div key={i} className="glass px-4 py-3">
-                <div className="text-xs uppercase tracking-wide text-slate-500 mb-1">{m.role === 'user' ? 'You' : 'GeoMind AI'}</div>
+                <div className="text-xs uppercase tracking-wide text-slate-500 mb-1">{m.role === 'user' ? 'You' : 'RaahiGeo'}</div>
                 <div className="text-sm text-slate-200 whitespace-pre-wrap">{m.content}</div>
               </div>
             ))}
