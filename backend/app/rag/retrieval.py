@@ -5,7 +5,7 @@ so retrieval behavior (thresholds, filters) stays in one place.
 """
 from app.rag.vectorstore import query as chroma_query
 from app.services.embeddings import embed_texts
-from app.config import settings
+from app.config import settings, logger
 
 
 def retrieve(question: str, top_k: int | None = None, category: str | None = None, document_id: str | None = None) -> list[dict]:
@@ -16,6 +16,7 @@ def retrieve(question: str, top_k: int | None = None, category: str | None = Non
     rather than falling back to the LLM's general knowledge.
     """
     top_k = top_k or settings.top_k_retrieval
+    logger.info(f"[retrieval] Embedding query for retrieval (top_k={top_k}, category={category})...")
     [embedding] = embed_texts([question])
 
     where = {}
@@ -24,10 +25,12 @@ def retrieve(question: str, top_k: int | None = None, category: str | None = Non
     if document_id:
         where["document_id"] = document_id
 
+    logger.info("[retrieval] Querying ChromaDB...")
     raw = chroma_query(embedding, top_k=top_k, where=where or None)
 
     results = []
     if not raw or not raw.get("ids") or not raw["ids"][0]:
+        logger.info("[retrieval] No chunks in ChromaDB matched (empty result set).")
         return results
 
     for i in range(len(raw["ids"][0])):
@@ -47,4 +50,5 @@ def retrieve(question: str, top_k: int | None = None, category: str | None = Non
         })
 
     results.sort(key=lambda r: r["score"], reverse=True)
+    logger.info(f"[retrieval] {len(results)} chunk(s) above similarity threshold {settings.min_similarity_score}.")
     return results

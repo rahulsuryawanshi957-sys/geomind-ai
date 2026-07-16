@@ -6,12 +6,15 @@ from app.models import Conversation, Message
 from app.schemas import ChatRequest, ChatResponse, Citation
 from app.rag.retrieval import retrieve
 from app.services.llm import answer_question
+from app.config import logger
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 
 @router.post("", response_model=ChatResponse)
 def chat(req: ChatRequest, db: Session = Depends(get_db)):
+    logger.info(f"[chat] Request received: question={req.question!r} engineering_mode={req.engineering_mode}")
+
     if req.conversation_id:
         conv = db.query(Conversation).filter(Conversation.id == req.conversation_id).first()
         if not conv:
@@ -21,12 +24,18 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
         db.add(conv)
         db.commit()
         db.refresh(conv)
+    logger.info(f"[chat] Using conversation_id={conv.id}")
 
     history = [{"role": m.role, "content": m.content} for m in
                db.query(Message).filter(Message.conversation_id == conv.id).order_by(Message.created_at).all()]
 
+    logger.info("[chat] Retrieving relevant chunks from ChromaDB...")
     chunks = retrieve(req.question, category=req.category_filter)
+    logger.info(f"[chat] Retrieved {len(chunks)} chunk(s).")
+
+    logger.info("[chat] Calling OpenAI chat model...")
     answer = answer_question(req.question, chunks, engineering_mode=req.engineering_mode, history=history)
+    logger.info("[chat] Got answer from OpenAI, saving to history and returning.")
 
     citations = [
         Citation(filename=c["filename"], page_number=c["page_number"],

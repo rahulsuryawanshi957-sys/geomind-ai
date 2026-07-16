@@ -1,4 +1,5 @@
 import shutil
+import traceback
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from app.database import get_db
@@ -6,7 +7,7 @@ from app.models import Document
 from app.schemas import DocumentOut
 from app.rag.ingest import ingest_pdf
 from app.rag.vectorstore import delete_document as vs_delete_document
-from app.config import settings
+from app.config import settings, logger
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
@@ -17,12 +18,23 @@ CATEGORIES = [
 
 
 def _run_indexing(document_id: str, file_path: str, filename: str, category: str):
+    """
+    Runs in a FastAPI BackgroundTask -- i.e. *after* the HTTP response has
+    already been sent. Exceptions here do NOT show up as an HTTP error to the
+    client; they only appear in the server logs. That's why every step is
+    explicitly logged and every exception is logged with its full traceback
+    (not just re-raised silently) -- otherwise "upload does nothing" is
+    exactly what it looks like from the frontend even when the real cause is
+    a clear, fixable error like a missing API key.
+    """
     from app.database import SessionLocal
     db = SessionLocal()
     try:
         doc = db.query(Document).filter(Document.id == document_id).first()
         doc.status = "indexing"
         db.commit()
+        logger.info(f"[ingest] Starting indexing for document_id={document_id} filename={filename}")
+
         stats = ingest_pdf(
             document_id=document_id,
             file_path=file_path,
@@ -31,16 +43,22 @@ def _run_indexing(document_id: str, file_path: str, filename: str, category: str
             chunk_size=settings.chunk_size_tokens,
             overlap=settings.chunk_overlap_tokens,
         )
+
         doc.total_pages = stats["total_pages"]
         doc.indexed_pages = stats["total_pages"] if stats["indexed_chunks"] > 0 else 0
         doc.status = "indexed" if stats["indexed_chunks"] > 0 else "failed"
         db.commit()
+        logger.info(
+            f"[ingest] Finished document_id={document_id}: "
+            f"{stats['total_pages']} pages, {stats['indexed_chunks']} chunks indexed, "
+            f"status={doc.status}"
+        )
     except Exception:
+        logger.error(f"[ingest] FAILED for document_id={document_id}:\n{traceback.format_exc()}")
         doc = db.query(Document).filter(Document.id == document_id).first()
         if doc:
             doc.status = "failed"
             db.commit()
-        raise
     finally:
         db.close()
 
@@ -57,6 +75,8 @@ async def upload_document(
     category: str = Form(...),
     db: Session = Depends(get_db),
 ):
+    logger.info(f"[upload] Received file={file.filename!r} category={category!r}")
+
     if category not in CATEGORIES:
         raise HTTPException(400, f"Invalid category. Must be one of {CATEGORIES}")
     if not file.filename.lower().endswith(".pdf"):
@@ -68,10 +88,18 @@ async def upload_document(
     db.refresh(doc)
 
     dest_path = settings.uploads_dir / f"{doc.id}.pdf"
-    with open(dest_path, "wb") as f:
-        shutil.copyfileobj(file.file, f)
+    try:
+        with open(dest_path, "wb") as f:
+            shutil.copyfileobj(file.file, f)
+    except Exception:
+        logger.error(f"[upload] Failed to save file to {dest_path}:\n{traceback.format_exc()}")
+        doc.status = "failed"
+        db.commit()
+        raise HTTPException(500, f"Could not save uploaded file to {dest_path}. Check disk permissions.")
+
     doc.file_path = str(dest_path)
     db.commit()
+    logger.info(f"[upload] Saved to {dest_path}, queuing background indexing (document_id={doc.id}).")
 
     background_tasks.add_task(_run_indexing, doc.id, str(dest_path), file.filename, category)
 

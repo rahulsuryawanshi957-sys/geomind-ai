@@ -4,12 +4,13 @@ most important piece of this app -- it's what turns a generic LLM wrapper into a
 "never invent clause numbers, never fabricate equations" assistant.
 """
 import json
-from openai import OpenAI
-from app.config import settings
+from openai import OpenAI, AuthenticationError, APIError
+from fastapi import HTTPException
+from app.config import settings, logger
 
-_client = OpenAI(api_key=settings.openai_api_key)
+_client = OpenAI(api_key=settings.openai_api_key or "not-configured")
 
-SYSTEM_PROMPT = """You are RaahiGeo, a professional geotechnical engineering assistant.
+SYSTEM_PROMPT = """You are GeoMind AI, a professional geotechnical engineering assistant.
 
 HARD RULES (never break these):
 1. Base your answer primarily on the RETRIEVED CONTEXT provided below, not on general
@@ -42,6 +43,17 @@ source document uses another unit system, in which case state both.
 """
 
 
+def _require_api_key():
+    if not settings.openai_api_key:
+        logger.error("Chat/report generation called but OPENAI_API_KEY is not configured.")
+        raise HTTPException(
+            status_code=503,
+            detail="OPENAI_API_KEY is not configured on the server. "
+                   "Set it in Render -> your backend service -> Environment -> "
+                   "Add Environment Variable (Key=OPENAI_API_KEY), then redeploy.",
+        )
+
+
 def build_context_block(chunks: list[dict]) -> str:
     if not chunks:
         return "NO RELEVANT CONTEXT FOUND IN UPLOADED DOCUMENTS."
@@ -54,6 +66,30 @@ def build_context_block(chunks: list[dict]) -> str:
             loc += f", clause {c['clause_number']}"
         parts.append(f"[Source {i} — {loc}]\n{c['text']}")
     return "\n\n---\n\n".join(parts)
+
+
+def _call_chat(messages: list[dict], temperature: float) -> str:
+    _require_api_key()
+    logger.info(f"Calling {settings.chat_model} with {len(messages)} message(s)...")
+    try:
+        response = _client.chat.completions.create(
+            model=settings.chat_model,
+            messages=messages,
+            temperature=temperature,
+        )
+    except AuthenticationError:
+        logger.exception("OpenAI rejected the API key (authentication error).")
+        raise HTTPException(
+            status_code=503,
+            detail="OpenAI rejected the configured API key. Double-check "
+                   "OPENAI_API_KEY on Render is correct, active, and has billing enabled.",
+        )
+    except APIError as e:
+        logger.exception("OpenAI API error during chat completion.")
+        raise HTTPException(status_code=502, detail=f"OpenAI chat API error: {e}")
+
+    logger.info("Chat completion received.")
+    return response.choices[0].message.content
 
 
 def answer_question(question: str, chunks: list[dict], engineering_mode: bool = True, history: list[dict] | None = None) -> str:
@@ -69,12 +105,7 @@ def answer_question(question: str, chunks: list[dict], engineering_mode: bool = 
         "content": f"{mode_note}\n\nRETRIEVED CONTEXT:\n{context_block}\n\nUSER QUESTION:\n{question}",
     })
 
-    response = _client.chat.completions.create(
-        model=settings.chat_model,
-        messages=messages,
-        temperature=0.1,
-    )
-    return response.choices[0].message.content
+    return _call_chat(messages, temperature=0.1)
 
 
 def generate_report_section(section_type: str, project_inputs: dict, chunks: list[dict]) -> str:
@@ -90,9 +121,7 @@ Write in formal engineering report language. Include a References subsection lis
 book/code, page, and clause for anything cited. If a needed input is missing, insert a
 clearly marked placeholder like [ENTER VALUE] rather than guessing."""
 
-    response = _client.chat.completions.create(
-        model=settings.chat_model,
-        messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}],
+    return _call_chat(
+        [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}],
         temperature=0.2,
     )
-    return response.choices[0].message.content

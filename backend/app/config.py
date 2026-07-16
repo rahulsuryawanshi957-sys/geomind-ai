@@ -1,9 +1,21 @@
 """
-Central configuration for RaahiGeo backend.
-All secrets are read from environment variables (.env). Never hard-code keys.
+Central configuration for GeoMind AI backend.
+All secrets are read from environment variables (.env locally, or Render's
+Environment tab in production). Never hard-code keys.
 """
+import os
+import logging
 from pydantic_settings import BaseSettings
 from pathlib import Path
+
+# Configured here (not in main.py) because this module is imported first by
+# every other module, so logging is guaranteed to be set up before anything
+# else runs -- including the settings validation below.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger("geomind")
 
 
 class Settings(BaseSettings):
@@ -28,21 +40,50 @@ class Settings(BaseSettings):
     top_k_retrieval: int = 8
     min_similarity_score: float = 0.20  # below this, we tell the user nothing relevant was found
 
-    # --- App ---
-    cors_origins: list[str] = [
-    "http://localhost:5173",
-    "http://localhost:3000",
-    "https://geomind-ai.onrender.com",
-]
+    # --- App / CORS ---
+    # Comma-separated list via env var, e.g.
+    #   CORS_ORIGINS=https://geomind-ai-1.onrender.com,http://localhost:5173
+    # Deliberately typed as `str` (not list[str]) because pydantic-settings
+    # parses list-typed env vars as JSON by default -- a plain comma-separated
+    # value like the one above would raise a validation error at import time
+    # and crash the whole app before Uvicorn even binds a port. We parse it
+    # ourselves instead, in `cors_origins_list` below.
+    cors_origins_raw: str = os.environ.get(
+        "CORS_ORIGINS",
+        "https://geomind-ai-1.onrender.com,http://localhost:5173,http://localhost:3000",
+    )
 
     class Config:
         env_file = ".env"
 
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_origins_raw.split(",") if origin.strip()]
+
     def model_post_init(self, __context) -> None:
-        self.uploads_dir.mkdir(parents=True, exist_ok=True)
-        self.chroma_dir.mkdir(parents=True, exist_ok=True)
-        self.sqlite_path.parent.mkdir(parents=True, exist_ok=True)
+        # Directory creation must never crash startup -- log and continue so
+        # Swagger/health still come up and the real problem is visible in
+        # Render's log stream instead of a silent boot failure.
+        try:
+            self.uploads_dir.mkdir(parents=True, exist_ok=True)
+            self.chroma_dir.mkdir(parents=True, exist_ok=True)
+            self.sqlite_path.parent.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Data directories ready: {self.data_dir}")
+        except Exception:
+            logger.exception(f"Failed to create data directories under {self.data_dir}")
+
         if not self.database_url:
             self.database_url = f"sqlite:///{self.sqlite_path}"
+
+        if not self.openai_api_key:
+            logger.warning(
+                "OPENAI_API_KEY is not set. /api/chat, document indexing, and search "
+                "will return a clear 503 error until this is set in the environment "
+                "(Render: Environment tab on the backend service -> Add Environment "
+                "Variable -> Key=OPENAI_API_KEY)."
+            )
+        else:
+            logger.info(f"OpenAI key detected (starts with '{self.openai_api_key[:7]}...').")
+
 
 settings = Settings()
