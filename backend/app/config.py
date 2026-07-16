@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     min_similarity_score: float = 0.20  # below this, we tell the user nothing relevant was found
 
     # --- App ---
-    cors_origins: List[str] = [
+    cors_origins: list[str] = [
     "http://localhost:5173",
     "http://localhost:3000",
     "https://geomind-ai.onrender.com",
