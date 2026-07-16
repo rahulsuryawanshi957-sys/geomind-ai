@@ -5,7 +5,7 @@ Environment tab in production). Never hard-code keys.
 """
 import os
 import logging
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from pathlib import Path
 
 # Configured here (not in main.py) because this module is imported first by
@@ -55,8 +55,7 @@ class Settings(BaseSettings):
         "https://geomind-ai-1.onrender.com,http://localhost:5173,http://localhost:3000",
     )
 
-    class Config:
-        env_file = ".env"
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property
     def cors_origins_list(self) -> list[str]:
