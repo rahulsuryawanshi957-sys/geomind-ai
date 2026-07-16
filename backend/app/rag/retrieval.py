@@ -17,7 +17,7 @@ def retrieve(question: str, top_k: int | None = None, category: str | None = Non
     """
     top_k = top_k or settings.top_k_retrieval
     logger.info(f"[retrieval] Embedding query for retrieval (top_k={top_k}, category={category})...")
-    [embedding] = embed_texts([question])
+    [embedding] = embed_texts([question], task_type="RETRIEVAL_QUERY")
 
     where = {}
     if category:

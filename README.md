@@ -1,4 +1,4 @@
-# RaahiGeo
+# GeoMind AI
 
 A RAG-based geotechnical engineering assistant with a premium, ChatGPT/Linear/Perplexity-style
 workspace UI (dark navy/slate/violet/cyan theme, glassmorphism, Framer Motion animation,
@@ -10,7 +10,7 @@ general knowledge when clearly labeled as such.
 ## What's fully implemented
 
 - **RAG pipeline**: PDF upload → PyMuPDF text extraction (per-page) → token-aware chunking →
-  OpenAI embeddings → ChromaDB → similarity-thresholded retrieval → GPT-4o answer with a
+  Gemini embeddings → ChromaDB → similarity-thresholded retrieval → Gemini answer with a
   forced citation format (Source / Page / Clause / Confidence).
 - **Chat** with Engineering Mode (never guesses inputs, always shows units/equations/assumptions).
 - **Document Library**: upload, category tagging, background indexing with live status, delete, re-index.
@@ -59,6 +59,12 @@ Add a function to `backend/app/services/calculators.py` following the existing p
 `CALCULATOR_REGISTRY`, remove its id from `PLANNED_CALCULATORS`, and add a `CalcDef` entry
 in `frontend/src/pages/Calculators.tsx`.
 
+## AI provider: Google Gemini (free, no card required)
+This project uses Google's Gemini API for both embeddings (`gemini-embedding-001`)
+and chat (`gemini-2.5-flash`) — genuinely free within rate limits, no credit card
+needed. Get a key at https://aistudio.google.com/apikey and set it as
+`GEMINI_API_KEY` in your environment (or Render's Environment tab).
+
 ## Setup
 
 ### 1. Backend
@@ -66,7 +72,7 @@ in `frontend/src/pages/Calculators.tsx`.
 cd backend
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # add your OPENAI_API_KEY
+cp .env.example .env   # add your GEMINI_API_KEY (free, see above)
 uvicorn main:app --reload --port 8000
 ```
 
@@ -79,7 +85,7 @@ npm run dev   # http://localhost:5173
 
 ### 3. Or with Docker
 ```bash
-cp backend/.env.example backend/.env   # add your OPENAI_API_KEY
+cp backend/.env.example backend/.env   # add your GEMINI_API_KEY (free, see above)
 docker compose up --build
 ```
 
@@ -100,8 +106,8 @@ backend (FastAPI)
    │     retrieval.py   question → embedding → similarity search → thresholded results
    │     vectorstore.py ChromaDB wrapper (swap this file to move to FAISS/pgvector)
    ├── services/
-   │     embeddings.py  OpenAI embeddings
-   │     llm.py         OpenAI chat completions + the citation-forcing system prompt
+   │     embeddings.py  Gemini embeddings
+   │     llm.py         Gemini chat completions + the citation-forcing system prompt
    │     calculators.py real engineering formulas (Terzaghi, Bowles, Liao & Whitney, Rankine)
    ├── models.py         SQLAlchemy ORM (documents, chunks, conversations, messages, calc logs)
    └── database.py       SQLite by default, one-line swap to Postgres
@@ -113,4 +119,3 @@ backend (FastAPI)
 3. Never invent a clause number, page number, or code number.
 4. Never fabricate an equation or coefficient.
 5. In Engineering Mode: always ask for missing inputs, always show units, equations, and assumptions.
-# redeploy Thu Jul 16 00:57:35 IST 2026

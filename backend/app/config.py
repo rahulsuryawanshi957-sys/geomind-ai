@@ -19,10 +19,12 @@ logger = logging.getLogger("geomind")
 
 
 class Settings(BaseSettings):
-    # --- OpenAI ---
-    openai_api_key: str = ""
-    embedding_model: str = "text-embedding-3-large"
-    chat_model: str = "gpt-4o"
+    # --- Gemini (Google AI) ---
+    # Genuinely free within rate limits, no credit card required.
+    # Get a key at https://aistudio.google.com/apikey
+    gemini_api_key: str = ""
+    embedding_model: str = "gemini-embedding-001"
+    chat_model: str = "gemini-2.5-flash"
 
     # --- Storage paths ---
     base_dir: Path = Path(__file__).resolve().parent.parent.parent
@@ -75,15 +77,16 @@ class Settings(BaseSettings):
         if not self.database_url:
             self.database_url = f"sqlite:///{self.sqlite_path}"
 
-        if not self.openai_api_key:
+        if not self.gemini_api_key:
             logger.warning(
-                "OPENAI_API_KEY is not set. /api/chat, document indexing, and search "
+                "GEMINI_API_KEY is not set. /api/chat, document indexing, and search "
                 "will return a clear 503 error until this is set in the environment "
                 "(Render: Environment tab on the backend service -> Add Environment "
-                "Variable -> Key=OPENAI_API_KEY)."
+                "Variable -> Key=GEMINI_API_KEY). Get a free key at "
+                "https://aistudio.google.com/apikey (no credit card required)."
             )
         else:
-            logger.info(f"OpenAI key detected (starts with '{self.openai_api_key[:7]}...').")
+            logger.info(f"Gemini key detected (starts with '{self.gemini_api_key[:7]}...').")
 
 
 settings = Settings()

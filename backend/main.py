@@ -71,13 +71,13 @@ app.include_router(history.router)
 def health():
     """
     Reports enough state to diagnose a broken deploy without needing log
-    access: whether the OpenAI key is configured, where data is stored, and
+    access: whether the Gemini key is configured, where data is stored, and
     which origins CORS will accept.
     """
     return {
         "status": "ok",
         "service": "GeoMind AI",
-        "openai_key_configured": bool(settings.openai_api_key),
+        "gemini_key_configured": bool(settings.gemini_api_key),
         "chat_model": settings.chat_model,
         "embedding_model": settings.embedding_model,
         "data_dir": str(settings.data_dir),

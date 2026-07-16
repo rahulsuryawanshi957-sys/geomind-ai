@@ -4,11 +4,12 @@ most important piece of this app -- it's what turns a generic LLM wrapper into a
 "never invent clause numbers, never fabricate equations" assistant.
 """
 import json
-from openai import OpenAI, AuthenticationError, APIError
+from google import genai
+from google.genai import types
 from fastapi import HTTPException
 from app.config import settings, logger
 
-_client = OpenAI(api_key=settings.openai_api_key or "not-configured")
+_client = genai.Client(api_key=settings.gemini_api_key or "not-configured")
 
 SYSTEM_PROMPT = """You are GeoMind AI, a professional geotechnical engineering assistant.
 
@@ -44,13 +45,14 @@ source document uses another unit system, in which case state both.
 
 
 def _require_api_key():
-    if not settings.openai_api_key:
-        logger.error("Chat/report generation called but OPENAI_API_KEY is not configured.")
+    if not settings.gemini_api_key:
+        logger.error("Chat/report generation called but GEMINI_API_KEY is not configured.")
         raise HTTPException(
             status_code=503,
-            detail="OPENAI_API_KEY is not configured on the server. "
-                   "Set it in Render -> your backend service -> Environment -> "
-                   "Add Environment Variable (Key=OPENAI_API_KEY), then redeploy.",
+            detail="GEMINI_API_KEY is not configured on the server. Get a free key at "
+                   "https://aistudio.google.com/apikey, then set it in Render -> your "
+                   "backend service -> Environment -> Add Environment Variable "
+                   "(Key=GEMINI_API_KEY), then redeploy.",
         )
 
 
@@ -68,44 +70,57 @@ def build_context_block(chunks: list[dict]) -> str:
     return "\n\n---\n\n".join(parts)
 
 
-def _call_chat(messages: list[dict], temperature: float) -> str:
+def _call_chat(history: list[dict], latest_user_message: str, temperature: float) -> str:
+    """
+    Gemini's API shape differs from OpenAI's: the system prompt is a separate
+    config field (not a message in the list), and prior-turn roles are "user"
+    / "model" (not "user" / "assistant").
+    """
     _require_api_key()
-    logger.info(f"Calling {settings.chat_model} with {len(messages)} message(s)...")
+
+    contents = []
+    for h in history[-6:]:
+        role = "model" if h["role"] == "assistant" else "user"
+        contents.append(types.Content(role=role, parts=[types.Part.from_text(text=h["content"])]))
+    contents.append(types.Content(role="user", parts=[types.Part.from_text(text=latest_user_message)]))
+
+    logger.info(f"Calling {settings.chat_model} with {len(contents)} content turn(s)...")
     try:
-        response = _client.chat.completions.create(
+        response = _client.models.generate_content(
             model=settings.chat_model,
-            messages=messages,
-            temperature=temperature,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPT,
+                temperature=temperature,
+            ),
         )
-    except AuthenticationError:
-        logger.exception("OpenAI rejected the API key (authentication error).")
-        raise HTTPException(
-            status_code=503,
-            detail="OpenAI rejected the configured API key. Double-check "
-                   "OPENAI_API_KEY on Render is correct, active, and has billing enabled.",
-        )
-    except APIError as e:
-        logger.exception("OpenAI API error during chat completion.")
-        raise HTTPException(status_code=502, detail=f"OpenAI chat API error: {e}")
+    except Exception as e:
+        msg = str(e)
+        logger.exception("Gemini chat completion call failed.")
+        if "API key" in msg or "API_KEY" in msg or "401" in msg or "403" in msg or "PERMISSION_DENIED" in msg:
+            raise HTTPException(
+                status_code=503,
+                detail="Gemini rejected the configured API key. Double-check "
+                       "GEMINI_API_KEY on Render is correct and active "
+                       "(https://aistudio.google.com/apikey).",
+            )
+        if "RESOURCE_EXHAUSTED" in msg or "429" in msg:
+            raise HTTPException(
+                status_code=429,
+                detail="Gemini's free-tier rate limit was hit. Wait a bit and try again.",
+            )
+        raise HTTPException(status_code=502, detail=f"Gemini chat API error: {e}")
 
     logger.info("Chat completion received.")
-    return response.choices[0].message.content
+    return response.text
 
 
 def answer_question(question: str, chunks: list[dict], engineering_mode: bool = True, history: list[dict] | None = None) -> str:
     context_block = build_context_block(chunks)
     mode_note = "Engineering Mode is ON." if engineering_mode else "Engineering Mode is OFF (still never fabricate clauses/equations)."
 
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    for h in (history or [])[-6:]:
-        messages.append({"role": h["role"], "content": h["content"]})
-
-    messages.append({
-        "role": "user",
-        "content": f"{mode_note}\n\nRETRIEVED CONTEXT:\n{context_block}\n\nUSER QUESTION:\n{question}",
-    })
-
-    return _call_chat(messages, temperature=0.1)
+    user_message = f"{mode_note}\n\nRETRIEVED CONTEXT:\n{context_block}\n\nUSER QUESTION:\n{question}"
+    return _call_chat(history or [], user_message, temperature=0.1)
 
 
 def generate_report_section(section_type: str, project_inputs: dict, chunks: list[dict]) -> str:
@@ -121,7 +136,4 @@ Write in formal engineering report language. Include a References subsection lis
 book/code, page, and clause for anything cited. If a needed input is missing, insert a
 clearly marked placeholder like [ENTER VALUE] rather than guessing."""
 
-    return _call_chat(
-        [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}],
-        temperature=0.2,
-    )
+    return _call_chat([], prompt, temperature=0.2)

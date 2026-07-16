@@ -33,9 +33,9 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     chunks = retrieve(req.question, category=req.category_filter)
     logger.info(f"[chat] Retrieved {len(chunks)} chunk(s).")
 
-    logger.info("[chat] Calling OpenAI chat model...")
+    logger.info("[chat] Calling Gemini chat model...")
     answer = answer_question(req.question, chunks, engineering_mode=req.engineering_mode, history=history)
-    logger.info("[chat] Got answer from OpenAI, saving to history and returning.")
+    logger.info("[chat] Got answer from Gemini, saving to history and returning.")
 
     citations = [
         Citation(filename=c["filename"], page_number=c["page_number"],
