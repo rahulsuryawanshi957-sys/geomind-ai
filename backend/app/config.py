@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     # Get a key at https://aistudio.google.com/apikey
     gemini_api_key: str = ""
     embedding_model: str = "gemini-embedding-001"
-    chat_model: str = "gemini-2.5-flash"
+    chat_model: str = "gemini-3.5-flash"
 
     # --- Storage paths ---
     base_dir: Path = Path(__file__).resolve().parent.parent.parent
