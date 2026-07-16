@@ -6,7 +6,7 @@ from app.config import settings, logger
 from app.database import Base, engine
 from app.routers import chat, documents, search, calculators, reports, clause_finder, history
 
-logger.info("Booting GeoMind AI backend...")
+logger.info("Booting RaahiGeo AI backend...")
 
 try:
     Base.metadata.create_all(bind=engine)
@@ -16,7 +16,7 @@ except Exception:
     raise
 
 app = FastAPI(
-    title="GeoMind AI",
+    title="RaahiGeo AI",
     description="RAG-based geotechnical engineering assistant",
     version="0.2.0",
 )
@@ -76,7 +76,7 @@ def health():
     """
     return {
         "status": "ok",
-        "service": "GeoMind AI",
+        "service": "RaahiGeo AI",
         "gemini_key_configured": bool(settings.gemini_api_key),
         "chat_model": settings.chat_model,
         "embedding_model": settings.embedding_model,
@@ -85,4 +85,4 @@ def health():
     }
 
 
-logger.info("GeoMind AI backend startup complete.")
+logger.info("RaahiGeo AI backend startup complete.")

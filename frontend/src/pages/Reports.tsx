@@ -31,7 +31,7 @@ export default function Reports() {
     })
     const blob = await res.blob()
     const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url; a.download = 'geomind_report.docx'; a.click()
+    const a = document.createElement('a'); a.href = url; a.download = 'raahigeo_report.docx'; a.click()
   }
 
   return (

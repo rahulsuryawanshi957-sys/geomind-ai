@@ -45,7 +45,7 @@ def export_docx(sections: dict):
     buf.seek(0)
     return StreamingResponse(
         buf, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        headers={"Content-Disposition": "attachment; filename=geomind_report.docx"},
+        headers={"Content-Disposition": "attachment; filename=raahigeo_report.docx"},
     )
 
 
@@ -65,5 +65,5 @@ def export_pdf(sections: dict):
     buf.seek(0)
     return StreamingResponse(
         buf, media_type="application/pdf",
-        headers={"Content-Disposition": "attachment; filename=geomind_report.pdf"},
+        headers={"Content-Disposition": "attachment; filename=raahigeo_report.pdf"},
     )

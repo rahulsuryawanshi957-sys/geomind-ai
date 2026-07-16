@@ -94,7 +94,7 @@ export default function Chat() {
     const blob = new Blob([content], { type: 'text/markdown' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = url; a.download = 'geomind-answer.md'; a.click()
+    a.href = url; a.download = 'raahigeo-answer.md'; a.click()
   }
 
   function toggleVoice() {
@@ -166,7 +166,7 @@ export default function Chat() {
                 ) : (
                   <div className="glass px-4 py-4 rounded-tl-sm">
                     <div className="flex items-center justify-between mb-2">
-                      <div className="text-xs uppercase tracking-wide text-violet-300 font-medium">RaahiGeo</div>
+                      <div className="text-xs uppercase tracking-wide text-violet-300 font-medium">RaahiGeo AI</div>
                       {m.pinned && <Pin size={12} className="text-cyan-400" />}
                     </div>
 

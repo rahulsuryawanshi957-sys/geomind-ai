@@ -6,7 +6,7 @@ import chromadb
 from chromadb.config import Settings as ChromaSettings
 from app.config import settings, logger
 
-COLLECTION_NAME = "geomind_chunks"
+COLLECTION_NAME = "raahigeo_chunks"
 
 logger.info(f"[chroma] Initializing PersistentClient at {settings.chroma_dir}...")
 try:

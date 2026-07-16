@@ -57,7 +57,7 @@ export default function Sidebar({ dark, onToggleDark }: { dark: boolean; onToggl
         </div>
         {!collapsed && (
           <div className="min-w-0">
-            <div className="font-display font-semibold text-[15px] leading-none text-slate-50 truncate">RaahiGeo</div>
+            <div className="font-display font-semibold text-[15px] leading-none text-slate-50 truncate">RaahiGeo AI</div>
             <div className="text-[10px] text-slate-400 tracking-wider mt-1">ENGINEERING WORKSPACE</div>
           </div>
         )}

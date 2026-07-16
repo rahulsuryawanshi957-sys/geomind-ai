@@ -1,5 +1,5 @@
 """
-Central configuration for GeoMind AI backend.
+Central configuration for RaahiGeo AI backend.
 All secrets are read from environment variables (.env locally, or Render's
 Environment tab in production). Never hard-code keys.
 """
@@ -15,7 +15,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
-logger = logging.getLogger("geomind")
+logger = logging.getLogger("raahigeo")
 
 
 class Settings(BaseSettings):
@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     data_dir: Path = base_dir / "data"
     uploads_dir: Path = data_dir / "uploads"
     chroma_dir: Path = data_dir / "chroma"
-    sqlite_path: Path = data_dir / "db" / "geomind.db"
+    sqlite_path: Path = data_dir / "db" / "raahigeo.db"
 
     # --- Database ---
     database_url: str = ""

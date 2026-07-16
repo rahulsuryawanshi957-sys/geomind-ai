@@ -6,7 +6,7 @@
 # project's were) keep their own settings until you edit them there.
 services:
   - type: web
-    name: geomind-backend
+    name: raahigeo-backend
     runtime: python
     plan: free
     rootDir: backend
@@ -18,13 +18,13 @@ services:
       - key: EMBEDDING_MODEL
         value: gemini-embedding-001
       - key: CHAT_MODEL
-        value: gemini-2.5-flash
+        value: gemini-3.5-flash
       - key: CORS_ORIGINS
         value: https://geomind-ai-1.onrender.com,http://localhost:5173,http://localhost:3000
     healthCheckPath: /api/health
 
   - type: web
-    name: geomind-frontend
+    name: raahigeo-frontend
     runtime: static
     rootDir: frontend
     buildCommand: npm install && npm run build

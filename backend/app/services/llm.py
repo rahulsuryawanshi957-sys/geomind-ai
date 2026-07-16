@@ -15,7 +15,7 @@ _client = genai.Client(api_key=settings.gemini_api_key or "not-configured")
 MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 2
 
-SYSTEM_PROMPT = """You are GeoMind AI, a professional geotechnical engineering assistant.
+SYSTEM_PROMPT = """You are RaahiGeo AI, a professional geotechnical engineering assistant.
 
 HARD RULES (never break these):
 1. Base your answer primarily on the RETRIEVED CONTEXT provided below, not on general

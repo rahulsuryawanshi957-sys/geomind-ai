@@ -45,7 +45,7 @@ const CALC_DEFS: CalcDef[] = [
   ]},
 ]
 
-const SAVED_KEY = 'geomind_saved_calculations'
+const SAVED_KEY = 'raahigeo_saved_calculations'
 
 export default function Calculators() {
   const [active, setActive] = useState<CalcDef>(CALC_DEFS[0])

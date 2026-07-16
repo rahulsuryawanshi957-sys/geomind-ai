@@ -1,4 +1,4 @@
-# GeoMind AI
+# RaahiGeo AI
 
 A RAG-based geotechnical engineering assistant with a premium, ChatGPT/Linear/Perplexity-style
 workspace UI (dark navy/slate/violet/cyan theme, glassmorphism, Framer Motion animation,
@@ -90,7 +90,7 @@ docker compose up --build
 ```
 
 ## Migrating from SQLite to Postgres
-Set `DATABASE_URL=postgresql://user:pass@host:5432/geomind` in `backend/.env` — the ORM
+Set `DATABASE_URL=postgresql://user:pass@host:5432/raahigeo` in `backend/.env` — the ORM
 layer (`app/database.py`, `app/models.py`) needs no other changes.
 
 ## Architecture

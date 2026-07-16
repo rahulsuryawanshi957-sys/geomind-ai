@@ -8,10 +8,10 @@ export default function SettingsPage({ dark, onToggleDark }: { dark: boolean; on
   const [engineeringModeDefault, setEngineeringModeDefault] = useState(true)
 
   function exportLocalData() {
-    const saved = localStorage.getItem('geomind_saved_calculations') || '[]'
+    const saved = localStorage.getItem('raahigeo_saved_calculations') || '[]'
     const blob = new Blob([saved], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url; a.download = 'geomind-saved-calculations.json'; a.click()
+    const a = document.createElement('a'); a.href = url; a.download = 'raahigeo-saved-calculations.json'; a.click()
   }
 
   return (
