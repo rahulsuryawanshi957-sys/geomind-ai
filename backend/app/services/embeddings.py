@@ -1,9 +1,13 @@
 from google import genai
 from google.genai import types
 from fastapi import HTTPException
+import time
 from app.config import settings, logger
 
 _client = genai.Client(api_key=settings.gemini_api_key or "not-configured")
+
+MAX_RETRIES = 3
+RETRY_DELAY_SECONDS = 2
 
 
 def embed_texts(texts: list[str], task_type: str = "RETRIEVAL_DOCUMENT") -> list[list[float]]:
@@ -27,23 +31,36 @@ def embed_texts(texts: list[str], task_type: str = "RETRIEVAL_DOCUMENT") -> list
         )
 
     logger.info(f"Requesting {len(texts)} embedding(s) from {settings.embedding_model} (task_type={task_type})...")
-    try:
-        response = _client.models.embed_content(
-            model=settings.embedding_model,
-            contents=texts,
-            config=types.EmbedContentConfig(task_type=task_type),
-        )
-    except Exception as e:
-        msg = str(e)
-        logger.exception("Gemini embeddings call failed.")
-        if "API key" in msg or "API_KEY" in msg or "401" in msg or "403" in msg or "PERMISSION_DENIED" in msg:
-            raise HTTPException(
-                status_code=503,
-                detail="Gemini rejected the configured API key. Double-check "
-                       "GEMINI_API_KEY on Render is correct and active "
-                       "(https://aistudio.google.com/apikey).",
-            )
-        raise HTTPException(status_code=502, detail=f"Gemini embeddings API error: {e}")
 
-    logger.info("Embeddings received.")
-    return [item.values for item in response.embeddings]
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            response = _client.models.embed_content(
+                model=settings.embedding_model,
+                contents=texts,
+                config=types.EmbedContentConfig(task_type=task_type),
+            )
+            logger.info("Embeddings received.")
+            return [item.values for item in response.embeddings]
+        except Exception as e:
+            msg = str(e)
+            is_overloaded = "UNAVAILABLE" in msg or "503" in msg or "RESOURCE_EXHAUSTED" in msg or "429" in msg
+            if is_overloaded and attempt < MAX_RETRIES:
+                logger.warning(f"Gemini embeddings overloaded (attempt {attempt}/{MAX_RETRIES}), retrying in {RETRY_DELAY_SECONDS}s...")
+                time.sleep(RETRY_DELAY_SECONDS)
+                continue
+
+            logger.exception("Gemini embeddings call failed.")
+            if "API key" in msg or "API_KEY" in msg or "401" in msg or "403" in msg or "PERMISSION_DENIED" in msg:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Gemini rejected the configured API key. Double-check "
+                           "GEMINI_API_KEY on Render is correct and active "
+                           "(https://aistudio.google.com/apikey).",
+                )
+            if is_overloaded:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Gemini's servers are temporarily overloaded (this is on Google's "
+                           "side, not a bug here). Please try again in a few seconds.",
+                )
+            raise HTTPException(status_code=502, detail=f"Gemini embeddings API error: {e}")

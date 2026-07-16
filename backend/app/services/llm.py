@@ -4,12 +4,16 @@ most important piece of this app -- it's what turns a generic LLM wrapper into a
 "never invent clause numbers, never fabricate equations" assistant.
 """
 import json
+import time
 from google import genai
 from google.genai import types
 from fastapi import HTTPException
 from app.config import settings, logger
 
 _client = genai.Client(api_key=settings.gemini_api_key or "not-configured")
+
+MAX_RETRIES = 3
+RETRY_DELAY_SECONDS = 2
 
 SYSTEM_PROMPT = """You are GeoMind AI, a professional geotechnical engineering assistant.
 
@@ -85,34 +89,47 @@ def _call_chat(history: list[dict], latest_user_message: str, temperature: float
     contents.append(types.Content(role="user", parts=[types.Part.from_text(text=latest_user_message)]))
 
     logger.info(f"Calling {settings.chat_model} with {len(contents)} content turn(s)...")
-    try:
-        response = _client.models.generate_content(
-            model=settings.chat_model,
-            contents=contents,
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
-                temperature=temperature,
-            ),
-        )
-    except Exception as e:
-        msg = str(e)
-        logger.exception("Gemini chat completion call failed.")
-        if "API key" in msg or "API_KEY" in msg or "401" in msg or "403" in msg or "PERMISSION_DENIED" in msg:
-            raise HTTPException(
-                status_code=503,
-                detail="Gemini rejected the configured API key. Double-check "
-                       "GEMINI_API_KEY on Render is correct and active "
-                       "(https://aistudio.google.com/apikey).",
-            )
-        if "RESOURCE_EXHAUSTED" in msg or "429" in msg:
-            raise HTTPException(
-                status_code=429,
-                detail="Gemini's free-tier rate limit was hit. Wait a bit and try again.",
-            )
-        raise HTTPException(status_code=502, detail=f"Gemini chat API error: {e}")
 
-    logger.info("Chat completion received.")
-    return response.text
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            response = _client.models.generate_content(
+                model=settings.chat_model,
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    system_instruction=SYSTEM_PROMPT,
+                    temperature=temperature,
+                ),
+            )
+            logger.info("Chat completion received.")
+            return response.text
+        except Exception as e:
+            msg = str(e)
+            is_overloaded = "UNAVAILABLE" in msg or "503" in msg or "RESOURCE_EXHAUSTED" in msg or "429" in msg
+            if is_overloaded and attempt < MAX_RETRIES:
+                logger.warning(f"Gemini chat overloaded (attempt {attempt}/{MAX_RETRIES}), retrying in {RETRY_DELAY_SECONDS}s...")
+                time.sleep(RETRY_DELAY_SECONDS)
+                continue
+
+            logger.exception("Gemini chat completion call failed.")
+            if "API key" in msg or "API_KEY" in msg or "401" in msg or "403" in msg or "PERMISSION_DENIED" in msg:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Gemini rejected the configured API key. Double-check "
+                           "GEMINI_API_KEY on Render is correct and active "
+                           "(https://aistudio.google.com/apikey).",
+                )
+            if "RESOURCE_EXHAUSTED" in msg or "429" in msg:
+                raise HTTPException(
+                    status_code=429,
+                    detail="Gemini's free-tier rate limit was hit. Wait a bit and try again.",
+                )
+            if is_overloaded:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Gemini's servers are temporarily overloaded (this is on Google's "
+                           "side, not a bug here) even after retrying. Please try again shortly.",
+                )
+            raise HTTPException(status_code=502, detail=f"Gemini chat API error: {e}")
 
 
 def answer_question(question: str, chunks: list[dict], engineering_mode: bool = True, history: list[dict] | None = None) -> str:
