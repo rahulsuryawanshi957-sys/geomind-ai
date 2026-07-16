@@ -29,7 +29,11 @@ class Settings(BaseSettings):
     min_similarity_score: float = 0.20  # below this, we tell the user nothing relevant was found
 
     # --- App ---
-    cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
+    cors_origins: List[str] = [
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "https://geomind-ai.onrender.com",
+]
 
     class Config:
         env_file = ".env"
@@ -40,6 +44,5 @@ class Settings(BaseSettings):
         self.sqlite_path.parent.mkdir(parents=True, exist_ok=True)
         if not self.database_url:
             self.database_url = f"sqlite:///{self.sqlite_path}"
-
 
 settings = Settings()
