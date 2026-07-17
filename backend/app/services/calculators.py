@@ -166,8 +166,122 @@ def rankine_earth_pressure(gamma_kn_m3: float, height_m: float, phi_deg: float, 
     }
 
 
+def bearing_capacity_is6403_shear(
+    length_m: float, width_m: float, depth_m: float,
+    cohesion_t_m2: float, phi_deg: float,
+    gamma_avg_above_t_m3: float, gamma_at_base_t_m3: float,
+    specific_gravity: float, moisture_content_pct: float,
+    water_table_depth_m: float,
+    shape: str = "square", fos: float = 2.5, scour_correction_m: float = 0.0,
+) -> dict:
+    """
+    Net safe bearing capacity per IS:6403-1981, matching a real project workbook
+    (Terzaghi/Meyerhof factors, shape + depth factors, water-table correction,
+    and interpolation between general and local shear failure based on void
+    ratio). All units t/m2, t/m3 per Indian geotechnical practice convention
+    -- this mirrors the source spreadsheet's units exactly rather than
+    converting to kPa/kN, so results are directly comparable to it.
+    """
+    steps = []
+    phi = math.radians(phi_deg)
+
+    # Local-shear-failure reduced friction angle and cohesion (Terzaghi)
+    phi_local_deg = math.degrees(math.atan(0.67 * math.tan(phi))) if phi_deg != 0 else 0
+    phi_local = math.radians(phi_local_deg)
+    steps.append(f"Local shear φ' = atan(0.67·tanφ) = {phi_local_deg:.2f}°")
+
+    # Dry density and void ratio -> decides general vs local vs intermediate shear
+    gamma_dry = gamma_at_base_t_m3 / (1 + moisture_content_pct / 100)
+    void_ratio = specific_gravity / gamma_dry - 1
+    steps.append(f"Dry density γd = γbulk/(1+w/100) = {gamma_dry:.3f} t/m³")
+    steps.append(f"Void ratio e = G/γd - 1 = {void_ratio:.3f}")
+
+    def bearing_factors(phi_rad, phi_deg_val):
+        if phi_deg_val == 0:
+            return 5.14, 1.0, 0.0
+        Nq = math.tan(math.radians(45) + phi_rad / 2) ** 2 * math.exp(math.pi * math.tan(phi_rad))
+        Nc = (Nq - 1) / math.tan(phi_rad)
+        Ngamma = 2 * (Nq + 1) * math.tan(phi_rad)
+        return Nc, Nq, Ngamma
+
+    Nc, Nq, Ngamma = bearing_factors(phi, phi_deg)
+    Ncl, Nql, Ngammal = bearing_factors(phi_local, phi_local_deg)
+    steps.append(f"General shear: Nc={Nc:.2f}, Nq={Nq:.2f}, Nγ={Ngamma:.2f}")
+    steps.append(f"Local shear: N'c={Ncl:.2f}, N'q={Nql:.2f}, N'γ={Ngammal:.2f}")
+
+    shape = shape.lower()
+    if shape == "strip":
+        Sc, Sq, Sgamma = 1.0, 1.0, 1.0
+    elif shape == "rectangular":
+        Sc, Sq, Sgamma = 1 + 0.2 * width_m / length_m, 1 + 0.2 * width_m / length_m, 1 - 0.4 * width_m / length_m
+    elif shape == "circular":
+        Sc, Sq, Sgamma = 1.3, 1.2, 0.6
+    else:  # square
+        Sc, Sq, Sgamma = 1.3, 1.2, 0.8
+    steps.append(f"Shape factors ({shape}): Sc={Sc:.2f}, Sq={Sq:.2f}, Sγ={Sgamma:.2f}")
+
+    D_eff = depth_m - scour_correction_m
+    dc = 1 + 0.2 * D_eff / width_m * math.tan(math.radians(45) + phi_deg / 2 / 180 * math.pi) if width_m else 1.0
+    dq = 1.0 if phi_deg < 10 else 1 + 0.1 * D_eff / width_m * math.tan(math.radians(45) + phi_deg / 2 / 180 * math.pi)
+    dgamma = dq
+    steps.append(f"Depth factors: dc={dc:.3f}, dq={dgamma:.3f} (dγ=dq)")
+
+    # Water table correction factor Rw applied to the Nγ term
+    if water_table_depth_m < depth_m:
+        Rw = 0.5
+    elif water_table_depth_m > depth_m + width_m:
+        Rw = 1.0
+    else:
+        Rw = (water_table_depth_m - depth_m) / width_m * 0.5 + 0.5
+    steps.append(f"Water table correction Rw = {Rw:.3f}")
+
+    def net_sbc(c_eff, Nc_, Nq_, Ngamma_):
+        return (
+            c_eff * Nc_ * Sc * dc
+            + gamma_avg_above_t_m3 * D_eff * (Nq_ - 1) * Sq * dq
+            + 0.5 * width_m * gamma_at_base_t_m3 * Ngamma_ * Sgamma * dgamma * Rw
+        ) / fos
+
+    qns_general = net_sbc(cohesion_t_m2, Nc, Nq, Ngamma)
+    qns_local = net_sbc(0.67 * cohesion_t_m2, Ncl, Nql, Ngammal)
+    steps.append(f"Qns (general shear) = {qns_general:.2f} t/m²")
+    steps.append(f"Qns (local shear) = {qns_local:.2f} t/m²")
+
+    if void_ratio < 0.55:
+        qns_recommended = qns_general
+        basis = "general shear (e < 0.55)"
+    elif void_ratio > 0.75:
+        qns_recommended = qns_local
+        basis = "local shear (e > 0.75)"
+    else:
+        qns_recommended = qns_general + (qns_local - qns_general) / (0.75 - 0.55) * (void_ratio - 0.55)
+        basis = f"interpolated between general/local shear (e={void_ratio:.2f})"
+    steps.append(f"Recommended net SBC ({basis}) = {qns_recommended:.2f} t/m²")
+
+    gross_sbc = qns_recommended + gamma_avg_above_t_m3 * D_eff
+    steps.append(f"Gross allowable SBC = net SBC + γ_avg·D = {gross_sbc:.2f} t/m²")
+
+    return {
+        "result": round(gross_sbc, 2),
+        "unit": "t/m² (gross allowable SBC)",
+        "formula": "Qns = (c·Nc·Sc·dc + γ·D·(Nq-1)·Sq·dq + 0.5·B·γ·Nγ·Sγ·dγ·Rw) / FOS  [IS:6403-1981]",
+        "steps": steps,
+        "assumptions": [
+            f"Factor of safety = {fos}",
+            "Inclination factors taken as 1 (vertical load only)",
+            f"Footing shape: {shape}",
+            "General/local shear interpolation uses void ratio thresholds e<0.55 (general) and e>0.75 (local), per the source workbook's convention",
+        ],
+        "warnings": [
+            "Net SBC (before adding overburden) = " + f"{qns_recommended:.2f} t/m² — use this for structural net pressure checks.",
+            "This is the shear-capacity check only. Compare against the settlement-based SBC (separate calculation, IS:8009) and take the lower of the two as final.",
+        ],
+    }
+
+
 CALCULATOR_REGISTRY = {
     "bearing_capacity_terzaghi": terzaghi_bearing_capacity,
+    "bearing_capacity_is6403_shear": bearing_capacity_is6403_shear,
     "immediate_settlement": immediate_settlement,
     "consolidation_settlement": consolidation_settlement,
     "spt_correction": spt_correction,

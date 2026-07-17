@@ -12,8 +12,9 @@ from app.config import settings, logger
 
 _client = genai.Client(api_key=settings.gemini_api_key or "not-configured")
 
-MAX_RETRIES = 3
-RETRY_DELAY_SECONDS = 2
+MAX_RETRIES = 4
+OVERLOAD_RETRY_DELAY_SECONDS = 3   # 503 UNAVAILABLE: transient, retry quickly
+QUOTA_RETRY_DELAY_SECONDS = 25     # 429 RESOURCE_EXHAUSTED: per-minute quota, needs a real wait
 
 SYSTEM_PROMPT = """You are RaahiGeo AI, a professional geotechnical engineering assistant.
 
@@ -104,10 +105,16 @@ def _call_chat(history: list[dict], latest_user_message: str, temperature: float
             return response.text
         except Exception as e:
             msg = str(e)
-            is_overloaded = "UNAVAILABLE" in msg or "503" in msg or "RESOURCE_EXHAUSTED" in msg or "429" in msg
+            is_quota = "RESOURCE_EXHAUSTED" in msg or "429" in msg
+            is_overloaded = "UNAVAILABLE" in msg or "503" in msg
+
+            if is_quota and attempt < MAX_RETRIES:
+                logger.warning(f"Gemini quota hit (attempt {attempt}/{MAX_RETRIES}), waiting {QUOTA_RETRY_DELAY_SECONDS}s before retrying...")
+                time.sleep(QUOTA_RETRY_DELAY_SECONDS)
+                continue
             if is_overloaded and attempt < MAX_RETRIES:
-                logger.warning(f"Gemini chat overloaded (attempt {attempt}/{MAX_RETRIES}), retrying in {RETRY_DELAY_SECONDS}s...")
-                time.sleep(RETRY_DELAY_SECONDS)
+                logger.warning(f"Gemini chat overloaded (attempt {attempt}/{MAX_RETRIES}), retrying in {OVERLOAD_RETRY_DELAY_SECONDS}s...")
+                time.sleep(OVERLOAD_RETRY_DELAY_SECONDS)
                 continue
 
             logger.exception("Gemini chat completion call failed.")
@@ -118,10 +125,12 @@ def _call_chat(history: list[dict], latest_user_message: str, temperature: float
                            "GEMINI_API_KEY on Render is correct and active "
                            "(https://aistudio.google.com/apikey).",
                 )
-            if "RESOURCE_EXHAUSTED" in msg or "429" in msg:
+            if is_quota:
                 raise HTTPException(
                     status_code=429,
-                    detail="Gemini's free-tier rate limit was hit. Wait a bit and try again.",
+                    detail="Gemini's free-tier quota is exhausted for now (this is Google's "
+                           "limit, not a bug here). If this keeps happening, it may be the "
+                           "daily quota -- wait a while and try again.",
                 )
             if is_overloaded:
                 raise HTTPException(

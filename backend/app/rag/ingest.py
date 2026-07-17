@@ -8,10 +8,12 @@ Design notes:
   guessing -- guessed clause numbers are exactly what "never invent clause numbers" forbids.
 """
 import re
+import time
 import fitz  # PyMuPDF
 import tiktoken
 from app.rag.vectorstore import add_chunks
 from app.services.embeddings import embed_texts
+from app.config import logger
 
 CLAUSE_PATTERN = re.compile(r"\b(\d{1,2}(?:\.\d{1,3}){1,4})\b")
 _enc = tiktoken.get_encoding("cl100k_base")
@@ -89,13 +91,24 @@ def ingest_pdf(
     if not all_chunk_texts:
         return {"total_pages": len(pages), "indexed_chunks": 0}
 
-    # Embed in batches to respect API limits
-    BATCH = 96
-    for i in range(0, len(all_chunk_texts), BATCH):
+    # Embed in batches to respect API limits. Gemini's free tier has a low
+    # requests-per-minute ceiling (roughly 5-15 RPM depending on the model),
+    # so for large books (hundreds of chunks -> many batches) we deliberately
+    # pace requests a few seconds apart instead of firing them back-to-back --
+    # otherwise a single big PDF burns the whole per-minute quota in seconds
+    # and every remaining batch fails with a 429.
+    BATCH = 50
+    PACING_SECONDS = 5
+    total_batches = (len(all_chunk_texts) + BATCH - 1) // BATCH
+
+    for batch_num, i in enumerate(range(0, len(all_chunk_texts), BATCH), start=1):
         batch_texts = all_chunk_texts[i:i + BATCH]
         batch_ids = all_ids[i:i + BATCH]
         batch_meta = all_metadatas[i:i + BATCH]
+        logger.info(f"[ingest] Embedding batch {batch_num}/{total_batches} ({len(batch_texts)} chunks)...")
         embeddings = embed_texts(batch_texts)
         add_chunks(ids=batch_ids, embeddings=embeddings, documents=batch_texts, metadatas=batch_meta)
+        if batch_num < total_batches:
+            time.sleep(PACING_SECONDS)
 
     return {"total_pages": len(pages), "indexed_chunks": len(all_chunk_texts)}

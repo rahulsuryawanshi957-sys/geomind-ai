@@ -82,6 +82,8 @@ def health():
         "embedding_model": settings.embedding_model,
         "data_dir": str(settings.data_dir),
         "cors_origins": settings.cors_origins_list,
+        "vector_store": "Chroma Cloud (persistent)" if settings.chroma_api_key else "local disk (WIPED on restart/redeploy)",
+        "database": "external (persistent, check your DATABASE_URL)" if not settings.database_url.startswith("sqlite") else "local SQLite (WIPED on restart/redeploy)",
     }
 
 

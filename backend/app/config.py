@@ -26,6 +26,15 @@ class Settings(BaseSettings):
     embedding_model: str = "gemini-embedding-001"
     chat_model: str = "gemini-3.5-flash"
 
+    # --- Vector store (ChromaDB) ---
+    # Leave empty to use local-disk Chroma (fine for local dev, but WIPED on
+    # every Render free-tier restart/redeploy since there's no persistent
+    # disk on the free plan). Set these to use Chroma Cloud's free tier
+    # (https://trychroma.com) so indexed documents survive restarts.
+    chroma_api_key: str = ""
+    chroma_tenant: str = ""
+    chroma_database: str = "raahigeo"
+
     # --- Storage paths ---
     base_dir: Path = Path(__file__).resolve().parent.parent.parent
     data_dir: Path = base_dir / "data"

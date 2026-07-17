@@ -6,8 +6,9 @@ from app.config import settings, logger
 
 _client = genai.Client(api_key=settings.gemini_api_key or "not-configured")
 
-MAX_RETRIES = 3
-RETRY_DELAY_SECONDS = 2
+MAX_RETRIES = 4
+OVERLOAD_RETRY_DELAY_SECONDS = 3   # 503 UNAVAILABLE: transient, retry quickly
+QUOTA_RETRY_DELAY_SECONDS = 25     # 429 RESOURCE_EXHAUSTED: per-minute quota, needs a real wait
 
 
 def embed_texts(texts: list[str], task_type: str = "RETRIEVAL_DOCUMENT") -> list[list[float]]:
@@ -43,10 +44,16 @@ def embed_texts(texts: list[str], task_type: str = "RETRIEVAL_DOCUMENT") -> list
             return [item.values for item in response.embeddings]
         except Exception as e:
             msg = str(e)
-            is_overloaded = "UNAVAILABLE" in msg or "503" in msg or "RESOURCE_EXHAUSTED" in msg or "429" in msg
+            is_quota = "RESOURCE_EXHAUSTED" in msg or "429" in msg
+            is_overloaded = "UNAVAILABLE" in msg or "503" in msg
+
+            if is_quota and attempt < MAX_RETRIES:
+                logger.warning(f"Gemini quota hit (attempt {attempt}/{MAX_RETRIES}), waiting {QUOTA_RETRY_DELAY_SECONDS}s before retrying...")
+                time.sleep(QUOTA_RETRY_DELAY_SECONDS)
+                continue
             if is_overloaded and attempt < MAX_RETRIES:
-                logger.warning(f"Gemini embeddings overloaded (attempt {attempt}/{MAX_RETRIES}), retrying in {RETRY_DELAY_SECONDS}s...")
-                time.sleep(RETRY_DELAY_SECONDS)
+                logger.warning(f"Gemini embeddings overloaded (attempt {attempt}/{MAX_RETRIES}), retrying in {OVERLOAD_RETRY_DELAY_SECONDS}s...")
+                time.sleep(OVERLOAD_RETRY_DELAY_SECONDS)
                 continue
 
             logger.exception("Gemini embeddings call failed.")
@@ -62,5 +69,12 @@ def embed_texts(texts: list[str], task_type: str = "RETRIEVAL_DOCUMENT") -> list
                     status_code=503,
                     detail="Gemini's servers are temporarily overloaded (this is on Google's "
                            "side, not a bug here). Please try again in a few seconds.",
+                )
+            if is_quota:
+                raise HTTPException(
+                    status_code=429,
+                    detail="Gemini's free-tier quota is exhausted for now (this is Google's "
+                           "limit, not a bug here). If this keeps happening, it may be the "
+                           "daily quota -- wait a while, or space out large uploads.",
                 )
             raise HTTPException(status_code=502, detail=f"Gemini embeddings API error: {e}")
