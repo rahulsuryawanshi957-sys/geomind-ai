@@ -29,46 +29,40 @@ interface StrataLayer {
 }
 
 const SYMBOL_TYPES: Record<string, { label: string; pattern: string; color: string }> = {
+  // --- Fill / Topsoil ---
   filled_up: {
     label: 'Filled up / Made ground', color: '#E8E4DA',
     pattern: 'radial-gradient(circle at 20% 30%, transparent 3px, #8B8680 3px, #8B8680 4px, transparent 4px), radial-gradient(circle at 60% 70%, transparent 3px, #8B8680 3px, #8B8680 4px, transparent 4px)',
   },
-  clay: {
-    label: 'Clay (CL/CH/CI)', color: '#EFEAE0',
-    pattern: 'repeating-linear-gradient(0deg, #4A4A4A 0, #4A4A4A 1.5px, transparent 1.5px, transparent 9px)',
-  },
-  silt: {
-    label: 'Silt (ML/MH)', color: '#EFEAE0',
-    pattern: 'repeating-linear-gradient(0deg, #4A4A4A 0, #4A4A4A 1.5px, transparent 1.5px, transparent 9px), radial-gradient(circle at 50% 50%, #4A4A4A 1px, transparent 1.2px)',
-  },
-  sand: {
-    label: 'Sand (SP/SW/SM/SC)', color: '#F3EBCB',
-    pattern: 'radial-gradient(circle, #8A6D1E 1.3px, transparent 1.6px)',
-  },
-  gravel: {
-    label: 'Gravel (GP/GW)', color: '#F0E2C4',
-    pattern: 'radial-gradient(circle, transparent 2.5px, #7A4E1E 2.5px, #7A4E1E 3.2px, transparent 3.2px)',
-  },
-  rock_g1: {
-    label: 'Rock — Grade I (Fresh)', color: '#D8D8D8',
-    pattern: 'repeating-linear-gradient(45deg, #333 0, #333 1.5px, transparent 1.5px, transparent 6px), repeating-linear-gradient(-45deg, #333 0, #333 1.5px, transparent 1.5px, transparent 6px)',
-  },
-  rock_g2: {
-    label: 'Rock — Grade II (Slightly weathered)', color: '#E0E0E0',
-    pattern: 'repeating-linear-gradient(45deg, #555 0, #555 1.2px, transparent 1.2px, transparent 8px)',
-  },
-  rock_g3: {
-    label: 'Rock — Grade III (Moderately weathered)', color: '#E6E0D2',
-    pattern: 'radial-gradient(circle, #6B5B45 1.5px, transparent 2px)',
-  },
-  rock_g4: {
-    label: 'Rock — Grade IV (Highly weathered)', color: '#EAE3D3',
-    pattern: 'repeating-linear-gradient(90deg, #7A7A7A 0, #7A7A7A 1px, transparent 1px, transparent 10px), repeating-linear-gradient(0deg, #7A7A7A 0, #7A7A7A 1px, transparent 1px, transparent 10px)',
-  },
-  rock_g5: {
-    label: 'Rock — Grade V (Residual soil)', color: '#E2D8C3',
-    pattern: 'radial-gradient(circle, #9C8B6E 1px, transparent 1.5px)',
-  },
+  // --- Coarse-grained: Gravels (circles) ---
+  gw: { label: 'GW — Well-graded gravel', color: '#F0E2C4', pattern: 'radial-gradient(circle, transparent 3px, #7A4E1E 3px, #7A4E1E 3.6px, transparent 3.6px)' },
+  gp: { label: 'GP — Poorly-graded gravel', color: '#F0E2C4', pattern: 'radial-gradient(circle, transparent 2.2px, #7A4E1E 2.2px, #7A4E1E 2.8px, transparent 2.8px)' },
+  gm: { label: 'GM — Silty gravel', color: '#EDE3CC', pattern: 'radial-gradient(circle, transparent 2.5px, #7A4E1E 2.5px, #7A4E1E 3.1px, transparent 3.1px), repeating-linear-gradient(0deg, #4A4A4A 0, #4A4A4A 1px, transparent 1px, transparent 10px)' },
+  gc: { label: 'GC — Clayey gravel', color: '#EAE0CB', pattern: 'radial-gradient(circle, transparent 2.5px, #7A4E1E 2.5px, #7A4E1E 3.1px, transparent 3.1px), repeating-linear-gradient(0deg, #333 0, #333 1.5px, transparent 1.5px, transparent 6px)' },
+  // --- Coarse-grained: Sands (dots) ---
+  sw: { label: 'SW — Well-graded sand', color: '#F3EBCB', pattern: 'radial-gradient(circle, #8A6D1E 1.5px, transparent 1.8px)' },
+  sp: { label: 'SP — Poorly-graded sand', color: '#F3EBCB', pattern: 'radial-gradient(circle, #8A6D1E 1px, transparent 1.3px)' },
+  sm: { label: 'SM — Silty sand', color: '#F0E7CC', pattern: 'radial-gradient(circle, #8A6D1E 1.2px, transparent 1.5px), repeating-linear-gradient(0deg, #4A4A4A 0, #4A4A4A 1px, transparent 1px, transparent 10px)' },
+  sc: { label: 'SC — Clayey sand', color: '#EDE4CC', pattern: 'radial-gradient(circle, #8A6D1E 1.2px, transparent 1.5px), repeating-linear-gradient(0deg, #333 0, #333 1.5px, transparent 1.5px, transparent 6px)' },
+  // --- Fine-grained: Silts (dashes, thin/sparse -> thick/dense with plasticity L/I/H) ---
+  ml: { label: 'ML — Silt, low plasticity', color: '#EFEAE0', pattern: 'repeating-linear-gradient(0deg, #4A4A4A 0, #4A4A4A 1px, transparent 1px, transparent 11px)' },
+  mi: { label: 'MI — Silt, intermediate plasticity', color: '#EFEAE0', pattern: 'repeating-linear-gradient(0deg, #4A4A4A 0, #4A4A4A 1.2px, transparent 1.2px, transparent 8px)' },
+  mh: { label: 'MH — Silt, high plasticity', color: '#EFEAE0', pattern: 'repeating-linear-gradient(0deg, #4A4A4A 0, #4A4A4A 1.5px, transparent 1.5px, transparent 5px)' },
+  // --- Fine-grained: Clays (dashes, denser than silt at each level) ---
+  cl: { label: 'CL — Clay, low plasticity', color: '#EDE7D8', pattern: 'repeating-linear-gradient(0deg, #333 0, #333 1.5px, transparent 1.5px, transparent 9px)' },
+  ci: { label: 'CI — Clay, intermediate plasticity', color: '#EDE7D8', pattern: 'repeating-linear-gradient(0deg, #333 0, #333 1.8px, transparent 1.8px, transparent 6.5px)' },
+  ch: { label: 'CH — Clay, high plasticity', color: '#EDE7D8', pattern: 'repeating-linear-gradient(0deg, #333 0, #333 2px, transparent 2px, transparent 4.5px)' },
+  // --- Organic soils (dashes + dot overlay) ---
+  ol: { label: 'OL — Organic silt/clay, low plasticity', color: '#E3DEC5', pattern: 'repeating-linear-gradient(0deg, #4A4A4A 0, #4A4A4A 1px, transparent 1px, transparent 10px), radial-gradient(circle at 70% 50%, #4A4A4A 1px, transparent 1.2px)' },
+  oi: { label: 'OI — Organic silt/clay, intermediate plasticity', color: '#E3DEC5', pattern: 'repeating-linear-gradient(0deg, #4A4A4A 0, #4A4A4A 1.3px, transparent 1.3px, transparent 7px), radial-gradient(circle at 70% 50%, #4A4A4A 1px, transparent 1.2px)' },
+  oh: { label: 'OH — Organic silt/clay, high plasticity', color: '#E3DEC5', pattern: 'repeating-linear-gradient(0deg, #4A4A4A 0, #4A4A4A 1.6px, transparent 1.6px, transparent 5px), radial-gradient(circle at 70% 50%, #4A4A4A 1px, transparent 1.2px)' },
+  pt: { label: 'Pt — Peat / highly organic soil', color: '#DDD7B8', pattern: 'repeating-linear-gradient(90deg, #5C4A2E 0, #5C4A2E 1.5px, transparent 1.5px, transparent 7px)' },
+  // --- Rock (weathering grades) ---
+  rock_g1: { label: 'Rock — Grade I (Fresh)', color: '#D8D8D8', pattern: 'repeating-linear-gradient(45deg, #333 0, #333 1.5px, transparent 1.5px, transparent 6px), repeating-linear-gradient(-45deg, #333 0, #333 1.5px, transparent 1.5px, transparent 6px)' },
+  rock_g2: { label: 'Rock — Grade II (Slightly weathered)', color: '#E0E0E0', pattern: 'repeating-linear-gradient(45deg, #555 0, #555 1.2px, transparent 1.2px, transparent 8px)' },
+  rock_g3: { label: 'Rock — Grade III (Moderately weathered)', color: '#E6E0D2', pattern: 'radial-gradient(circle, #6B5B45 1.5px, transparent 2px)' },
+  rock_g4: { label: 'Rock — Grade IV (Highly weathered)', color: '#EAE3D3', pattern: 'repeating-linear-gradient(90deg, #7A7A7A 0, #7A7A7A 1px, transparent 1px, transparent 10px), repeating-linear-gradient(0deg, #7A7A7A 0, #7A7A7A 1px, transparent 1px, transparent 10px)' },
+  rock_g5: { label: 'Rock — Grade V (Residual soil)', color: '#E2D8C3', pattern: 'radial-gradient(circle, #9C8B6E 1px, transparent 1.5px)' },
 }
 
 const SAMPLE_TYPE_LABELS: Record<SampleType, string> = { D: 'Disturbed', P: 'SPT', U: 'Undisturbed', C: 'Core', V: 'Vane Test', W: 'Water Sample' }
@@ -81,7 +75,7 @@ function newSample(fromM: number, toM: number, type: SampleType = 'D'): Sample {
 }
 
 function newLayer(fromM: number, toM: number): StrataLayer {
-  return { id: newId(), fromM, toM, description: '', classification: '', symbolType: 'clay', samples: [newSample(fromM, Math.min(fromM + 0.45, toM))] }
+  return { id: newId(), fromM, toM, description: '', classification: '', symbolType: 'ci', samples: [newSample(fromM, Math.min(fromM + 0.45, toM))] }
 }
 
 export default function BoreholeLogs() {
@@ -103,7 +97,7 @@ export default function BoreholeLogs() {
 
   const [layers, setLayers] = useState<StrataLayer[]>([
     { ...newLayer(0, 1.5), description: 'Filled up', classification: '', symbolType: 'filled_up' },
-    { ...newLayer(1.5, 10), description: 'Stiff to hard, yellowish brown silty clay of high plasticity', classification: 'CI', symbolType: 'clay' },
+    { ...newLayer(1.5, 10), description: 'Stiff to hard, yellowish brown silty clay of high plasticity', classification: 'CI', symbolType: 'ci' },
   ])
   const [expanded, setExpanded] = useState(true)
 
