@@ -77,3 +77,10 @@ html.light .gm-input { @apply bg-white border-black/10 text-navy-950; }
 .gm-prose th, .gm-prose td { @apply border border-white/[0.08] px-2 py-1.5 text-left; }
 .gm-prose th { @apply bg-white/[0.04] text-slate-300; }
 .gm-prose blockquote { @apply border-l-2 border-violet-500/50 pl-3 text-slate-400 italic mb-3; }
+
+@media print {
+  body { background: white !important; }
+  aside, nav, header, .print\:hidden { display: none !important; }
+  main { padding: 0 !important; margin: 0 !important; width: 100% !important; }
+  #borehole-log-print { break-inside: avoid; }
+}
