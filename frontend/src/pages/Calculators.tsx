@@ -30,6 +30,15 @@ const CALC_DEFS: CalcDef[] = [
     { key: 'fos', label: 'Factor of safety', default: 2.5 },
     { key: 'scour_correction_m', label: 'Scour depth correction', unit: 'm', default: 0 },
   ]},
+  { id: 'settlement_sbc_is8009_noncohesive', label: 'SBC — IS:8009 Settlement (Granular)', fields: [
+    { key: 'length_m', label: 'Footing length L', unit: 'm', default: 3 },
+    { key: 'width_m', label: 'Footing width B', unit: 'm', default: 3 },
+    { key: 'depth_m', label: 'Depth of footing D', unit: 'm', default: 3 },
+    { key: 'n_value', label: 'Average SPT N-value', default: 15 },
+    { key: 'allowable_settlement_mm', label: 'Allowable settlement', unit: 'mm', default: 25 },
+    { key: 'water_table_depth_m', label: 'Water table depth (from NGL)', unit: 'm', default: 3 },
+    { key: 'rigidity_factor', label: 'Rigidity factor', default: 1 },
+  ]},
   { id: 'immediate_settlement', label: 'Immediate (Elastic) Settlement', fields: [
     { key: 'q_kpa', label: 'Applied pressure q', unit: 'kPa', default: 150 },
     { key: 'width_m', label: 'Footing width B', unit: 'm', default: 2 },

@@ -279,9 +279,122 @@ def bearing_capacity_is6403_shear(
     }
 
 
+def _fox_depth_correction_factor(length_m: float, width_m: float, depth_m: float) -> float:
+    """
+    Fox (1948) depth correction factor, digitized as a 4th-order polynomial
+    curve-fit -- exact formula lifted from the source workbook rather than
+    re-derived, since it reproduces the published Fox chart directly.
+    """
+    sqrt_lb = math.sqrt(length_m * width_m)
+    if sqrt_lb == 0:
+        return 1.0
+    type_a = depth_m <= sqrt_lb
+    n = (depth_m / sqrt_lb) if type_a else (sqrt_lb / depth_m)
+
+    def curve_l_b_1(n_):
+        return -0.34 * n_**4 + 0.8913 * n_**3 - 0.6881 * n_**2 - 0.1363 * n_ + 1 if type_a else \
+               0.0754 * n_**4 - 0.1377 * n_**3 + 0.0313 * n_**2 + 0.2567 * n_ + 0.5
+
+    def curve_l_b_9(n_):
+        return -0.3119 * n_**4 + 0.5969 * n_**3 - 0.1889 * n_**2 - 0.3659 * n_ + 1 if type_a else \
+               -0.0372 * n_**4 + 0.1257 * n_**3 - 0.2412 * n_**2 + 0.3485 * n_ + 0.5
+
+    bp, bq = curve_l_b_1(n), curve_l_b_9(n)
+    br = min(bq, (bp + bq) / 2)
+    l_over_b = length_m / width_m
+
+    if l_over_b == 1:
+        return bp
+    if l_over_b >= 5:
+        return br
+    return min(bp, bq) + abs(bp - bq) * (l_over_b - 1) / 4
+
+
+def settlement_sbc_is8009_noncohesive(
+    length_m: float, width_m: float, depth_m: float, n_value: float,
+    allowable_settlement_mm: float, water_table_depth_m: float,
+    rigidity_factor: float = 1.0,
+) -> dict:
+    """
+    SBC for a specified allowable settlement, for granular (non-cohesive, SPT
+    N-value characterized) soil, per IS:8009 Part-1. Matches a real project
+    workbook: IS:8009 Fig-9 chart (digitized curve-fit) for settlement per
+    10 t/m2, corner-point Boussinesq stress influence factor, water-table
+    correction, and Fox (1948) depth correction.
+
+    Simplification vs the source workbook: treats the full depth of
+    influence (Df + 1.5B) as ONE representative layer with a single average
+    N-value, rather than true layer-by-layer stratification. This matches
+    real practice for a reasonably uniform granular profile; for a strongly
+    layered profile, a full multi-layer version would be needed (not yet built).
+    """
+    if n_value <= 3:
+        raise ValueError("N-value must be greater than 3 for the IS:8009 Fig-9 settlement chart to apply.")
+
+    steps = []
+    influence_depth = 1.5 * width_m
+    z_mid = depth_m + 0.75 * width_m  # representative mid-depth of the influence layer
+    steps.append(f"Depth of influence = 1.5·B = {influence_depth:.2f} m below footing")
+    steps.append(f"Representative mid-depth for stress calc z = D + 0.75·B = {z_mid:.2f} m")
+
+    # Corner-point Boussinesq stress influence factor for a rectangular loaded area
+    F = math.sqrt((length_m / 2) ** 2 + z_mid ** 2)
+    G = math.sqrt((width_m / 2) ** 2 + z_mid ** 2)
+    H = math.sqrt((length_m / 2) ** 2 + (width_m / 2) ** 2 + z_mid ** 2)
+    P = (4 / (2 * math.pi)) * (
+        math.atan((0.25 * length_m * width_m) / (z_mid * H))
+        + (0.25 * length_m * width_m * z_mid / H) * (1 / F ** 2 + 1 / G ** 2)
+    )
+    steps.append(f"Boussinesq stress influence factor Iz = {P:.4f}")
+
+    # Water table correction (0.5 at/above founding level, scaling to 1.0 at base of influence zone)
+    if water_table_depth_m <= depth_m:
+        Aw = 0.5
+    elif water_table_depth_m >= depth_m + influence_depth:
+        Aw = 1.0
+    else:
+        Aw = 0.5 + 0.5 * (water_table_depth_m - depth_m) / influence_depth
+    steps.append(f"Water table correction factor = {Aw:.3f}")
+
+    # IS:8009 Fig-9: settlement (mm) for a 10 t/m2 applied pressure
+    settlement_at_10t = 10 / (0.1385 * (n_value - 3) * ((width_m + 0.3) / (2 * width_m)) ** 2)
+    steps.append(f"IS:8009 Fig-9: settlement at 10 t/m² = {settlement_at_10t:.3f} mm (for N={n_value})")
+
+    fox_factor = _fox_depth_correction_factor(length_m, width_m, depth_m)
+    steps.append(f"Fox (1948) depth correction factor = {fox_factor:.3f}")
+
+    # Settlement per unit (1 t/m²) applied pressure, after water-table and depth corrections
+    unit_settlement_mm = (settlement_at_10t * P / (10 * Aw)) * fox_factor * rigidity_factor
+    steps.append(f"Settlement per 1 t/m² applied pressure = {unit_settlement_mm:.4f} mm")
+
+    if unit_settlement_mm <= 0:
+        raise ValueError("Computed settlement per unit pressure is zero or negative -- check inputs.")
+
+    sbc_settlement = allowable_settlement_mm / unit_settlement_mm
+    steps.append(f"SBC for {allowable_settlement_mm} mm allowable settlement = {allowable_settlement_mm}/{unit_settlement_mm:.4f} = {sbc_settlement:.2f} t/m²")
+
+    return {
+        "result": round(sbc_settlement, 2),
+        "unit": "t/m² (SBC for specified allowable settlement)",
+        "formula": "IS:8009 Fig-9 (N-value chart) + Boussinesq stress influence + Fox depth correction",
+        "steps": steps,
+        "assumptions": [
+            "Non-cohesive (granular) soil only -- N-value based method",
+            "Entire depth of influence (Df + 1.5B) treated as one representative layer with a single average N-value",
+            f"Rigidity factor = {rigidity_factor}",
+        ],
+        "warnings": [
+            "For clay/cohesive soils, a different method (consolidation settlement via Cc/e0) is required -- not this calculator.",
+            "Compare against the shear-based SBC (IS:6403 calculator) and take the LOWER of the two as the final recommended SBC.",
+            "For a strongly stratified profile (very different N-values by depth), a full multi-layer analysis would be more accurate than this single-layer simplification.",
+        ],
+    }
+
+
 CALCULATOR_REGISTRY = {
     "bearing_capacity_terzaghi": terzaghi_bearing_capacity,
     "bearing_capacity_is6403_shear": bearing_capacity_is6403_shear,
+    "settlement_sbc_is8009_noncohesive": settlement_sbc_is8009_noncohesive,
     "immediate_settlement": immediate_settlement,
     "consolidation_settlement": consolidation_settlement,
     "spt_correction": spt_correction,
