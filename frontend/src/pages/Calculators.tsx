@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Calculator, Construction, Printer, Save } from 'lucide-react'
+import { Calculator, Construction, Printer, Save, Layers3, Wand2 } from 'lucide-react'
 import { api } from '../api/client'
 
 interface FieldDef { key: string; label: string; unit?: string; type?: 'number' | 'select' | 'text'; options?: string[]; default?: any }
@@ -85,6 +85,67 @@ const CALC_DEFS: CalcDef[] = [
 
 const SAVED_KEY = 'raahigeo_saved_calculations'
 
+// Converts SoilLayer + BoreholeProfile fields into calculator input values.
+// Only fills fields the layer actually has data for; project-specific fields
+// (footing width/length, allowable settlement, FOS) are deliberately left
+// alone since they aren't soil properties.
+const T_M2_TO_KPA = 9.80665
+
+function mapLayerToValues(calcId: string, layer: any, waterTableDepthM: number | null): Record<string, any> {
+  const has = (v: any) => v !== null && v !== undefined
+  const bowlesEs = (n: number) => 30 * (n + 6) // t/m2, Bowles correlation
+
+  switch (calcId) {
+    case 'bearing_capacity_terzaghi':
+      return {
+        ...(has(layer.friction_angle_deg) && { phi_deg: layer.friction_angle_deg }),
+        ...(has(layer.cohesion_t_m2) && { cohesion_kpa: +(layer.cohesion_t_m2 * T_M2_TO_KPA).toFixed(2) }),
+        ...(has(layer.bulk_density_t_m3) && { gamma_kn_m3: +(layer.bulk_density_t_m3 * T_M2_TO_KPA).toFixed(2) }),
+        ...(has(layer.from_m) && { depth_m: layer.from_m }),
+      }
+    case 'bearing_capacity_is6403_shear':
+      return {
+        ...(has(layer.cohesion_t_m2) && { cohesion_t_m2: layer.cohesion_t_m2 }),
+        ...(has(layer.friction_angle_deg) && { phi_deg: layer.friction_angle_deg }),
+        ...(has(layer.bulk_density_t_m3) && { gamma_avg_above_t_m3: layer.bulk_density_t_m3, gamma_at_base_t_m3: layer.bulk_density_t_m3 }),
+        ...(has(layer.specific_gravity) && { specific_gravity: layer.specific_gravity }),
+        ...(has(layer.moisture_content_pct) && { moisture_content_pct: layer.moisture_content_pct }),
+        ...(has(waterTableDepthM) && { water_table_depth_m: waterTableDepthM }),
+        ...(has(layer.from_m) && { depth_m: layer.from_m }),
+      }
+    case 'settlement_sbc_is8009_noncohesive':
+      return {
+        ...(has(layer.n_value) && { n_value: layer.n_value }),
+        ...(has(waterTableDepthM) && { water_table_depth_m: waterTableDepthM }),
+        ...(has(layer.from_m) && { depth_m: layer.from_m }),
+      }
+    case 'settlement_sbc_is8009_cohesive':
+      return {
+        ...(has(layer.compression_index_cc) && { compression_index_cc: layer.compression_index_cc }),
+        ...(has(layer.initial_void_ratio_e0) && { initial_void_ratio_e0: layer.initial_void_ratio_e0 }),
+        ...(has(layer.bulk_density_t_m3) && { gamma_avg_above_t_m3: layer.bulk_density_t_m3 }),
+        ...(has(layer.from_m) && { depth_m: layer.from_m }),
+        ...(has(layer.n_value) && !has(layer.compression_index_cc) && { elastic_modulus_t_m2: +bowlesEs(layer.n_value).toFixed(1) }),
+      }
+    case 'spt_correction':
+      return { ...(has(layer.n_value) && { n_field: layer.n_value }) }
+    case 'consolidation_settlement':
+      return {
+        ...(has(layer.compression_index_cc) && { cc: layer.compression_index_cc }),
+        ...(has(layer.initial_void_ratio_e0) && { e0: layer.initial_void_ratio_e0 }),
+      }
+    case 'earth_pressure_rankine':
+      return {
+        ...(has(layer.friction_angle_deg) && { phi_deg: layer.friction_angle_deg }),
+        ...(has(layer.bulk_density_t_m3) && { gamma_kn_m3: +(layer.bulk_density_t_m3 * T_M2_TO_KPA).toFixed(2) }),
+      }
+    case 'immediate_settlement':
+      return has(layer.n_value) ? { es_kpa: +(bowlesEs(layer.n_value) * T_M2_TO_KPA).toFixed(0) } : {}
+    default:
+      return {}
+  }
+}
+
 export default function Calculators() {
   const [active, setActive] = useState<CalcDef>(CALC_DEFS[0])
   const [values, setValues] = useState<Record<string, any>>({})
@@ -92,11 +153,37 @@ export default function Calculators() {
   const [planned, setPlanned] = useState<string[]>([])
   const [error, setError] = useState('')
   const [savedCount, setSavedCount] = useState(0)
+  const [boreholes, setBoreholes] = useState<any[]>([])
+  const [selectedBoreholeId, setSelectedBoreholeId] = useState('')
+  const [selectedLayerId, setSelectedLayerId] = useState('')
+  const [loadedFieldsMsg, setLoadedFieldsMsg] = useState('')
 
-  useEffect(() => { api.availableCalculators().then((r) => setPlanned(r.planned)).catch(() => {}) }, [])
+  useEffect(() => {
+    api.availableCalculators().then((r) => setPlanned(r.planned)).catch(() => {})
+    api.listBoreholes().then(setBoreholes).catch(() => {})
+  }, [])
+
+  const selectedBorehole = boreholes.find((b) => b.id === selectedBoreholeId)
+  const selectedLayer = selectedBorehole?.layers.find((l: any) => l.id === selectedLayerId)
+
+  function applyLayerToForm() {
+    if (!selectedLayer) return
+    const mapped = mapLayerToValues(active.id, selectedLayer, selectedBorehole?.water_table_depth_m ?? null)
+    const filledKeys = Object.keys(mapped)
+    if (filledKeys.length === 0) {
+      setLoadedFieldsMsg('This layer has no matching data for this calculator.')
+      return
+    }
+    setValues((v) => ({ ...v, ...mapped }))
+    const stillMissing = active.fields.filter((f) => !filledKeys.includes(f.key)).map((f) => f.label)
+    setLoadedFieldsMsg(
+      `Filled: ${filledKeys.length} field(s) from ${selectedBorehole.borehole_id}.` +
+      (stillMissing.length ? ` Still need manual input: ${stillMissing.join(', ')}.` : '')
+    )
+  }
 
   function selectCalc(def: CalcDef) {
-    setActive(def); setResult(null); setError('')
+    setActive(def); setResult(null); setError(''); setLoadedFieldsMsg('')
     const defaults: Record<string, any> = {}
     def.fields.forEach((f) => (defaults[f.key] = f.default))
     setValues(defaults)
@@ -144,6 +231,37 @@ export default function Calculators() {
         </div>
 
         <div className="flex-1 max-w-xl">
+          {boreholes.length > 0 && (
+            <div className="glass p-4 mb-4">
+              <div className="text-xs uppercase tracking-wide text-slate-500 mb-2 flex items-center gap-1.5"><Layers3 size={13} /> Load from Borehole Profile</div>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <select
+                  className="gm-input flex-1"
+                  value={selectedBoreholeId}
+                  onChange={(e) => { setSelectedBoreholeId(e.target.value); setSelectedLayerId(''); setLoadedFieldsMsg('') }}
+                >
+                  <option value="">Select borehole...</option>
+                  {boreholes.map((b) => <option key={b.id} value={b.id}>{b.borehole_id} {b.project_name ? `(${b.project_name})` : ''}</option>)}
+                </select>
+                <select
+                  className="gm-input flex-1"
+                  value={selectedLayerId}
+                  onChange={(e) => setSelectedLayerId(e.target.value)}
+                  disabled={!selectedBorehole}
+                >
+                  <option value="">Select layer...</option>
+                  {selectedBorehole?.layers.map((l: any) => (
+                    <option key={l.id} value={l.id}>{l.from_m}–{l.to_m}m {l.classification ? `(${l.classification})` : ''} {l.description ? `— ${l.description}` : ''}</option>
+                  ))}
+                </select>
+                <button onClick={applyLayerToForm} disabled={!selectedLayer} className="gm-btn-secondary flex items-center gap-1.5 text-xs whitespace-nowrap">
+                  <Wand2 size={13} /> Apply
+                </button>
+              </div>
+              {loadedFieldsMsg && <p className="text-xs text-violet-300 mt-2">{loadedFieldsMsg}</p>}
+            </div>
+          )}
+
           <div className="glass p-5 space-y-3">
             {active.fields.map((f) => (
               <div key={f.key}>

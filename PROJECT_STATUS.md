@@ -129,8 +129,6 @@ for everything else (see Roadmap).
 
 ## Known limitations / honest gaps
 
-- Borehole/Lab data is NOT YET wired into the calculators (you still have to manually
-  retype numbers into each calculator). This is the next planned step.
 - No batch/matrix runner yet (can't check 100 footing combinations at once yet).
 - No liquefaction calculator yet.
 - No pile capacity calculator yet.
@@ -149,13 +147,16 @@ foundation combinations, in ~1 hour instead of a full day. Phases:
 
 1. **✅ DONE — Lab data import.** Standardized Excel template + parser + BoreholeProfile/
    SoilLayer storage (`/api/lab-data/*`).
-2. **NEXT — Wire borehole profiles into the calculators.** Let the person pick a saved
-   BoreholeProfile + a specific layer, and auto-fill the Shear SBC / Settlement SBC
-   calculator inputs from it instead of manual re-entry.
-3. **Batch/matrix engine.** Given a BoreholeProfile + a list of footing widths/depths
-   (or a small table the user fills in), run shear + settlement SBC for every combination
-   automatically and return a results table (min of shear/settlement = recommended SBC
-   per combination).
+2. **✅ DONE — Wire borehole profiles into the calculators.** Analysis page has a "Load
+   from Borehole Profile" panel: pick a saved borehole + layer, click Apply, and matching
+   fields (N-value, cohesion, friction angle, densities, Cc/e0, water table depth, etc.)
+   auto-fill for whichever calculator is open. Project-specific fields (footing size,
+   allowable settlement, FOS) are deliberately left for manual entry. Unit conversions
+   (t/m² ↔ kPa) are handled where a calculator uses different units than the stored data.
+3. **NEXT — Batch/matrix engine.** Given a BoreholeProfile + a list of footing widths/
+   depths (or a small table the user fills in), run shear + settlement SBC for every
+   combination automatically and return a results table (min of shear/settlement =
+   recommended SBC per combination).
 4. **New calculators:** Liquefaction (IS 1893 simplified procedure, SPT-N based) and Pile
    Capacity (IS 2911, static formula via SPT-N or C-φ).
 5. **Auto-report generation.** Combine borehole log chart + batch calculation results +
