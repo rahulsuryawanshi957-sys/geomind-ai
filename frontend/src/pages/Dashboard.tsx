@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import {
-  MessageSquare, Upload, ScrollText, Calculator, FolderPlus, FileText,
-  BookOpen, Layers, Activity, Clock, ArrowUpRight,
+  MessageSquare, Upload, ScrollText, Calculator, FileText,
+  BookOpen, Layers, Activity, Clock, ArrowUpRight, Layers3,
+  FlaskConical, FileSearch, Sigma, Search,
 } from 'lucide-react'
 import { api } from '../api/client'
 
@@ -11,8 +12,12 @@ const QUICK_ACTIONS = [
   { to: '/chat', label: 'Ask AI', icon: MessageSquare, gradient: 'from-violet-500 to-violet-400' },
   { to: '/books', label: 'Upload Book', icon: Upload, gradient: 'from-cyan-500 to-cyan-400' },
   { to: '/is-codes', label: 'Upload IS Code', icon: ScrollText, gradient: 'from-violet-500 to-cyan-400' },
-  { to: '/calculators', label: 'Open Calculator', icon: Calculator, gradient: 'from-cyan-500 to-violet-400' },
-  { to: '/projects', label: 'New Project', icon: FolderPlus, gradient: 'from-violet-400 to-violet-600' },
+  { to: '/calculators', label: 'Open Analysis', icon: Calculator, gradient: 'from-cyan-500 to-violet-400' },
+  { to: '/borehole-logs', label: 'Borehole Log', icon: Layers3, gradient: 'from-violet-400 to-cyan-500' },
+  { to: '/lab-reports', label: 'Lab Data Import', icon: FlaskConical, gradient: 'from-cyan-400 to-violet-500' },
+  { to: '/clause-finder', label: 'Clause Finder', icon: FileSearch, gradient: 'from-violet-500 to-violet-600' },
+  { to: '/formulas', label: 'Formula Library', icon: Sigma, gradient: 'from-cyan-500 to-cyan-600' },
+  { to: '/search', label: 'Universal Search', icon: Search, gradient: 'from-violet-400 to-violet-600' },
   { to: '/reports', label: 'Generate Report', icon: FileText, gradient: 'from-cyan-400 to-cyan-600' },
 ]
 
@@ -31,10 +36,12 @@ function StatCard({ icon: Icon, label, value, accent }: { icon: any; label: stri
 export default function Dashboard() {
   const [docs, setDocs] = useState<any[]>([])
   const [conversations, setConversations] = useState<any[]>([])
+  const [boreholes, setBoreholes] = useState<any[]>([])
 
   useEffect(() => {
     api.listDocuments().then(setDocs).catch(() => {})
     api.listConversations().then(setConversations).catch(() => {})
+    api.listBoreholes().then(setBoreholes).catch(() => {})
   }, [])
 
   const totalBooks = docs.filter((d) => d.category !== 'IS Codes' && d.category !== 'IRC Codes').length
@@ -50,7 +57,7 @@ export default function Dashboard() {
       </motion.div>
 
       {/* Quick actions */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-8">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-8">
         {QUICK_ACTIONS.map((a, i) => (
           <motion.div key={a.to} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}>
             <Link to={a.to} className="glass glass-hover flex flex-col items-center justify-center gap-2 p-4 text-center h-full">
@@ -64,18 +71,19 @@ export default function Dashboard() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-8">
         <StatCard icon={BookOpen} label="Total Books" value={totalBooks} accent="bg-violet-500/15 text-violet-400" />
         <StatCard icon={ScrollText} label="Total IS/IRC Codes" value={totalCodes} accent="bg-cyan-500/15 text-cyan-400" />
         <StatCard icon={Layers} label="Indexed Pages" value={indexedPages} accent="bg-violet-500/15 text-violet-400" />
+        <StatCard icon={Layers3} label="Borehole Profiles" value={boreholes.length} accent="bg-cyan-500/15 text-cyan-400" />
         <StatCard icon={Activity} label="AI Assistant" value="Online" accent="bg-emerald-500/15 text-emerald-400" />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* Recently opened documents */}
         <div className="glass p-5">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-medium text-slate-200 flex items-center gap-2"><Clock size={14} /> Recently Opened Documents</h2>
+            <h2 className="text-sm font-medium text-slate-200 flex items-center gap-2"><Clock size={14} /> Recent Documents</h2>
             <Link to="/books" className="text-xs text-violet-400 flex items-center gap-1">View all <ArrowUpRight size={12} /></Link>
           </div>
           <div className="space-y-2">
@@ -100,6 +108,23 @@ export default function Dashboard() {
             {conversations.slice(0, 5).map((c) => (
               <Link key={c.id} to="/history" className="flex items-center justify-between text-sm px-3 py-2 rounded-lg hover:bg-white/[0.04]">
                 <span className="text-slate-300 truncate">{c.title}</span>
+              </Link>
+            ))}
+          </div>
+        </div>
+
+        {/* Recent borehole profiles */}
+        <div className="glass p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-medium text-slate-200 flex items-center gap-2"><FlaskConical size={14} /> Borehole Profiles</h2>
+            <Link to="/lab-reports" className="text-xs text-violet-400 flex items-center gap-1">View all <ArrowUpRight size={12} /></Link>
+          </div>
+          <div className="space-y-2">
+            {boreholes.length === 0 && <p className="text-xs text-slate-500 py-6 text-center">No lab data imported yet.</p>}
+            {boreholes.slice(0, 5).map((bh) => (
+              <Link key={bh.id} to="/lab-reports" className="flex items-center justify-between text-sm px-3 py-2 rounded-lg hover:bg-white/[0.04]">
+                <span className="text-slate-300 truncate">{bh.borehole_id}</span>
+                <span className="text-[10px] text-slate-500 shrink-0 ml-2">{bh.layers?.length ?? 0} layers</span>
               </Link>
             ))}
           </div>

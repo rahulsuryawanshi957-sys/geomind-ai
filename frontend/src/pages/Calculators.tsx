@@ -123,7 +123,7 @@ export default function Calculators() {
 
   return (
     <div className="p-6 md:p-8">
-      <h1 className="font-display text-xl font-semibold text-slate-50 mb-1">Engineering Calculators</h1>
+      <h1 className="font-display text-xl font-semibold text-slate-50 mb-1">Engineering Analysis</h1>
       <p className="text-sm text-slate-400 mb-6">Real formulas with full step-by-step working — nothing here is LLM-guessed.</p>
 
       <div className="flex flex-col lg:flex-row gap-6">

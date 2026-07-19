@@ -4,7 +4,7 @@ import { LayoutDashboard, BookOpen, Calculator, History, MessageSquare } from 'l
 const ITEMS = [
   { to: '/', label: 'Home', icon: LayoutDashboard, end: true },
   { to: '/books', label: 'Library', icon: BookOpen },
-  { to: '/calculators', label: 'Calc', icon: Calculator },
+  { to: '/calculators', label: 'Analysis', icon: Calculator },
   { to: '/history', label: 'History', icon: History },
 ]
 
