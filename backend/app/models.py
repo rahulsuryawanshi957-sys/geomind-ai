@@ -69,3 +69,46 @@ class CalculationLog(Base):
     inputs_json = Column(Text)
     result_json = Column(Text)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class BoreholeProfile(Base):
+    """
+    A parsed borehole from an uploaded lab-data spreadsheet. This is the
+    'spine' that calculators (shear SBC, settlement SBC, and future
+    liquefaction/pile/batch features) read their soil parameters from,
+    instead of the person re-typing the same numbers into every calculator.
+    """
+    __tablename__ = "borehole_profiles"
+
+    id = Column(String, primary_key=True, default=gen_id)
+    borehole_id = Column(String, nullable=False)     # e.g. "BH-01" as given in the sheet
+    project_name = Column(String, nullable=True)
+    water_table_depth_m = Column(Float, nullable=True)
+    source_filename = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    layers = relationship("SoilLayer", back_populates="borehole", cascade="all, delete-orphan", order_by="SoilLayer.from_m")
+
+
+class SoilLayer(Base):
+    """One depth interval of lab/field data within a BoreholeProfile."""
+    __tablename__ = "soil_layers"
+
+    id = Column(String, primary_key=True, default=gen_id)
+    borehole_id_fk = Column(String, ForeignKey("borehole_profiles.id"))
+
+    from_m = Column(Float, nullable=False)
+    to_m = Column(Float, nullable=False)
+    description = Column(String, nullable=True)
+    classification = Column(String, nullable=True)   # USCS group symbol, e.g. CI, SM
+
+    n_value = Column(Float, nullable=True)            # field SPT N
+    bulk_density_t_m3 = Column(Float, nullable=True)
+    specific_gravity = Column(Float, nullable=True)
+    moisture_content_pct = Column(Float, nullable=True)
+    cohesion_t_m2 = Column(Float, nullable=True)
+    friction_angle_deg = Column(Float, nullable=True)
+    compression_index_cc = Column(Float, nullable=True)
+    initial_void_ratio_e0 = Column(Float, nullable=True)
+
+    borehole = relationship("BoreholeProfile", back_populates="layers")

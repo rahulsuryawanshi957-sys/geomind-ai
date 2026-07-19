@@ -61,4 +61,24 @@ export const api = {
 
   getConversation: (id: string) => request<any>(`/api/history/conversations/${id}`),
   deleteConversation: (id: string) => request(`/api/history/conversations/${id}`, { method: 'DELETE' }),
+
+  downloadLabDataTemplate: async () => {
+    const res = await fetch(`${BASE_URL}/api/lab-data/template`)
+    if (!res.ok) throw new Error(await res.text())
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url; a.download = 'raahigeo_lab_data_template.xlsx'; a.click()
+  },
+
+  uploadLabData: async (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    const res = await fetch(`${BASE_URL}/api/lab-data/upload`, { method: 'POST', body: form })
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+
+  listBoreholes: () => request<any[]>('/api/lab-data'),
+  getBorehole: (id: string) => request<any>(`/api/lab-data/${id}`),
+  deleteBorehole: (id: string) => request(`/api/lab-data/${id}`, { method: 'DELETE' }),
 }

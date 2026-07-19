@@ -313,7 +313,7 @@ def _fox_depth_correction_factor(length_m: float, width_m: float, depth_m: float
 def settlement_sbc_is8009_noncohesive(
     length_m: float, width_m: float, depth_m: float, n_value: float,
     allowable_settlement_mm: float, water_table_depth_m: float,
-    rigidity_factor: float = 1.0,
+    rigidity_factor: float = 1.0, influence_depth_m: float | None = None,
 ) -> dict:
     """
     SBC for a specified allowable settlement, for granular (non-cohesive, SPT
@@ -322,20 +322,25 @@ def settlement_sbc_is8009_noncohesive(
     10 t/m2, corner-point Boussinesq stress influence factor, water-table
     correction, and Fox (1948) depth correction.
 
+    influence_depth_m: depth of influence zone below the footing. Defaults to
+    1.5*B (the usual assumption) but can be overridden -- e.g. when a rock
+    layer, a known stiff stratum, or site-specific data justifies a different
+    zone of influence.
+
     Simplification vs the source workbook: treats the full depth of
-    influence (Df + 1.5B) as ONE representative layer with a single average
-    N-value, rather than true layer-by-layer stratification. This matches
-    real practice for a reasonably uniform granular profile; for a strongly
+    influence as ONE representative layer with a single average N-value,
+    rather than true layer-by-layer stratification. This matches real
+    practice for a reasonably uniform granular profile; for a strongly
     layered profile, a full multi-layer version would be needed (not yet built).
     """
     if n_value <= 3:
         raise ValueError("N-value must be greater than 3 for the IS:8009 Fig-9 settlement chart to apply.")
 
     steps = []
-    influence_depth = 1.5 * width_m
-    z_mid = depth_m + 0.75 * width_m  # representative mid-depth of the influence layer
-    steps.append(f"Depth of influence = 1.5·B = {influence_depth:.2f} m below footing")
-    steps.append(f"Representative mid-depth for stress calc z = D + 0.75·B = {z_mid:.2f} m")
+    influence_depth = influence_depth_m if influence_depth_m is not None else 1.5 * width_m
+    z_mid = depth_m + 0.5 * influence_depth  # representative mid-depth of the influence layer
+    steps.append(f"Depth of influence = {'manual override' if influence_depth_m is not None else '1.5·B'} = {influence_depth:.2f} m below footing")
+    steps.append(f"Representative mid-depth for stress calc z = D + 0.5·(influence depth) = {z_mid:.2f} m")
 
     # Corner-point Boussinesq stress influence factor for a rectangular loaded area
     F = math.sqrt((length_m / 2) ** 2 + z_mid ** 2)
@@ -391,10 +396,122 @@ def settlement_sbc_is8009_noncohesive(
     }
 
 
+def settlement_sbc_is8009_cohesive(
+    length_m: float, width_m: float, depth_m: float,
+    elastic_modulus_t_m2: float, compression_index_cc: float, initial_void_ratio_e0: float,
+    gamma_avg_above_t_m3: float, allowable_settlement_mm: float,
+    consolidation_type: str = "NCS", layer_thickness_m: float | None = None,
+    rigidity_factor: float = 1.0,
+) -> dict:
+    """
+    SBC for a specified allowable settlement, for cohesive (clay) soil, per
+    IS:8009 Part-1 -- matches the source workbook's method: an elastic
+    (immediate) settlement component via a Steinbrenner-type influence factor,
+    plus a consolidation settlement component (either the simple
+    over-consolidated/OCS formula using elastic modulus, or the normally-
+    consolidated/NCS logarithmic Cc formula), combined for the total.
+
+    elastic_modulus_t_m2: undrained/elastic modulus Es of the clay (t/m²) --
+    e.g. from a correlation like Es = 30*(N+6) (Bowles) or from lab data.
+    layer_thickness_m: clay layer thickness considered. Defaults to 1.5*B
+    (matching the granular calculator's default influence zone) but can be
+    overridden for a known layer boundary (e.g. a stiffer stratum below).
+
+    Simplification vs the source workbook: single representative layer
+    (not true multi-layer stratification), and Cc/e0/Es are single
+    representative values for that layer rather than per-sub-layer lab data.
+    """
+    consolidation_type = consolidation_type.upper()
+    if consolidation_type not in ("OCS", "NCS"):
+        raise ValueError("consolidation_type must be 'OCS' (over-consolidated) or 'NCS' (normally consolidated).")
+
+    steps = []
+    H = layer_thickness_m if layer_thickness_m is not None else 1.5 * width_m
+    z_mid = depth_m + 0.5 * H
+    steps.append(f"Clay layer thickness H = {'manual override' if layer_thickness_m is not None else '1.5·B'} = {H:.2f} m")
+    steps.append(f"Representative mid-depth z = D + 0.5·H = {z_mid:.2f} m")
+
+    # Effective overburden stress at mid-depth (P0)
+    P0 = gamma_avg_above_t_m3 * z_mid
+    steps.append(f"Effective overburden stress P0 = γ_avg·z = {P0:.3f} t/m²")
+
+    # Boussinesq corner-point stress influence factor (same as the granular calculator)
+    F = math.sqrt((length_m / 2) ** 2 + z_mid ** 2)
+    G = math.sqrt((width_m / 2) ** 2 + z_mid ** 2)
+    Hc = math.sqrt((length_m / 2) ** 2 + (width_m / 2) ** 2 + z_mid ** 2)
+    Iz = (4 / (2 * math.pi)) * (
+        math.atan((0.25 * length_m * width_m) / (z_mid * Hc))
+        + (0.25 * length_m * width_m * z_mid / Hc) * (1 / F ** 2 + 1 / G ** 2)
+    )
+    steps.append(f"Boussinesq stress influence factor Iz = {Iz:.4f}")
+
+    # Elastic (immediate) settlement influence factor -- Steinbrenner-type closed form
+    m = length_m / width_m
+    n = H / width_m
+    M = m * math.log(
+        (1 + math.sqrt(1 + m ** 2)) * math.sqrt(m ** 2 + n ** 2)
+        / (m * (1 + math.sqrt(1 + m ** 2 + n ** 2)))
+    )
+    N = math.log(
+        (m + math.sqrt(1 + m ** 2)) * math.sqrt(1 + n ** 2)
+        / (m + math.sqrt(1 + m ** 2 + n ** 2))
+    )
+    O = (4 / math.pi) * (M + N)
+    steps.append(f"Elastic settlement influence factor = {O:.4f}")
+
+    fox_factor = _fox_depth_correction_factor(length_m, width_m, depth_m)
+    steps.append(f"Fox (1948) depth correction factor = {fox_factor:.3f}")
+
+    # Per unit (1 t/m²) applied pressure:
+    elastic_unit_mm = width_m * 0.75 * O / elastic_modulus_t_m2 * 1000
+    steps.append(f"Elastic settlement per 1 t/m² = {elastic_unit_mm:.4f} mm")
+
+    if consolidation_type == "OCS":
+        mv = 1 / elastic_modulus_t_m2
+        consolidation_unit_mm = 1000 * mv * H * Iz
+        steps.append(f"OCS consolidation settlement per 1 t/m² = 1000·mv·H·Iz = {consolidation_unit_mm:.4f} mm")
+    else:
+        # NCS (normally consolidated): logarithmic Cc formula. Evaluated at a
+        # small reference pressure increment (1 t/m²) since the log term is
+        # not perfectly linear in q -- this is the standard practice
+        # approximation for expressing it as a per-unit-pressure rate.
+        delta_sigma_ref = 1.0 * Iz
+        consolidation_unit_mm = (H / (1 + initial_void_ratio_e0)) * compression_index_cc * math.log10((P0 + delta_sigma_ref) / P0) * 1000
+        steps.append(f"NCS consolidation settlement per 1 t/m² = (H/(1+e0))·Cc·log10((P0+Δσ)/P0) = {consolidation_unit_mm:.4f} mm")
+
+    total_unit_mm = (elastic_unit_mm + consolidation_unit_mm) * fox_factor * rigidity_factor
+    steps.append(f"Total settlement per 1 t/m² (after Fox + rigidity factors) = {total_unit_mm:.4f} mm")
+
+    if total_unit_mm <= 0:
+        raise ValueError("Computed settlement per unit pressure is zero or negative -- check inputs.")
+
+    sbc_settlement = allowable_settlement_mm / total_unit_mm
+    steps.append(f"SBC for {allowable_settlement_mm} mm allowable settlement = {allowable_settlement_mm}/{total_unit_mm:.4f} = {sbc_settlement:.2f} t/m²")
+
+    return {
+        "result": round(sbc_settlement, 2),
+        "unit": "t/m² (SBC for specified allowable settlement)",
+        "formula": f"IS:8009 elastic settlement + {consolidation_type} consolidation settlement",
+        "steps": steps,
+        "assumptions": [
+            "Cohesive (clay) soil only",
+            f"Consolidation type: {consolidation_type}",
+            "Single representative layer (not full multi-layer stratification)",
+            f"Rigidity factor = {rigidity_factor}",
+        ],
+        "warnings": [
+            "For granular/non-cohesive soils, use the IS:8009 (Granular) calculator instead.",
+            "Compare against the shear-based SBC (IS:6403 calculator) and take the LOWER of the two as the final recommended SBC.",
+            "NCS consolidation settlement is evaluated as a rate at low reference pressure -- for very large applied pressures, the true log-curve is not perfectly linear; treat results as a good approximation, not exact at all load levels.",
+        ],
+    }
+
+
 CALCULATOR_REGISTRY = {
     "bearing_capacity_terzaghi": terzaghi_bearing_capacity,
     "bearing_capacity_is6403_shear": bearing_capacity_is6403_shear,
     "settlement_sbc_is8009_noncohesive": settlement_sbc_is8009_noncohesive,
+    "settlement_sbc_is8009_cohesive": settlement_sbc_is8009_cohesive,
     "immediate_settlement": immediate_settlement,
     "consolidation_settlement": consolidation_settlement,
     "spt_correction": spt_correction,

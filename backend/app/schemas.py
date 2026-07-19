@@ -57,3 +57,35 @@ class ReportSectionRequest(BaseModel):
     section_type: str
     project_inputs: dict
     reference_query: str | None = None
+
+
+class SoilLayerOut(BaseModel):
+    id: str
+    from_m: float
+    to_m: float
+    description: str | None = None
+    classification: str | None = None
+    n_value: float | None = None
+    bulk_density_t_m3: float | None = None
+    specific_gravity: float | None = None
+    moisture_content_pct: float | None = None
+    cohesion_t_m2: float | None = None
+    friction_angle_deg: float | None = None
+    compression_index_cc: float | None = None
+    initial_void_ratio_e0: float | None = None
+
+    class Config:
+        from_attributes = True
+
+
+class BoreholeProfileOut(BaseModel):
+    id: str
+    borehole_id: str
+    project_name: str | None = None
+    water_table_depth_m: float | None = None
+    source_filename: str | None = None
+    created_at: datetime
+    layers: list[SoilLayerOut] = []
+
+    class Config:
+        from_attributes = True

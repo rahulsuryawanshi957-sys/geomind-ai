@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.config import settings, logger
 from app.database import Base, engine
-from app.routers import chat, documents, search, calculators, reports, clause_finder, history
+from app.routers import chat, documents, search, calculators, reports, clause_finder, history, lab_data
 
 logger.info("Booting RaahiGeo AI backend...")
 
@@ -65,6 +65,7 @@ app.include_router(calculators.router)
 app.include_router(reports.router)
 app.include_router(clause_finder.router)
 app.include_router(history.router)
+app.include_router(lab_data.router)
 
 
 @app.get("/api/health")
