@@ -32,7 +32,7 @@ const NAV_SECTIONS: { label: string; items: { to: string; label: string; icon: a
       { to: '/calculators', label: 'Analysis', icon: Calculator },
       { to: '/borehole-logs', label: 'Borehole Logs', icon: Layers3 },
       { to: '/lab-reports', label: 'Lab Data Import', icon: FlaskConical },
-      { to: '/soil-profile', label: 'Soil Profile Viewer', icon: Mountain, soon: true },
+      { to: '/soil-profile', label: 'Soil Profile Viewer', icon: Mountain },
       { to: '/reports', label: 'Engineering Reports', icon: FileText },
     ],
   },

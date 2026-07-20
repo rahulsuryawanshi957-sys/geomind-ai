@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Plus, Trash2, Printer, Layers3, ChevronDown, ChevronUp } from 'lucide-react'
+import { Plus, Trash2, Printer, Layers3, ChevronDown, ChevronUp, Download } from 'lucide-react'
+import { api } from '../../api/client'
 
 type SampleType = 'D' | 'P' | 'U' | 'C' | 'V' | 'W'
 
@@ -78,6 +79,53 @@ function newLayer(fromM: number, toM: number): StrataLayer {
   return { id: newId(), fromM, toM, description: '', classification: '', symbolType: 'ci', samples: [newSample(fromM, Math.min(fromM + 0.45, toM))] }
 }
 
+// Maps a lab-data SoilLayer's classification / weathering grade into one of
+// this page's SYMBOL_TYPES keys, so loading from a Borehole Profile doesn't
+// require the person to re-pick a symbol for every layer by hand.
+function inferSymbolType(classification?: string | null, weatheringGrade?: string | null): string {
+  if (weatheringGrade) {
+    const g = weatheringGrade.toUpperCase()
+    if (/\bV\b/.test(g) || g.includes('RESIDUAL')) return 'rock_g5'
+    if (/\bIV\b/.test(g)) return 'rock_g4'
+    if (/\bIII\b/.test(g)) return 'rock_g3'
+    if (/\bII\b/.test(g)) return 'rock_g2'
+    if (/\bI\b/.test(g) || g.includes('FRESH')) return 'rock_g1'
+  }
+  const cls = (classification || '').toUpperCase().replace(/[^A-Z]/g, '')
+  if (SYMBOL_TYPES[cls.toLowerCase()]) return cls.toLowerCase()
+  return 'filled_up'
+}
+
+// Converts a lab-data SoilLayer (from a saved BoreholeProfile) into this
+// page's StrataLayer + one representative Sample. Lab data stores a single
+// final N-value (not raw 0-150/150-300/300-450 blow counts), and a single
+// UCS value for rock (not full core-run detail) -- both limitations are
+// noted in the sample's Remarks rather than silently invented.
+function layerFromLabData(l: any): StrataLayer {
+  let sample: Sample
+  if (l.n_value != null) {
+    sample = { ...newSample(l.from_m, l.to_m, 'P'), remarks: `N=${l.n_value} (from lab data; raw blow increments not available)` }
+  } else if (l.core_recovery_pct != null || l.rqd_pct != null || l.ucs_kg_cm2 != null) {
+    sample = {
+      ...newSample(l.from_m, l.to_m, 'C'),
+      coreRecovery: l.core_recovery_pct != null ? String(l.core_recovery_pct) : '',
+      rqd: l.rqd_pct != null ? String(l.rqd_pct) : '',
+      remarks: l.ucs_kg_cm2 != null ? `UCS=${l.ucs_kg_cm2} kg/cm²` : '',
+    }
+  } else {
+    sample = newSample(l.from_m, l.to_m, 'D')
+  }
+  return {
+    id: newId(),
+    fromM: l.from_m,
+    toM: l.to_m,
+    description: l.description || l.rock_type || '',
+    classification: l.classification || l.weathering_grade || '',
+    symbolType: inferSymbolType(l.classification, l.weathering_grade),
+    samples: [sample],
+  }
+}
+
 export default function BoreholeLogs() {
   const [projectName, setProjectName] = useState('')
   const [jobNo, setJobNo] = useState('')
@@ -100,6 +148,19 @@ export default function BoreholeLogs() {
     { ...newLayer(1.5, 10), description: 'Stiff to hard, yellowish brown silty clay of high plasticity', classification: 'CI', symbolType: 'ci' },
   ])
   const [expanded, setExpanded] = useState(true)
+  const [boreholes, setBoreholes] = useState<any[]>([])
+  const [selectedProfileId, setSelectedProfileId] = useState('')
+
+  useEffect(() => { api.listBoreholes().then(setBoreholes).catch(() => {}) }, [])
+
+  function loadFromProfile() {
+    const profile = boreholes.find((b) => b.id === selectedProfileId)
+    if (!profile) return
+    setBoreholeName(profile.borehole_id)
+    if (profile.project_name) setProjectName(profile.project_name)
+    if (profile.water_table_depth_m != null) setWaterLevel(String(profile.water_table_depth_m))
+    setLayers(profile.layers.map(layerFromLabData))
+  }
 
   function addLayer() {
     const last = layers[layers.length - 1]
@@ -153,6 +214,20 @@ export default function BoreholeLogs() {
       </div>
 
       {/* Header details */}
+      {boreholes.length > 0 && (
+        <div className="glass p-4 mb-5 print:hidden">
+          <div className="text-xs uppercase tracking-wide text-slate-500 mb-2 flex items-center gap-1.5"><Download size={13} /> Load from Lab Data Import</div>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <select className="gm-input flex-1" value={selectedProfileId} onChange={(e) => setSelectedProfileId(e.target.value)}>
+              <option value="">Select borehole profile...</option>
+              {boreholes.map((b) => <option key={b.id} value={b.id}>{b.borehole_id} {b.project_name ? `(${b.project_name})` : ''} — {b.layers.length} layer(s)</option>)}
+            </select>
+            <button onClick={loadFromProfile} disabled={!selectedProfileId} className="gm-btn-primary text-xs whitespace-nowrap">Load Strata</button>
+          </div>
+          <p className="text-xs text-slate-500 mt-2">Fills all strata layers and one sample per layer automatically — no re-typing needed.</p>
+        </div>
+      )}
+
       <div className="glass p-5 mb-5 print:hidden">
         <button onClick={() => setExpanded(!expanded)} className="flex items-center gap-2 text-sm text-slate-200 mb-3">
           {expanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />} Project & Borehole Details
