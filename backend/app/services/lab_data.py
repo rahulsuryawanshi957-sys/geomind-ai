@@ -32,6 +32,13 @@ COLUMNS = [
     ("Core Recovery (%)", "core_recovery_pct", float),
     ("RQD (%)", "rqd_pct", float),
     ("UCS (kg/cm2)", "ucs_kg_cm2", float),
+    ("Easting", "easting", float),
+    ("Northing", "northing", float),
+    ("R.L (m)", "rl_m", float),
+    ("Date of Boring", "date_of_boring", str),
+    ("Project Number", "project_number", str),
+    ("Sample ID", "sample_id", str),
+    ("Sample Type", "sample_type", str),
 ]
 
 EXAMPLE_ROWS = [
@@ -130,6 +137,11 @@ def parse_uploaded_workbook(file_bytes: bytes) -> dict:
             boreholes[bh_id] = {
                 "project_name": row_dict.get("project_name"),
                 "water_table_depth_m": row_dict.get("water_table_depth_m"),
+                "easting": row_dict.get("easting"),
+                "northing": row_dict.get("northing"),
+                "rl_m": row_dict.get("rl_m"),
+                "date_of_boring": row_dict.get("date_of_boring"),
+                "project_number": row_dict.get("project_number"),
                 "layers": [],
             }
         boreholes[bh_id]["layers"].append({
@@ -150,6 +162,8 @@ def parse_uploaded_workbook(file_bytes: bytes) -> dict:
             "core_recovery_pct": row_dict.get("core_recovery_pct"),
             "rqd_pct": row_dict.get("rqd_pct"),
             "ucs_kg_cm2": row_dict.get("ucs_kg_cm2"),
+            "sample_id": row_dict.get("sample_id"),
+            "sample_type": row_dict.get("sample_type"),
         })
 
     if not boreholes:
@@ -157,3 +171,23 @@ def parse_uploaded_workbook(file_bytes: bytes) -> dict:
 
     logger.info(f"[lab_data] Parsed {len(boreholes)} borehole(s) from uploaded sheet, {len(warnings)} warning(s).")
     return {"boreholes": boreholes, "warnings": warnings}
+
+
+def parse_uploaded_workbook_auto(file_bytes: bytes) -> dict:
+    """
+    Tries the flat 'Soil Data' template first; if that sheet isn't present,
+    falls back to the office-style borehole-log .xlsm format (one sheet per
+    borehole) via bh_log_parser. Either path returns the SAME dict shape:
+    {"boreholes": {borehole_id: {project_name, water_table_depth_m, layers:[...]}}, "warnings":[...]}
+    """
+    from openpyxl import load_workbook
+    import io
+    from app.services.bh_log_parser import parse_borehole_log_workbook, to_lab_data_format
+
+    wb = load_workbook(io.BytesIO(file_bytes), data_only=True)
+    if "Soil Data" in wb.sheetnames:
+        return parse_uploaded_workbook(file_bytes)
+
+    logger.info("[lab_data] 'Soil Data' sheet not found -- trying office borehole-log format.")
+    parsed = parse_borehole_log_workbook(file_bytes)
+    return to_lab_data_format(parsed)

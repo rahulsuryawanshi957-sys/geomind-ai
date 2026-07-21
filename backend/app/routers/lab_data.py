@@ -44,6 +44,11 @@ async def upload_lab_data(file: UploadFile = File(...), db: Session = Depends(ge
             borehole_id=bh_id,
             project_name=data.get("project_name"),
             water_table_depth_m=data.get("water_table_depth_m"),
+            easting=data.get("easting"),
+            northing=data.get("northing"),
+            rl_m=data.get("rl_m"),
+            date_of_boring=data.get("date_of_boring"),
+            project_number=data.get("project_number"),
             source_filename=file.filename,
         )
         db.add(profile)

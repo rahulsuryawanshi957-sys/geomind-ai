@@ -78,6 +78,8 @@ class SoilLayerOut(BaseModel):
     core_recovery_pct: float | None = None
     rqd_pct: float | None = None
     ucs_kg_cm2: float | None = None
+    sample_id: str | None = None
+    sample_type: str | None = None
 
     class Config:
         from_attributes = True
@@ -88,6 +90,11 @@ class BoreholeProfileOut(BaseModel):
     borehole_id: str
     project_name: str | None = None
     water_table_depth_m: float | None = None
+    easting: float | None = None
+    northing: float | None = None
+    rl_m: float | None = None
+    date_of_boring: str | None = None
+    project_number: str | None = None
     source_filename: str | None = None
     created_at: datetime
     layers: list[SoilLayerOut] = []

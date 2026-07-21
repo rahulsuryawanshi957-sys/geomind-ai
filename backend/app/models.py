@@ -85,6 +85,11 @@ class BoreholeProfile(Base):
     project_name = Column(String, nullable=True)
     water_table_depth_m = Column(Float, nullable=True)
     source_filename = Column(String, nullable=True)
+    easting = Column(Float, nullable=True)
+    northing = Column(Float, nullable=True)
+    rl_m = Column(Float, nullable=True)
+    date_of_boring = Column(String, nullable=True)
+    project_number = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     layers = relationship("SoilLayer", back_populates="borehole", cascade="all, delete-orphan", order_by="SoilLayer.from_m")
@@ -101,6 +106,8 @@ class SoilLayer(Base):
     to_m = Column(Float, nullable=False)
     description = Column(String, nullable=True)
     classification = Column(String, nullable=True)   # USCS group symbol, e.g. CI, SM
+    sample_id = Column(String, nullable=True)          # e.g. "UDS-1", "SPT-3", "DS-2"
+    sample_type = Column(String, nullable=True)        # e.g. "UDS", "SPT", "DS"
 
     n_value = Column(Float, nullable=True)            # field SPT N
     bulk_density_t_m3 = Column(Float, nullable=True)
