@@ -93,12 +93,14 @@ export default function LabDataImport() {
                   <thead>
                     <tr className="text-slate-500 border-b border-white/10">
                       <th className="text-left py-1.5 pr-3">Depth (m)</th>
+                  <th className="text-left py-1.5 pr-3">Sample</th>
                       <th className="text-left py-1.5 pr-3">Description</th>
                       <th className="text-left py-1.5 pr-3">Class</th>
                       <th className="text-left py-1.5 pr-3">N</th>
                       <th className="text-left py-1.5 pr-3">γ (t/m³)</th>
                       <th className="text-left py-1.5 pr-3">C (t/m²)</th>
                       <th className="text-left py-1.5 pr-3">φ (°)</th>
+                  <th className="text-left py-1.5 pr-3">Cc</th>
                       <th className="text-left py-1.5 pr-3">Rock Grade</th>
                       <th className="text-left py-1.5 pr-3">Core Rec. %</th>
                       <th className="text-left py-1.5 pr-3">RQD %</th>
