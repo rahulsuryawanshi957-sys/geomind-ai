@@ -2,9 +2,9 @@ import json
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models import CalculationLog
-from app.schemas import CalculatorRequest
-from app.services.calculators import CALCULATOR_REGISTRY
+from app.models import CalculationLog, BoreholeProfile
+from app.schemas import CalculatorRequest, BatchRunRequest
+from app.services.calculators import CALCULATOR_REGISTRY, run_batch_matrix
 
 router = APIRouter(prefix="/api/calculators", tags=["calculators"])
 
@@ -48,4 +48,41 @@ def run_calculator(req: CalculatorRequest, db: Session = Depends(get_db)):
     db.add(log)
     db.commit()
 
+    return result
+
+
+@router.post("/batch")
+def run_batch(req: BatchRunRequest, db: Session = Depends(get_db)):
+    profile = db.query(BoreholeProfile).filter(BoreholeProfile.id == req.borehole_id).first()
+    if not profile:
+        raise HTTPException(404, "Borehole profile not found.")
+    layer = next((l for l in profile.layers if l.id == req.layer_id), None)
+    if not layer:
+        raise HTTPException(404, "Soil layer not found in this borehole.")
+    if len(req.widths_m) * len(req.depths_m) > 400:
+        raise HTTPException(422, "Grid too large (max 400 combinations at once) -- narrow the width/depth lists.")
+
+    try:
+        result = run_batch_matrix(
+            layer=layer, water_table_depth_m=profile.water_table_depth_m,
+            soil_type=req.soil_type, widths_m=req.widths_m, depths_m=req.depths_m,
+            length_m=req.length_m, shape=req.shape, fos=req.fos,
+            allowable_settlement_mm=req.allowable_settlement_mm,
+            consolidation_type=req.consolidation_type,
+            elastic_modulus_t_m2=req.elastic_modulus_t_m2,
+            rigidity_factor=req.rigidity_factor,
+        )
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+
+    log = CalculationLog(
+        calculator_type="batch_matrix",
+        inputs_json=json.dumps(req.model_dump()),
+        result_json=json.dumps(result),
+    )
+    db.add(log)
+    db.commit()
+
+    result["borehole_id"] = profile.borehole_id
+    result["layer_label"] = f"{layer.from_m}-{layer.to_m}m" + (f" ({layer.classification})" if layer.classification else "")
     return result

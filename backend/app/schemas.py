@@ -53,6 +53,28 @@ class CalculatorRequest(BaseModel):
     inputs: dict
 
 
+class BatchRunRequest(BaseModel):
+    """
+    Batch/matrix engine request: runs shear (IS:6403) + settlement (IS:8009)
+    SBC for every width x depth combination in the grid (cross-product of
+    widths_m x depths_m), using ONE soil layer's properties held fixed.
+    This is what turns single calculations into the '100+ combinations at
+    once' workflow described in the roadmap.
+    """
+    borehole_id: str
+    layer_id: str
+    soil_type: str  # "cohesive" or "noncohesive" -- decides which IS:8009 settlement method runs
+    widths_m: list[float]
+    depths_m: list[float]
+    length_m: float | None = None  # None => square footing (length = width) per combination
+    shape: str = "square"
+    fos: float = 2.5
+    allowable_settlement_mm: float = 25
+    consolidation_type: str = "NCS"  # only used when soil_type == "cohesive"
+    elastic_modulus_t_m2: float | None = None  # manual override; else estimated from N-value (cohesive only)
+    rigidity_factor: float = 1.0
+
+
 class ReportSectionRequest(BaseModel):
     section_type: str
     project_inputs: dict

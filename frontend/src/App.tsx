@@ -7,6 +7,7 @@ import Chat from './pages/Chat'
 import Books from './pages/Books'
 import SearchPage from './pages/SearchPage'
 import Calculators from './pages/Calculators'
+import BatchAnalysis from './pages/BatchAnalysis'
 import FormulaLibrary from './pages/FormulaLibrary'
 import ClauseFinder from './pages/ClauseFinder'
 import Reports from './pages/Reports'
@@ -39,6 +40,7 @@ export default function App() {
             <Route path="/clause-finder" element={<ClauseFinder />} />
             <Route path="/pdf-chat" element={<PdfChat />} />
             <Route path="/calculators" element={<Calculators />} />
+            <Route path="/batch-analysis" element={<BatchAnalysis />} />
             <Route path="/borehole-logs" element={<BoreholeLogs />} />
             <Route path="/lab-reports" element={<LabReports />} />
             <Route path="/soil-profile" element={<SoilProfile />} />

@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom'
 import {
   MessageSquare, Upload, ScrollText, Calculator, FileText,
   BookOpen, Layers, Activity, Clock, ArrowUpRight, Layers3,
-  FlaskConical, FileSearch, Sigma, Search,
+  FlaskConical, FileSearch, Sigma, Search, LayoutGrid,
 } from 'lucide-react'
 import { api } from '../api/client'
 
@@ -13,6 +13,7 @@ const QUICK_ACTIONS = [
   { to: '/books', label: 'Upload Book', icon: Upload, gradient: 'from-cyan-500 to-cyan-400' },
   { to: '/is-codes', label: 'Upload IS Code', icon: ScrollText, gradient: 'from-violet-500 to-cyan-400' },
   { to: '/calculators', label: 'Open Analysis', icon: Calculator, gradient: 'from-cyan-500 to-violet-400' },
+  { to: '/batch-analysis', label: 'Batch Analysis', icon: LayoutGrid, gradient: 'from-violet-500 to-cyan-500' },
   { to: '/borehole-logs', label: 'Borehole Log', icon: Layers3, gradient: 'from-violet-400 to-cyan-500' },
   { to: '/lab-reports', label: 'Lab Data Import', icon: FlaskConical, gradient: 'from-cyan-400 to-violet-500' },
   { to: '/clause-finder', label: 'Clause Finder', icon: FileSearch, gradient: 'from-violet-500 to-violet-600' },

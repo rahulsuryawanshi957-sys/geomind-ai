@@ -48,6 +48,13 @@ export const api = {
   runCalculator: (calculator_type: string, inputs: Record<string, any>) =>
     request<any>('/api/calculators/run', { method: 'POST', body: JSON.stringify({ calculator_type, inputs }) }),
 
+  runBatch: (payload: {
+    borehole_id: string; layer_id: string; soil_type: string
+    widths_m: number[]; depths_m: number[]; length_m?: number | null
+    shape?: string; fos?: number; allowable_settlement_mm?: number
+    consolidation_type?: string; elastic_modulus_t_m2?: number | null; rigidity_factor?: number
+  }) => request<any>('/api/calculators/batch', { method: 'POST', body: JSON.stringify(payload) }),
+
   reportSectionTypes: () => request<string[]>('/api/reports/section-types'),
 
   generateReportSection: (section_type: string, project_inputs: Record<string, any>, reference_query?: string) =>

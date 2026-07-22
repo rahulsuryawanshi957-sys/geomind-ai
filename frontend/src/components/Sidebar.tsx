@@ -4,7 +4,7 @@ import {
   LayoutDashboard, MessageSquare, FolderKanban, BookOpen, ScrollText, Sigma,
   Calculator, ScanSearch, FileSearch, Layers3, FlaskConical, Mountain,
   FileText, History, Bookmark, Settings, ChevronsLeft, ChevronsRight,
-  Sun, Moon, Sparkles,
+  Sun, Moon, Sparkles, LayoutGrid,
 } from 'lucide-react'
 
 const NAV_SECTIONS: { label: string; items: { to: string; label: string; icon: any; end?: boolean; soon?: boolean }[] }[] = [
@@ -30,6 +30,7 @@ const NAV_SECTIONS: { label: string; items: { to: string; label: string; icon: a
     label: 'Engineering',
     items: [
       { to: '/calculators', label: 'Analysis', icon: Calculator },
+      { to: '/batch-analysis', label: 'Batch Analysis', icon: LayoutGrid },
       { to: '/borehole-logs', label: 'Borehole Logs', icon: Layers3 },
       { to: '/lab-reports', label: 'Lab Data Import', icon: FlaskConical },
       { to: '/soil-profile', label: 'Soil Profile Viewer', icon: Mountain },

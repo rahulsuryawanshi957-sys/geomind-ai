@@ -507,6 +507,114 @@ def settlement_sbc_is8009_cohesive(
     }
 
 
+def run_batch_matrix(
+    layer, water_table_depth_m: float | None, soil_type: str,
+    widths_m: list[float], depths_m: list[float], length_m: float | None,
+    shape: str = "square", fos: float = 2.5, allowable_settlement_mm: float = 25,
+    consolidation_type: str = "NCS", elastic_modulus_t_m2: float | None = None,
+    rigidity_factor: float = 1.0,
+) -> dict:
+    """
+    Batch/matrix engine (Phase 3): runs IS:6403 shear SBC + IS:8009 settlement
+    SBC for every (width, depth) combination in the cross-product of
+    widths_m x depths_m, holding ONE SoilLayer's properties fixed. Recommended
+    SBC per combination = min(shear, settlement), matching the same
+    "take the lower of the two" rule already used for the single calculators.
+
+    `layer` is a SoilLayer ORM object (or anything with the same attributes).
+    Individual combinations that fail (e.g. bad geometry, N<=3 for the
+    granular chart) are captured as a per-combination "error" instead of
+    aborting the whole batch, so one bad row doesn't block the other 99.
+    """
+    soil_type = soil_type.lower()
+    if soil_type not in ("cohesive", "noncohesive"):
+        raise ValueError("soil_type must be 'cohesive' or 'noncohesive'.")
+    if not widths_m or not depths_m:
+        raise ValueError("Provide at least one footing width and one depth.")
+    if water_table_depth_m is None:
+        raise ValueError("This borehole has no water table depth recorded -- required for both SBC methods.")
+
+    # Check required layer fields up front so we fail once with a clear
+    # message instead of repeating the same missing-data error per combo.
+    missing = [f for f in ("cohesion_t_m2", "friction_angle_deg", "bulk_density_t_m3",
+                            "specific_gravity", "moisture_content_pct") if getattr(layer, f) is None]
+    if soil_type == "noncohesive" and layer.n_value is None:
+        missing.append("n_value")
+    if soil_type == "cohesive":
+        if layer.compression_index_cc is None:
+            missing.append("compression_index_cc")
+        if layer.initial_void_ratio_e0 is None:
+            missing.append("initial_void_ratio_e0")
+
+    es = elastic_modulus_t_m2
+    if soil_type == "cohesive" and es is None:
+        if layer.n_value is not None:
+            es = 30 * (layer.n_value + 6)  # Bowles correlation -- same fallback the single-calculator UI uses
+        else:
+            missing.append("elastic_modulus_t_m2 (no N-value on this layer to estimate it from -- enter manually)")
+
+    if missing:
+        raise ValueError(f"Selected layer is missing required data for a {soil_type} batch run: {', '.join(missing)}.")
+
+    combos = []
+    for w in widths_m:
+        for d in depths_m:
+            L = length_m if length_m else w
+            row = {"width_m": w, "depth_m": d, "length_m": L}
+            try:
+                shear = bearing_capacity_is6403_shear(
+                    length_m=L, width_m=w, depth_m=d,
+                    cohesion_t_m2=layer.cohesion_t_m2, phi_deg=layer.friction_angle_deg,
+                    gamma_avg_above_t_m3=layer.bulk_density_t_m3, gamma_at_base_t_m3=layer.bulk_density_t_m3,
+                    specific_gravity=layer.specific_gravity, moisture_content_pct=layer.moisture_content_pct,
+                    water_table_depth_m=water_table_depth_m, shape=shape, fos=fos,
+                )
+                if soil_type == "noncohesive":
+                    settlement = settlement_sbc_is8009_noncohesive(
+                        length_m=L, width_m=w, depth_m=d, n_value=layer.n_value,
+                        allowable_settlement_mm=allowable_settlement_mm,
+                        water_table_depth_m=water_table_depth_m, rigidity_factor=rigidity_factor,
+                    )
+                else:
+                    settlement = settlement_sbc_is8009_cohesive(
+                        length_m=L, width_m=w, depth_m=d,
+                        elastic_modulus_t_m2=es,
+                        compression_index_cc=layer.compression_index_cc,
+                        initial_void_ratio_e0=layer.initial_void_ratio_e0,
+                        gamma_avg_above_t_m3=layer.bulk_density_t_m3,
+                        allowable_settlement_mm=allowable_settlement_mm,
+                        consolidation_type=consolidation_type, rigidity_factor=rigidity_factor,
+                    )
+                shear_val, settlement_val = shear["result"], settlement["result"]
+                recommended = min(shear_val, settlement_val)
+                row.update({
+                    "shear_sbc": shear_val,
+                    "settlement_sbc": settlement_val,
+                    "recommended_sbc": round(recommended, 2),
+                    "governing": "shear (IS:6403)" if shear_val <= settlement_val else "settlement (IS:8009)",
+                })
+            except (ValueError, ZeroDivisionError) as e:
+                row["error"] = str(e)
+            combos.append(row)
+
+    valid = [c for c in combos if "error" not in c]
+    critical = min(valid, key=lambda c: c["recommended_sbc"]) if valid else None
+
+    return {
+        "soil_type": soil_type,
+        "elastic_modulus_used_t_m2": round(es, 1) if soil_type == "cohesive" else None,
+        "unit": "t/m²",
+        "combinations": combos,
+        "total": len(combos),
+        "successful": len(valid),
+        "critical_combination": critical,
+        "warnings": [
+            "Every combination uses this ONE soil layer's properties held fixed -- for a multi-layer site, run the batch once per representative layer.",
+            "This is the shear (IS:6403) vs settlement (IS:8009) governing check only, same rule as the single calculators -- verify structural and other checks separately.",
+        ],
+    }
+
+
 CALCULATOR_REGISTRY = {
     "bearing_capacity_terzaghi": terzaghi_bearing_capacity,
     "bearing_capacity_is6403_shear": bearing_capacity_is6403_shear,

@@ -71,7 +71,8 @@ env vars make things persistent:
 
 ```
 frontend/          React + TypeScript + Vite + Tailwind, dark navy/violet/cyan theme
-  src/pages/        One file per route (Chat, Books, Calculators, BoreholeLogs, etc.)
+  src/pages/        One file per route (Chat, Books, Calculators, BatchAnalysis,
+                      BoreholeLogs, etc.)
   src/pages/planned/  Features that started as "Coming Soon" placeholders -- some have
                       since been built out for real (BoreholeLogs.tsx, LabReports.tsx).
                       Still-placeholder: Projects, PdfChat, SoilProfile, Bookmarks.
@@ -113,6 +114,24 @@ Report Generator (Word/PDF export), History.
   capacity, group efficiency, lateral pile, retaining wall stability, **liquefaction**,
   plate load test, modulus of subgrade reaction (standalone)
 
+**Batch Analysis (`/batch-analysis`, Phase 3 — done)** — runs shear (IS:6403) +
+settlement (IS:8009) SBC across a full width × depth grid (cross-product of a
+comma-separated widths list and depths list, up to 400 combinations) for ONE selected
+borehole layer, in one go. Recommended SBC per combination = min(shear, settlement),
+same rule as the single calculators; the lowest-recommended combination across the
+whole grid is called out as the "critical combination." Backend: `run_batch_matrix()`
+in `services/calculators.py` (reuses the exact same `bearing_capacity_is6403_shear` /
+`settlement_sbc_is8009_*` functions — no duplicated formulas), `POST /api/calculators/batch`
+in `routers/calculators.py`. A combination that individually fails (e.g. N≤3 for the
+granular chart) is captured as a per-row `error` instead of aborting the whole batch.
+**Progress bar (mandatory requirement from Raahi):** the frontend does NOT send one
+giant request — it calls `/api/calculators/batch` once per width value (all depths for
+that width per call) and updates a real progress bar after each call completes, then
+merges all the returned combinations client-side. This makes the progress bar reflect
+actual completed work, not a simulated animation. If a future batch-style feature needs
+progress feedback, reuse this same "chunk the request, update progress per chunk"
+pattern rather than trying to stream progress from a single request.
+
 **Borehole Log** — full professional field-borelog format: multi-sample layers (D/P/U/C/V/W
 types), SPT increments (0-150/150-300/300-450 → N), core recovery/RQD, full USCS group
 symbol hatching (GW/GP/GM/GC/SW/SP/SM/SC/ML/MI/MH/CL/CI/CH/OL/OI/OH/Pt + rock grades
@@ -129,7 +148,12 @@ for everything else (see Roadmap).
 
 ## Known limitations / honest gaps
 
-- No batch/matrix runner yet (can't check 100 footing combinations at once yet).
+- Batch engine runs ONE soil layer at a time (not automatic multi-layer stratification
+  across a whole borehole) — matches the same single-representative-layer simplification
+  the settlement calculators already use.
+- Batch engine's width × depth grid is a cross-product only (every width against every
+  depth) — no way yet to submit an arbitrary explicit list of (width, depth) pairs that
+  skips some combinations.
 - No liquefaction calculator yet.
 - No pile capacity calculator yet.
 - Settlement calculators treat the depth-of-influence as ONE representative layer, not
@@ -153,12 +177,13 @@ foundation combinations, in ~1 hour instead of a full day. Phases:
    auto-fill for whichever calculator is open. Project-specific fields (footing size,
    allowable settlement, FOS) are deliberately left for manual entry. Unit conversions
    (t/m² ↔ kPa) are handled where a calculator uses different units than the stored data.
-3. **NEXT — Batch/matrix engine.** Given a BoreholeProfile + a list of footing widths/
-   depths (or a small table the user fills in), run shear + settlement SBC for every
-   combination automatically and return a results table (min of shear/settlement =
-   recommended SBC per combination).
-4. **New calculators:** Liquefaction (IS 1893 simplified procedure, SPT-N based) and Pile
-   Capacity (IS 2911, static formula via SPT-N or C-φ).
+3. **✅ DONE — Batch/matrix engine.** `/batch-analysis` page + `POST /api/calculators/batch`.
+   Pick a borehole + layer, enter comma-separated width and depth lists, runs shear +
+   settlement SBC for every combination (cross-product, up to 400 at once) and returns a
+   results table with the lowest-recommended "critical combination" called out. See
+   "What's built" above for implementation details.
+4. **NEXT — New calculators:** Liquefaction (IS 1893 simplified procedure, SPT-N based) and
+   Pile Capacity (IS 2911, static formula via SPT-N or C-φ).
 5. **Auto-report generation.** Combine borehole log chart + batch calculation results +
    summary into one downloadable Word/PDF report.
 
@@ -194,9 +219,14 @@ scoped).
 
 ## How to give Raahi an update (workflow reminder for whoever's helping)
 
-1. Make code changes in your own sandbox, verify with `python3 -m py_compile` (backend)
-   and a brace-balance check (frontend TSX, since there's no local `npm`/`tsc` available
-   to fully type-check).
+1. Make code changes in your own sandbox, verify with `python3 -m py_compile` (backend,
+   whole tree not just changed files) and `tsc --ignoreConfig --noEmit --skipLibCheck --jsx
+   react-jsx` (frontend — a real global `tsc` binary is available even though
+   `node_modules` isn't; ignore `TS2307`/`TS7xxx`/module-not-found noise, those are just
+   missing `node_modules`, but treat any `TS1xxx` as a real syntax error). For pure-logic
+   backend functions (no DB/FastAPI needed), test them directly with a mock object
+   (`types.SimpleNamespace`) standing in for the SQLAlchemy model — this catches real bugs
+   without needing `fastapi`/`sqlalchemy` installed, which they aren't in the sandbox.
 2. Zip the whole project (exclude `data/uploads/*`, `data/chroma/*`, `node_modules`,
    `__pycache__`), present it as a download.
 3. Give copy-paste Termux commands: `unzip -o ... -d geomind-new`, `rm -rf` + `cp -r` the
