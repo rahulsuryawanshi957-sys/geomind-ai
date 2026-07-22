@@ -74,8 +74,8 @@ frontend/          React + TypeScript + Vite + Tailwind, dark navy/violet/cyan t
   src/pages/        One file per route (Chat, Books, Calculators, BatchAnalysis,
                       BoreholeLogs, etc.)
   src/pages/planned/  Features that started as "Coming Soon" placeholders -- some have
-                      since been built out for real (BoreholeLogs.tsx, LabReports.tsx).
-                      Still-placeholder: Projects, PdfChat, SoilProfile, Bookmarks.
+                      since been built out for real (BoreholeLogs.tsx, LabReports.tsx,
+                      SoilProfile.tsx). Still-placeholder: Projects, PdfChat, Bookmarks.
   src/components/    Sidebar, MobileNav, ComingSoon, ReferenceBlock, SourcesPanel
   src/api/client.ts  All backend API calls in one place
 
@@ -114,17 +114,48 @@ Report Generator (Word/PDF export), History.
   capacity, group efficiency, lateral pile, retaining wall stability, **liquefaction**,
   plate load test, modulus of subgrade reaction (standalone)
 
-**Batch Analysis (`/batch-analysis`, Phase 3 — done)** — runs shear (IS:6403) +
+**Batch Analysis (`/batch-analysis`, Phase 3 — done, v2)** — runs shear (IS:6403) +
 settlement (IS:8009) SBC across a full width × depth grid (cross-product of a
-comma-separated widths list and depths list, up to 400 combinations) for ONE selected
-borehole layer, in one go. Recommended SBC per combination = min(shear, settlement),
-same rule as the single calculators; the lowest-recommended combination across the
-whole grid is called out as the "critical combination." Backend: `run_batch_matrix()`
-in `services/calculators.py` (reuses the exact same `bearing_capacity_is6403_shear` /
-`settlement_sbc_is8009_*` functions — no duplicated formulas), `POST /api/calculators/batch`
-in `routers/calculators.py`. A combination that individually fails (e.g. N≤3 for the
-granular chart) is captured as a per-row `error` instead of aborting the whole batch.
-**Progress bar (mandatory requirement from Raahi):** the frontend does NOT send one
+comma-separated widths list and depths list, up to 400 combinations) for a whole
+borehole in one go. Recommended SBC per combination = min(shear, settlement), same
+rule as the single calculators; the lowest-recommended combination across the whole
+grid is called out as the "critical combination."
+
+**No manual layer picking (v2 redesign, per Raahi's explicit request).** The old v1
+made you hand-pick ONE layer for the entire batch, which meant re-running the whole
+batch per depth range if a site had multiple strata. v2 auto-locates the *founding
+layer* for each depth independently from the borehole's own layers (so one batch run
+across depths=[1.5, 3, 6] can span three different strata correctly in one go), and
+fills any field missing on that layer (e.g. an SPT-only sand layer with no lab c/phi)
+from the nearest layer(s) above/below, or a borehole-wide average as a last resort. The
+one exception is overburden density (`gamma_avg_above_t_m3`, the shear surcharge term)
+— that's computed as a thickness-weighted average across every layer from ground level
+to the founding depth, because it's a genuinely borehole-wide quantity by definition,
+not one layer's property (cohesion/phi/N/Cc/e0 stay layer-specific with
+neighbour/average fallback, since those really are properties of one stratum).
+Every result row shows which `founding_layer` and `soil_type` were actually used, so
+the auto-sourcing is never a black box.
+
+**Manual overrides.** A collapsible panel lets Raahi pin any of: cohesion, friction
+angle, bulk density, overburden density, specific gravity, moisture content, N-value,
+Cc, e0, elastic modulus, or force soil_type — any filled field skips auto-sourcing for
+that field across the whole batch. This is the escape hatch when the auto-picked value
+isn't trusted or a what-if scenario is being tested.
+
+Backend: `run_batch_matrix()` + helpers `_founding_layer()`, `_resolve_field()`,
+`_weighted_overburden()` in `services/calculators.py` (reuses the exact same
+`bearing_capacity_is6403_shear` / `settlement_sbc_is8009_*` functions — no duplicated
+formulas), `POST /api/calculators/batch` in `routers/calculators.py` (now passes ALL of
+`profile.layers`, not one `layer_id`). A combination that individually fails (e.g. N≤3
+for the granular chart, or truly no layer anywhere has a required field and no override
+was given) is captured as a per-row `error` instead of aborting the whole batch.
+Verified against a mock 3-layer borehole (clay/SPT-only-sand/clay) with direct
+`run_batch_matrix()` calls — confirmed per-depth founding-layer selection, exact
+neighbour-average fallback math, exact weighted-overburden math, and override
+precedence, all against hand-calculated expected values (see chat history for the
+worked numbers if this needs re-verifying later).
+
+**Progress bar (mandatory requirement from Raahi).** The frontend does NOT send one
 giant request — it calls `/api/calculators/batch` once per width value (all depths for
 that width per call) and updates a real progress bar after each call completes, then
 merges all the returned combinations client-side. This makes the progress bar reflect
@@ -144,23 +175,37 @@ per soil layer, Borehole ID/Project/Water Table repeated per row) → upload →
 `BoreholeProfile` + `SoilLayer` DB records. This is meant to be the **shared data source**
 for everything else (see Roadmap).
 
+**Soil Profile Viewer** (`/soil-profile`) — was undocumented until now, but is fully built,
+not a placeholder. Side-by-side stratigraphy columns for multiple boreholes at once (depth
+scale, USCS classification color/pattern hatching reusing the Borehole Log page's
+convention, water table line, zoom slider), hover a layer to see its properties (N-value,
+cohesion, φ, UCS, RQD, etc). **Purely a visualization/comparison tool — runs no
+calculation.** Different from Batch Analysis (which runs the shear+settlement SBC matrix
+for one layer but draws no chart) even though both start with a borehole/layer picker
+reading the same data — one looks at the ground, the other sizes a foundation.
+
 **Dashboard** — quick actions + stats for every real feature above.
 
 ## Known limitations / honest gaps
 
-- Batch engine runs ONE soil layer at a time (not automatic multi-layer stratification
-  across a whole borehole) — matches the same single-representative-layer simplification
-  the settlement calculators already use.
 - Batch engine's width × depth grid is a cross-product only (every width against every
   depth) — no way yet to submit an arbitrary explicit list of (width, depth) pairs that
-  skips some combinations.
+  skips some combinations. (Multi-layer stratification across the borehole IS handled
+  now, per-depth, since the v2 redesign — see "What's built" above.)
+- Batch engine's neighbour/average fallback for a missing field treats every field the
+  same way (nearest layer above+below, averaged) — it doesn't know that, say, borrowing
+  specific gravity from a totally different soil type two layers away is less trustworthy
+  than borrowing bulk density. Always check the `founding_layer` column and override
+  anything that doesn't look right for the actual site.
 - No liquefaction calculator yet.
 - No pile capacity calculator yet.
 - Settlement calculators treat the depth-of-influence as ONE representative layer, not
   true multi-layer stratification (a simplification from the source Excel workbook, which
   did real per-layer stratification with iterative depth-of-influence convergence).
-- `Projects`, `PDF Chat`, `Soil Profile Viewer`, `Bookmarks` are still honest "Coming Soon"
-  placeholders in the sidebar (see `frontend/src/pages/planned/ComingSoon.tsx` usage).
+- `Projects`, `PDF Chat`, `Bookmarks` are still honest "Coming Soon" placeholders in the
+  sidebar (see `frontend/src/pages/planned/ComingSoon.tsx` usage). Soil Profile Viewer was
+  wrongly listed here in older versions of this doc — it's actually fully built (see
+  "What's built" above).
 
 ---
 

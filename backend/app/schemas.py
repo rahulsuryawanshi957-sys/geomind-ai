@@ -55,24 +55,27 @@ class CalculatorRequest(BaseModel):
 
 class BatchRunRequest(BaseModel):
     """
-    Batch/matrix engine request: runs shear (IS:6403) + settlement (IS:8009)
-    SBC for every width x depth combination in the grid (cross-product of
-    widths_m x depths_m), using ONE soil layer's properties held fixed.
-    This is what turns single calculations into the '100+ combinations at
-    once' workflow described in the roadmap.
+    Batch/matrix engine request (v2): runs shear (IS:6403) + settlement
+    (IS:8009) SBC for every width x depth combination in the grid
+    (cross-product of widths_m x depths_m). No manual layer pick -- for each
+    depth, the founding layer is auto-located from the borehole's own layers,
+    and any field that layer is missing is filled from neighbouring layers or
+    a borehole-wide average (see run_batch_matrix in services/calculators.py).
+    `overrides` lets Raahi manually pin any field (e.g. {"cohesion_t_m2": 3.5})
+    to skip auto-sourcing for that field across the whole batch.
     """
     borehole_id: str
-    layer_id: str
-    soil_type: str  # "cohesive" or "noncohesive" -- decides which IS:8009 settlement method runs
     widths_m: list[float]
     depths_m: list[float]
     length_m: float | None = None  # None => square footing (length = width) per combination
     shape: str = "square"
     fos: float = 2.5
     allowable_settlement_mm: float = 25
-    consolidation_type: str = "NCS"  # only used when soil_type == "cohesive"
-    elastic_modulus_t_m2: float | None = None  # manual override; else estimated from N-value (cohesive only)
+    consolidation_type: str = "NCS"  # only used for layers auto/override-detected as cohesive
     rigidity_factor: float = 1.0
+    overrides: dict = {}  # optional manual pins: cohesion_t_m2, friction_angle_deg,
+    # bulk_density_t_m3, gamma_avg_above_t_m3, specific_gravity, moisture_content_pct,
+    # n_value, compression_index_cc, initial_void_ratio_e0, elastic_modulus_t_m2, soil_type
 
 
 class ReportSectionRequest(BaseModel):

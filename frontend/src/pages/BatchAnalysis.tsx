@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { LayoutGrid, Layers3, Target, Printer, Loader2 } from 'lucide-react'
+import { LayoutGrid, Layers3, Target, Printer, Loader2, SlidersHorizontal, ChevronDown, ChevronUp } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 
@@ -11,11 +11,25 @@ function parseNumberList(input: string): number[] {
     .filter((n) => !isNaN(n) && n > 0)
 }
 
+// Optional manual pins. Any field left blank is auto-sourced by the backend
+// (founding layer -> nearest neighbour -> borehole average). Anything filled
+// here overrides that auto-sourcing for every combination in the batch.
+const OVERRIDE_FIELDS: { key: string; label: string }[] = [
+  { key: 'cohesion_t_m2', label: 'Cohesion c (t/m²)' },
+  { key: 'friction_angle_deg', label: 'Friction angle φ (°)' },
+  { key: 'bulk_density_t_m3', label: 'Bulk density γ (t/m³)' },
+  { key: 'gamma_avg_above_t_m3', label: 'Overburden density (blank = auto weighted-avg)' },
+  { key: 'specific_gravity', label: 'Specific gravity G' },
+  { key: 'moisture_content_pct', label: 'Moisture content (%)' },
+  { key: 'n_value', label: 'SPT N-value' },
+  { key: 'compression_index_cc', label: 'Compression index Cc' },
+  { key: 'initial_void_ratio_e0', label: 'Initial void ratio e0' },
+  { key: 'elastic_modulus_t_m2', label: 'Elastic modulus Es (t/m²)' },
+]
+
 export default function BatchAnalysis() {
   const [boreholes, setBoreholes] = useState<any[]>([])
   const [selectedBoreholeId, setSelectedBoreholeId] = useState('')
-  const [selectedLayerId, setSelectedLayerId] = useState('')
-  const [soilType, setSoilType] = useState<'cohesive' | 'noncohesive'>('noncohesive')
   const [widthsInput, setWidthsInput] = useState('1.5, 2, 2.5, 3')
   const [depthsInput, setDepthsInput] = useState('1.5, 2, 2.5')
   const [lengthOverride, setLengthOverride] = useState('')
@@ -23,8 +37,10 @@ export default function BatchAnalysis() {
   const [fos, setFos] = useState('2.5')
   const [allowableSettlement, setAllowableSettlement] = useState('25')
   const [consolidationType, setConsolidationType] = useState('NCS')
-  const [esOverride, setEsOverride] = useState('')
   const [rigidityFactor, setRigidityFactor] = useState('1')
+  const [soilTypeForce, setSoilTypeForce] = useState('') // '' = auto per depth
+  const [overrides, setOverrides] = useState<Record<string, string>>({})
+  const [showOverrides, setShowOverrides] = useState(false)
   const [loading, setLoading] = useState(false)
   const [progress, setProgress] = useState(0)
   const [progressLabel, setProgressLabel] = useState('')
@@ -36,22 +52,28 @@ export default function BatchAnalysis() {
   }, [])
 
   const selectedBorehole = boreholes.find((b) => b.id === selectedBoreholeId)
-  const selectedLayer = selectedBorehole?.layers.find((l: any) => l.id === selectedLayerId)
-
-  useEffect(() => {
-    if (selectedLayer) {
-      setSoilType(selectedLayer.compression_index_cc != null ? 'cohesive' : 'noncohesive')
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedLayerId])
-
   const widths = parseNumberList(widthsInput)
   const depths = parseNumberList(depthsInput)
   const comboCount = widths.length * depths.length
+  const activeOverrideCount = Object.values(overrides).filter((v) => v !== '' && v != null).length + (soilTypeForce ? 1 : 0)
+
+  function setOv(key: string, val: string) {
+    setOverrides((prev) => ({ ...prev, [key]: val }))
+  }
+
+  function buildOverridesPayload() {
+    const out: Record<string, any> = {}
+    for (const { key } of OVERRIDE_FIELDS) {
+      const v = overrides[key]
+      if (v !== '' && v != null && !isNaN(parseFloat(v))) out[key] = parseFloat(v)
+    }
+    if (soilTypeForce) out.soil_type = soilTypeForce
+    return out
+  }
 
   async function runBatch() {
     setError(''); setResult(null); setProgress(0)
-    if (!selectedLayer) { setError('Pehle borehole aur layer select karo.'); return }
+    if (!selectedBoreholeId) { setError('Pehle ek borehole select karo.'); return }
     if (widths.length === 0 || depths.length === 0) { setError('Kam se kam ek width aur ek depth value do.'); return }
     if (comboCount > 400) { setError(`${comboCount} combinations bahut zyada hain (max 400 ek saath) — width/depth list chhoti karo.`); return }
 
@@ -62,12 +84,11 @@ export default function BatchAnalysis() {
       // Chunked by width: one backend call per width (covering all depths for
       // that width). This is what makes the progress bar real -- it advances
       // once per completed chunk, not a fake/simulated animation.
+      const overridesPayload = buildOverridesPayload()
       for (let i = 0; i < widths.length; i++) {
         setProgressLabel(`Width ${i + 1} of ${widths.length} (${widths[i]}m) — ${allCombos.length}/${comboCount} done`)
         const r = await api.runBatch({
           borehole_id: selectedBoreholeId,
-          layer_id: selectedLayerId,
-          soil_type: soilType,
           widths_m: [widths[i]],
           depths_m: depths,
           length_m: lengthOverride ? parseFloat(lengthOverride) : null,
@@ -75,9 +96,9 @@ export default function BatchAnalysis() {
           fos: parseFloat(fos) || 2.5,
           allowable_settlement_mm: parseFloat(allowableSettlement) || 25,
           consolidation_type: consolidationType,
-          elastic_modulus_t_m2: esOverride ? parseFloat(esOverride) : null,
           rigidity_factor: parseFloat(rigidityFactor) || 1,
-        })
+          overrides: overridesPayload,
+        } as any)
         allCombos.push(...r.combinations)
         meta = r
         setProgress(Math.round(((i + 1) / widths.length) * 100))
@@ -110,7 +131,7 @@ export default function BatchAnalysis() {
         <LayoutGrid size={20} className="text-violet-400" /> Batch Analysis
       </h1>
       <p className="text-sm text-slate-400 mb-6">
-        Shear (IS:6403) + settlement (IS:8009) SBC for every footing width × depth combination at once — recommended SBC is the lower of the two, per combination.
+        Shear (IS:6403) + settlement (IS:8009) SBC for every footing width × depth combination at once. Each depth auto-picks its founding layer from the borehole — no manual layer selection needed.
       </p>
 
       {boreholes.length === 0 ? (
@@ -122,60 +143,33 @@ export default function BatchAnalysis() {
         <div className="flex flex-col lg:flex-row gap-6">
           <div className="lg:w-[26rem] shrink-0 space-y-4">
             <div className="glass p-4">
-              <div className="text-xs uppercase tracking-wide text-slate-500 mb-2 flex items-center gap-1.5"><Layers3 size={13} /> Borehole & Layer</div>
-              <div className="flex flex-col gap-2">
-                <select
-                  className="gm-input w-full"
-                  value={selectedBoreholeId}
-                  onChange={(e) => { setSelectedBoreholeId(e.target.value); setSelectedLayerId(''); setResult(null) }}
-                >
-                  <option value="">Select borehole...</option>
-                  {boreholes.map((b) => <option key={b.id} value={b.id}>{b.borehole_id} {b.project_name ? `(${b.project_name})` : ''}</option>)}
-                </select>
-                <select
-                  className="gm-input w-full"
-                  value={selectedLayerId}
-                  onChange={(e) => { setSelectedLayerId(e.target.value); setResult(null) }}
-                  disabled={!selectedBorehole}
-                >
-                  <option value="">Select layer...</option>
-                  {selectedBorehole?.layers.map((l: any) => (
-                    <option key={l.id} value={l.id}>{l.from_m}–{l.to_m}m {l.classification ? `(${l.classification})` : ''} {l.description ? `— ${l.description}` : ''}</option>
-                  ))}
-                </select>
-              </div>
+              <div className="text-xs uppercase tracking-wide text-slate-500 mb-2 flex items-center gap-1.5"><Layers3 size={13} /> Borehole</div>
+              <select
+                className="gm-input w-full"
+                value={selectedBoreholeId}
+                onChange={(e) => { setSelectedBoreholeId(e.target.value); setResult(null) }}
+              >
+                <option value="">Select borehole...</option>
+                {boreholes.map((b) => <option key={b.id} value={b.id}>{b.borehole_id} {b.project_name ? `(${b.project_name})` : ''}</option>)}
+              </select>
 
-              {selectedLayer && (
-                <div className="mt-3 pt-3 border-t border-white/[0.06] grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
-                  <span className="text-slate-500">Cohesion c</span><span className="text-slate-300">{selectedLayer.cohesion_t_m2 ?? '—'} t/m²</span>
-                  <span className="text-slate-500">Friction angle φ</span><span className="text-slate-300">{selectedLayer.friction_angle_deg ?? '—'}°</span>
-                  <span className="text-slate-500">Bulk density γ</span><span className="text-slate-300">{selectedLayer.bulk_density_t_m3 ?? '—'} t/m³</span>
-                  <span className="text-slate-500">SPT N-value</span><span className="text-slate-300">{selectedLayer.n_value ?? '—'}</span>
-                  <span className="text-slate-500">Cc / e0</span><span className="text-slate-300">{selectedLayer.compression_index_cc ?? '—'} / {selectedLayer.initial_void_ratio_e0 ?? '—'}</span>
-                  <span className="text-slate-500">Water table</span><span className="text-slate-300">{selectedBorehole?.water_table_depth_m ?? '—'} m</span>
+              {selectedBorehole && (
+                <div className="mt-3 pt-3 border-t border-white/[0.06] space-y-1 max-h-40 overflow-y-auto">
+                  <p className="text-[11px] text-slate-500 mb-1">Layers in this borehole (auto-picked by depth — for reference):</p>
+                  {selectedBorehole.layers.map((l: any) => (
+                    <div key={l.id} className="text-xs text-slate-400 flex justify-between gap-2">
+                      <span>{l.from_m}–{l.to_m}m {l.classification ? `(${l.classification})` : ''}</span>
+                      <span className="text-slate-500">
+                        {l.cohesion_t_m2 == null && l.n_value != null ? 'SPT only' : l.cohesion_t_m2 == null ? 'partial' : 'full'}
+                      </span>
+                    </div>
+                  ))}
+                  <p className="text-[11px] text-slate-500">Water table: {selectedBorehole.water_table_depth_m ?? '—'} m</p>
                 </div>
               )}
             </div>
 
             <div className="glass p-5 space-y-3">
-              <div>
-                <label className="text-xs text-slate-400 mb-1 block">Soil type for this layer</label>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setSoilType('noncohesive')}
-                    className={`flex-1 gm-input text-center ${soilType === 'noncohesive' ? 'ring-2 ring-violet-500/50 border-violet-500/40' : ''}`}
-                  >
-                    Granular (N-based)
-                  </button>
-                  <button
-                    onClick={() => setSoilType('cohesive')}
-                    className={`flex-1 gm-input text-center ${soilType === 'cohesive' ? 'ring-2 ring-violet-500/50 border-violet-500/40' : ''}`}
-                  >
-                    Clay (Cc/e0-based)
-                  </button>
-                </div>
-              </div>
-
               <div>
                 <label className="text-xs text-slate-400 mb-1 block">Footing widths B (m) — comma-separated</label>
                 <input className="gm-input w-full" value={widthsInput} onChange={(e) => setWidthsInput(e.target.value)} placeholder="e.g. 1.5, 2, 2.5, 3" />
@@ -208,26 +202,26 @@ export default function BatchAnalysis() {
                   <input type="number" step="any" className="gm-input w-full" value={allowableSettlement} onChange={(e) => setAllowableSettlement(e.target.value)} />
                 </div>
               </div>
-
-              {soilType === 'cohesive' && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs text-slate-400 mb-1 block">Consolidation type</label>
-                    <select className="gm-input w-full" value={consolidationType} onChange={(e) => setConsolidationType(e.target.value)}>
-                      <option value="NCS">NCS</option>
-                      <option value="OCS">OCS</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-xs text-slate-400 mb-1 block">Elastic modulus Es (blank = auto)</label>
-                    <input type="number" step="any" className="gm-input w-full" value={esOverride} onChange={(e) => setEsOverride(e.target.value)} placeholder="Bowles estimate" />
-                  </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-slate-400 mb-1 block">Consolidation type</label>
+                  <select className="gm-input w-full" value={consolidationType} onChange={(e) => setConsolidationType(e.target.value)}>
+                    <option value="NCS">NCS</option>
+                    <option value="OCS">OCS</option>
+                  </select>
                 </div>
-              )}
-
+                <div>
+                  <label className="text-xs text-slate-400 mb-1 block">Rigidity factor</label>
+                  <input type="number" step="any" className="gm-input w-full" value={rigidityFactor} onChange={(e) => setRigidityFactor(e.target.value)} />
+                </div>
+              </div>
               <div>
-                <label className="text-xs text-slate-400 mb-1 block">Rigidity factor</label>
-                <input type="number" step="any" className="gm-input w-full" value={rigidityFactor} onChange={(e) => setRigidityFactor(e.target.value)} />
+                <label className="text-xs text-slate-400 mb-1 block">Soil type per combination</label>
+                <select className="gm-input w-full" value={soilTypeForce} onChange={(e) => setSoilTypeForce(e.target.value)}>
+                  <option value="">Auto (per founding layer)</option>
+                  <option value="cohesive">Force: Clay (Cc/e0-based) for all</option>
+                  <option value="noncohesive">Force: Granular (N-based) for all</option>
+                </select>
               </div>
 
               <button onClick={runBatch} disabled={loading} className="gm-btn-primary w-full mt-2 flex items-center justify-center gap-2">
@@ -247,6 +241,28 @@ export default function BatchAnalysis() {
               )}
             </div>
 
+            <div className="glass p-4">
+              <button onClick={() => setShowOverrides((s) => !s)} className="w-full flex items-center justify-between text-xs text-slate-300">
+                <span className="flex items-center gap-1.5"><SlidersHorizontal size={13} /> Manual overrides {activeOverrideCount > 0 ? `(${activeOverrideCount} active)` : '(optional)'}</span>
+                {showOverrides ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              </button>
+              {showOverrides && (
+                <div className="mt-3 pt-3 border-t border-white/[0.06] space-y-2">
+                  <p className="text-[11px] text-slate-500 mb-1">Blank = auto-sourced from the borehole (founding layer, then nearest neighbours, then borehole average). Filled = pinned for every combination.</p>
+                  {OVERRIDE_FIELDS.map((f) => (
+                    <div key={f.key}>
+                      <label className="text-[11px] text-slate-500 mb-0.5 block">{f.label}</label>
+                      <input
+                        type="number" step="any" className="gm-input w-full text-xs py-1.5"
+                        value={overrides[f.key] || ''}
+                        onChange={(e) => setOv(f.key, e.target.value)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             {error && <div className="text-sm text-rose-400">{error}</div>}
           </div>
 
@@ -259,7 +275,7 @@ export default function BatchAnalysis() {
                     {result.critical_combination.recommended_sbc} <span className="text-sm text-slate-400">{result.unit}</span>
                   </div>
                   <div className="text-xs text-slate-400 mt-1">
-                    B = {result.critical_combination.width_m}m, D = {result.critical_combination.depth_m}m — governed by {result.critical_combination.governing}
+                    B = {result.critical_combination.width_m}m, D = {result.critical_combination.depth_m}m ({result.critical_combination.founding_layer}) — governed by {result.critical_combination.governing}
                   </div>
                 </motion.div>
               )}
@@ -267,7 +283,7 @@ export default function BatchAnalysis() {
               <div className="glass p-5 print:text-black" id="batch-result">
                 <div className="flex items-center justify-between mb-3 gap-2">
                   <div className="text-xs uppercase tracking-wide text-slate-500">
-                    {result.successful}/{result.total} combinations · {result.borehole_id} · {result.layer_label}
+                    {result.successful}/{result.total} combinations · {result.borehole_id}
                   </div>
                   <button onClick={() => window.print()} className="gm-btn-secondary flex items-center gap-1.5 text-xs whitespace-nowrap print:hidden">
                     <Printer size={13} /> Print
@@ -280,6 +296,8 @@ export default function BatchAnalysis() {
                       <tr className="border-b border-white/[0.08] text-slate-400">
                         <th className="text-left py-2 pr-3">B (m)</th>
                         <th className="text-left py-2 pr-3">D (m)</th>
+                        <th className="text-left py-2 pr-3">Founding layer</th>
+                        <th className="text-left py-2 pr-3">Soil type</th>
                         <th className="text-left py-2 pr-3">Shear SBC</th>
                         <th className="text-left py-2 pr-3">Settlement SBC</th>
                         <th className="text-left py-2 pr-3">Recommended</th>
@@ -293,10 +311,12 @@ export default function BatchAnalysis() {
                           <tr key={i} className={`border-b border-white/[0.04] ${isCritical ? 'bg-violet-500/10' : ''}`}>
                             <td className="py-1.5 pr-3 text-slate-300 whitespace-nowrap">{c.width_m}</td>
                             <td className="py-1.5 pr-3 text-slate-300 whitespace-nowrap">{c.depth_m}</td>
+                            <td className="py-1.5 pr-3 text-slate-400 whitespace-nowrap">{c.founding_layer ?? '—'}</td>
                             {c.error ? (
-                              <td colSpan={4} className="py-1.5 text-rose-400">{c.error}</td>
+                              <td colSpan={5} className="py-1.5 text-rose-400">{c.error}</td>
                             ) : (
                               <>
+                                <td className="py-1.5 pr-3 text-slate-400 whitespace-nowrap">{c.soil_type === 'cohesive' ? 'Clay' : 'Granular'}</td>
                                 <td className="py-1.5 pr-3 text-slate-300 whitespace-nowrap">{c.shear_sbc}</td>
                                 <td className="py-1.5 pr-3 text-slate-300 whitespace-nowrap">{c.settlement_sbc}</td>
                                 <td className="py-1.5 pr-3 text-slate-50 font-medium whitespace-nowrap">{c.recommended_sbc}</td>

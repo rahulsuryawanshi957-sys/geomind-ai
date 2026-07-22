@@ -56,21 +56,20 @@ def run_batch(req: BatchRunRequest, db: Session = Depends(get_db)):
     profile = db.query(BoreholeProfile).filter(BoreholeProfile.id == req.borehole_id).first()
     if not profile:
         raise HTTPException(404, "Borehole profile not found.")
-    layer = next((l for l in profile.layers if l.id == req.layer_id), None)
-    if not layer:
-        raise HTTPException(404, "Soil layer not found in this borehole.")
+    if not profile.layers:
+        raise HTTPException(422, "This borehole has no soil layers recorded.")
     if len(req.widths_m) * len(req.depths_m) > 400:
         raise HTTPException(422, "Grid too large (max 400 combinations at once) -- narrow the width/depth lists.")
 
     try:
         result = run_batch_matrix(
-            layer=layer, water_table_depth_m=profile.water_table_depth_m,
-            soil_type=req.soil_type, widths_m=req.widths_m, depths_m=req.depths_m,
+            layers=list(profile.layers), water_table_depth_m=profile.water_table_depth_m,
+            widths_m=req.widths_m, depths_m=req.depths_m,
             length_m=req.length_m, shape=req.shape, fos=req.fos,
             allowable_settlement_mm=req.allowable_settlement_mm,
             consolidation_type=req.consolidation_type,
-            elastic_modulus_t_m2=req.elastic_modulus_t_m2,
             rigidity_factor=req.rigidity_factor,
+            overrides=req.overrides,
         )
     except ValueError as e:
         raise HTTPException(422, str(e))
@@ -84,5 +83,4 @@ def run_batch(req: BatchRunRequest, db: Session = Depends(get_db)):
     db.commit()
 
     result["borehole_id"] = profile.borehole_id
-    result["layer_label"] = f"{layer.from_m}-{layer.to_m}m" + (f" ({layer.classification})" if layer.classification else "")
     return result
