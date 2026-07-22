@@ -81,6 +81,9 @@ export default function LabDataImport() {
                   <div className="text-xs text-slate-500">
                     {bh.project_name || 'No project name'} · {bh.layers.length} layer(s)
                     {bh.water_table_depth_m != null && ` · Water table ${bh.water_table_depth_m}m`}
+                    {(bh.easting != null || bh.northing != null) && ` · E:${bh.easting ?? '—'} N:${bh.northing ?? '—'}`}
+                    {bh.rl_m != null && ` · RL:${bh.rl_m}`}
+                    {bh.date_of_boring && ` · ${bh.date_of_boring}`}
                   </div>
                 </div>
               </button>
@@ -111,12 +114,14 @@ export default function LabDataImport() {
                     {bh.layers.map((l: any) => (
                       <tr key={l.id} className="border-b border-white/5">
                         <td className="py-1.5 pr-3 text-slate-300">{l.from_m}–{l.to_m}</td>
+                        <td className="py-1.5 pr-3 text-slate-300">{l.sample_type || l.sample_id ? `${l.sample_type ?? ''} ${l.sample_id ?? ''}`.trim() : '—'}</td>
                         <td className="py-1.5 pr-3 text-slate-300">{l.description || '—'}</td>
                         <td className="py-1.5 pr-3 text-slate-300">{l.classification || '—'}</td>
                         <td className="py-1.5 pr-3 text-slate-300">{l.n_value ?? '—'}</td>
                         <td className="py-1.5 pr-3 text-slate-300">{l.bulk_density_t_m3 ?? '—'}</td>
                         <td className="py-1.5 pr-3 text-slate-300">{l.cohesion_t_m2 ?? '—'}</td>
                         <td className="py-1.5 pr-3 text-slate-300">{l.friction_angle_deg ?? '—'}</td>
+                        <td className="py-1.5 pr-3 text-slate-300">{l.compression_index_cc ?? '—'}</td>
                         <td className="py-1.5 pr-3 text-slate-300">{l.weathering_grade || '—'}</td>
                         <td className="py-1.5 pr-3 text-slate-300">{l.core_recovery_pct ?? '—'}</td>
                         <td className="py-1.5 pr-3 text-slate-300">{l.rqd_pct ?? '—'}</td>
