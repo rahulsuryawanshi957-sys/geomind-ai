@@ -101,19 +101,48 @@ function inferSymbolType(classification?: string | null, weatheringGrade?: strin
 // final N-value (not raw 0-150/150-300/300-450 blow counts), and a single
 // UCS value for rock (not full core-run detail) -- both limitations are
 // noted in the sample's Remarks rather than silently invented.
+// Maps the backend's real sample_type ("DS"/"SPT"/"UDS"/etc.) to this
+// page's single-letter SampleType. Falls back to inferring from other
+// fields only if sample_type is missing/unrecognized (e.g. older uploads).
+function mapSampleType(l: any): SampleType {
+  const t = (l.sample_type || '').toUpperCase()
+  if (t.includes('SPT')) return 'P'
+  if (t.includes('UDS')) return 'U'
+  if (t.includes('CORE')) return 'C'
+  if (t.includes('VANE')) return 'V'
+  if (t.includes('WATER')) return 'W'
+  if (t.includes('DS')) return 'D'
+  if (l.n_value != null) return 'P'
+  if (l.core_recovery_pct != null || l.rqd_pct != null || l.ucs_kg_cm2 != null) return 'C'
+  return 'D'
+}
+
+// Parses the backend's "date_of_boring" text (e.g. "30-04-2026 to
+// 01-05-2026", or a single "30-04-2026") into {start, end} in yyyy-mm-dd
+// format for the <input type="date"> fields.
+function parseDateOfBoring(raw?: string | null): { start: string; end: string } | null {
+  if (!raw) return null
+  const toIso = (d: string) => {
+    const m = d.trim().match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/)
+    if (!m) return ''
+    const [, dd, mm, yyyy] = m
+    return `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`
+  }
+  const parts = raw.split(/\s+to\s+/i)
+  const start = toIso(parts[0] || '')
+  const end = parts[1] ? toIso(parts[1]) : start
+  return start ? { start, end: end || start } : null
+}
+
 function layerFromLabData(l: any): StrataLayer {
-  let sample: Sample
-  if (l.n_value != null) {
-    sample = { ...newSample(l.from_m, l.to_m, 'P'), remarks: `N=${l.n_value} (from lab data; raw blow increments not available)` }
-  } else if (l.core_recovery_pct != null || l.rqd_pct != null || l.ucs_kg_cm2 != null) {
-    sample = {
-      ...newSample(l.from_m, l.to_m, 'C'),
-      coreRecovery: l.core_recovery_pct != null ? String(l.core_recovery_pct) : '',
-      rqd: l.rqd_pct != null ? String(l.rqd_pct) : '',
-      remarks: l.ucs_kg_cm2 != null ? `UCS=${l.ucs_kg_cm2} kg/cm²` : '',
-    }
-  } else {
-    sample = newSample(l.from_m, l.to_m, 'D')
+  const type = mapSampleType(l)
+  const sample: Sample = { ...newSample(l.from_m, l.to_m, type), refNo: l.sample_id || '' }
+  if (type === 'P' && l.n_value != null) {
+    sample.remarks = `N=${l.n_value} (from lab data; raw blow increments not available)`
+  } else if (type === 'C') {
+    sample.coreRecovery = l.core_recovery_pct != null ? String(l.core_recovery_pct) : ''
+    sample.rqd = l.rqd_pct != null ? String(l.rqd_pct) : ''
+    sample.remarks = l.ucs_kg_cm2 != null ? `UCS=${l.ucs_kg_cm2} kg/cm²` : ''
   }
   return {
     id: newId(),
@@ -159,6 +188,12 @@ export default function BoreholeLogs() {
     setBoreholeName(profile.borehole_id)
     if (profile.project_name) setProjectName(profile.project_name)
     if (profile.water_table_depth_m != null) setWaterLevel(String(profile.water_table_depth_m))
+    if (profile.easting != null) setEasting(String(profile.easting))
+    if (profile.northing != null) setNorthing(String(profile.northing))
+    if (profile.rl_m != null) setGroundLevel(String(profile.rl_m))
+    if (profile.project_number) setJobNo(profile.project_number)
+    const dates = parseDateOfBoring(profile.date_of_boring)
+    if (dates) { setCommencedOn(dates.start); setCompletedOn(dates.end) }
     setLayers(profile.layers.map(layerFromLabData))
   }
 
