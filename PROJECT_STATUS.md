@@ -71,10 +71,11 @@ env vars make things persistent:
 
 ```
 frontend/          React + TypeScript + Vite + Tailwind, dark navy/violet/cyan theme
-  src/pages/        One file per route (Chat, Books, Calculators, BoreholeLogs, etc.)
+  src/pages/        One file per route (Chat, Books, Calculators, BatchAnalysis,
+                      BoreholeLogs, etc.)
   src/pages/planned/  Features that started as "Coming Soon" placeholders -- some have
-                      since been built out for real (BoreholeLogs.tsx, LabReports.tsx).
-                      Still-placeholder: Projects, PdfChat, SoilProfile, Bookmarks.
+                      since been built out for real (BoreholeLogs.tsx, LabReports.tsx,
+                      SoilProfile.tsx). Still-placeholder: Projects, PdfChat, Bookmarks.
   src/components/    Sidebar, MobileNav, ComingSoon, ReferenceBlock, SourcesPanel
   src/api/client.ts  All backend API calls in one place
 
@@ -113,6 +114,55 @@ Report Generator (Word/PDF export), History.
   capacity, group efficiency, lateral pile, retaining wall stability, **liquefaction**,
   plate load test, modulus of subgrade reaction (standalone)
 
+**Batch Analysis (`/batch-analysis`, Phase 3 — done, v2)** — runs shear (IS:6403) +
+settlement (IS:8009) SBC across a full width × depth grid (cross-product of a
+comma-separated widths list and depths list, up to 400 combinations) for a whole
+borehole in one go. Recommended SBC per combination = min(shear, settlement), same
+rule as the single calculators; the lowest-recommended combination across the whole
+grid is called out as the "critical combination."
+
+**No manual layer picking (v2 redesign, per Raahi's explicit request).** The old v1
+made you hand-pick ONE layer for the entire batch, which meant re-running the whole
+batch per depth range if a site had multiple strata. v2 auto-locates the *founding
+layer* for each depth independently from the borehole's own layers (so one batch run
+across depths=[1.5, 3, 6] can span three different strata correctly in one go), and
+fills any field missing on that layer (e.g. an SPT-only sand layer with no lab c/phi)
+from the nearest layer(s) above/below, or a borehole-wide average as a last resort. The
+one exception is overburden density (`gamma_avg_above_t_m3`, the shear surcharge term)
+— that's computed as a thickness-weighted average across every layer from ground level
+to the founding depth, because it's a genuinely borehole-wide quantity by definition,
+not one layer's property (cohesion/phi/N/Cc/e0 stay layer-specific with
+neighbour/average fallback, since those really are properties of one stratum).
+Every result row shows which `founding_layer` and `soil_type` were actually used, so
+the auto-sourcing is never a black box.
+
+**Manual overrides.** A collapsible panel lets Raahi pin any of: cohesion, friction
+angle, bulk density, overburden density, specific gravity, moisture content, N-value,
+Cc, e0, elastic modulus, or force soil_type — any filled field skips auto-sourcing for
+that field across the whole batch. This is the escape hatch when the auto-picked value
+isn't trusted or a what-if scenario is being tested.
+
+Backend: `run_batch_matrix()` + helpers `_founding_layer()`, `_resolve_field()`,
+`_weighted_overburden()` in `services/calculators.py` (reuses the exact same
+`bearing_capacity_is6403_shear` / `settlement_sbc_is8009_*` functions — no duplicated
+formulas), `POST /api/calculators/batch` in `routers/calculators.py` (now passes ALL of
+`profile.layers`, not one `layer_id`). A combination that individually fails (e.g. N≤3
+for the granular chart, or truly no layer anywhere has a required field and no override
+was given) is captured as a per-row `error` instead of aborting the whole batch.
+Verified against a mock 3-layer borehole (clay/SPT-only-sand/clay) with direct
+`run_batch_matrix()` calls — confirmed per-depth founding-layer selection, exact
+neighbour-average fallback math, exact weighted-overburden math, and override
+precedence, all against hand-calculated expected values (see chat history for the
+worked numbers if this needs re-verifying later).
+
+**Progress bar (mandatory requirement from Raahi).** The frontend does NOT send one
+giant request — it calls `/api/calculators/batch` once per width value (all depths for
+that width per call) and updates a real progress bar after each call completes, then
+merges all the returned combinations client-side. This makes the progress bar reflect
+actual completed work, not a simulated animation. If a future batch-style feature needs
+progress feedback, reuse this same "chunk the request, update progress per chunk"
+pattern rather than trying to stream progress from a single request.
+
 **Borehole Log** — full professional field-borelog format: multi-sample layers (D/P/U/C/V/W
 types), SPT increments (0-150/150-300/300-450 → N), core recovery/RQD, full USCS group
 symbol hatching (GW/GP/GM/GC/SW/SP/SM/SC/ML/MI/MH/CL/CI/CH/OL/OI/OH/Pt + rock grades
@@ -125,18 +175,45 @@ per soil layer, Borehole ID/Project/Water Table repeated per row) → upload →
 `BoreholeProfile` + `SoilLayer` DB records. This is meant to be the **shared data source**
 for everything else (see Roadmap).
 
+*Fix applied 22 Jul 2026, commit `a410da2`, done in a separate Claude session (not this
+one) — this session's own sandbox copy of `LabReports.tsx` predates this fix, so re-sync
+before doing further work on this file.* Fixed missing table cells/header fields in
+`frontend/src/pages/planned/LabReports.tsx`: Easting/Northing/RL/Date header fields and
+the Sample + Cc table body cells weren't rendering. Applied via a Python patch script
+(`patch_labreports_v2.py`) run locally in Termux, not hand-edited.
+
+**Soil Profile Viewer** (`/soil-profile`) — was undocumented until now, but is fully built,
+not a placeholder. Side-by-side stratigraphy columns for multiple boreholes at once (depth
+scale, USCS classification color/pattern hatching reusing the Borehole Log page's
+convention, water table line, zoom slider), hover a layer to see its properties (N-value,
+cohesion, φ, UCS, RQD, etc). **Purely a visualization/comparison tool — runs no
+calculation.** Different from Batch Analysis (which runs the shear+settlement SBC matrix
+for one layer but draws no chart) even though both start with a borehole/layer picker
+reading the same data — one looks at the ground, the other sizes a foundation.
+
 **Dashboard** — quick actions + stats for every real feature above.
 
 ## Known limitations / honest gaps
 
-- No batch/matrix runner yet (can't check 100 footing combinations at once yet).
+- Batch engine's width × depth grid is a cross-product only (every width against every
+  depth) — no way yet to submit an arbitrary explicit list of (width, depth) pairs that
+  skips some combinations. (Multi-layer stratification across the borehole IS handled
+  now, per-depth, since the v2 redesign — see "What's built" above.)
+- Batch engine's neighbour/average fallback for a missing field treats every field the
+  same way (nearest layer above+below, averaged) — it doesn't know that, say, borrowing
+  specific gravity from a totally different soil type two layers away is less trustworthy
+  than borrowing bulk density. Always check the `founding_layer` column and override
+  anything that doesn't look right for the actual site.
 - No liquefaction calculator yet.
 - No pile capacity calculator yet.
 - Settlement calculators treat the depth-of-influence as ONE representative layer, not
-  true multi-layer stratification (a simplification from the source Excel workbook, which
-  did real per-layer stratification with iterative depth-of-influence convergence).
-- `Projects`, `PDF Chat`, `Soil Profile Viewer`, `Bookmarks` are still honest "Coming Soon"
-  placeholders in the sidebar (see `frontend/src/pages/planned/ComingSoon.tsx` usage).
+  true multi-layer stratification — see debugging playbook #8 for exactly what the
+  reference workbook (`SBC_Cal_Fixed.xlsm`) does differently (per-layer Steinbrenner/
+  Boussinesq rows + a VLOOKUP chart) and why this is a bigger rewrite than a quick fix.
+- `Projects`, `PDF Chat`, `Bookmarks` are still honest "Coming Soon" placeholders in the
+  sidebar (see `frontend/src/pages/planned/ComingSoon.tsx` usage). Soil Profile Viewer was
+  wrongly listed here in older versions of this doc — it's actually fully built (see
+  "What's built" above).
 
 ---
 
@@ -153,12 +230,13 @@ foundation combinations, in ~1 hour instead of a full day. Phases:
    auto-fill for whichever calculator is open. Project-specific fields (footing size,
    allowable settlement, FOS) are deliberately left for manual entry. Unit conversions
    (t/m² ↔ kPa) are handled where a calculator uses different units than the stored data.
-3. **NEXT — Batch/matrix engine.** Given a BoreholeProfile + a list of footing widths/
-   depths (or a small table the user fills in), run shear + settlement SBC for every
-   combination automatically and return a results table (min of shear/settlement =
-   recommended SBC per combination).
-4. **New calculators:** Liquefaction (IS 1893 simplified procedure, SPT-N based) and Pile
-   Capacity (IS 2911, static formula via SPT-N or C-φ).
+3. **✅ DONE — Batch/matrix engine.** `/batch-analysis` page + `POST /api/calculators/batch`.
+   Pick a borehole + layer, enter comma-separated width and depth lists, runs shear +
+   settlement SBC for every combination (cross-product, up to 400 at once) and returns a
+   results table with the lowest-recommended "critical combination" called out. See
+   "What's built" above for implementation details.
+4. **NEXT — New calculators:** Liquefaction (IS 1893 simplified procedure, SPT-N based) and
+   Pile Capacity (IS 2911, static formula via SPT-N or C-φ).
 5. **Auto-report generation.** Combine borehole log chart + batch calculation results +
    summary into one downloadable Word/PDF report.
 
@@ -189,14 +267,56 @@ scoped).
    extracted zip AND the destination folder before committing, not after.
 5. **Borehole log / lab data disappearing:** expected on Render free tier unless
    `CHROMA_API_KEY` and `DATABASE_URL` are both set — see "Persistent storage" above.
+6. **Python patch scripts that insert code by matching an "anchor" string can silently
+   apply fewer fixes than expected** if the live file has a different unicode character
+   at the anchor point than the script expects (curly quote vs straight quote, en/em-dash
+   vs hyphen, non-breaking space vs regular space). If a patch script's "applied" count is
+   lower than the number of intended fixes, check for a unicode mismatch at the anchor
+   before assuming the fix logic itself is wrong.
+7. **CRITICAL BUG, fixed 23 Jul 2026: shear SBC was being compared against settlement SBC
+   on inconsistent bases (gross vs net).** `bearing_capacity_is6403_shear()` was silently
+   adding `γ_avg_above × D` before returning `result` (mislabeled "gross allowable SBC"),
+   while both `settlement_sbc_is8009_*()` functions return net SBC with no such addition.
+   Every `min(shear, settlement)` comparison in the app (single calculator's "take the
+   lower of the two" guidance AND the batch engine) was therefore comparing a gross number
+   against a net one -- shear looked artificially higher than it should relative to
+   settlement by exactly `γ_avg_above × D` every time. Caught by comparing against Raahi's
+   reference workbook (`SBC_Cal_Fixed.xlsm`, `Shear!H47` = net, confirmed via the
+   `SUMMARY` sheet's separate `I` "SHEAR", `J` "SETTLEMENT", `K` "RECOMMENDED SBC" columns,
+   which are all net -- `N` "GROSS ALLOWABLE" is a distinct column computed **once**, on
+   the already-minimized recommended value, not independently per method). Fix: shear now
+   returns net SBC like settlement does; the batch engine adds a separate
+   `gross_recommended_sbc` field computed the same way the reference workbook does (once,
+   on `min(shear, settlement)`), not by gross-converting each method independently before
+   comparing. **Lesson: when a calculator's output is going to be compared against or
+   combined with another calculator's output (min, sum, etc.), verify they're on the same
+   basis (units, net vs gross, before vs after a correction) -- a plausible-looking,
+   correctly-computed number can still break a comparison it's used in.**
+8. **The reference workbook's settlement calculation is NOT the same architecture as this
+   app's settlement calculators**, discovered during the same verification pass. The
+   workbook (`Settlement-1/2/3` sheets) does true multi-layer stratification: every soil
+   layer within the depth of influence gets its own row with its own Steinbrenner/Boussinesq
+   influence factors (columns E-Q per layer), combined into a total settlement across all
+   of them, and reads N-value off a `VLOOKUP` chart table (`$AU$2:$BD$12`) rather than a
+   closed-form curve fit. This app's `settlement_sbc_is8009_noncohesive/cohesive()` treat
+   the whole depth of influence as ONE representative layer (already flagged in "Known
+   limitations" below, but the reference file makes the actual gap concrete now). This is
+   a substantially bigger rewrite than the shear fix above -- not attempted yet, needs a
+   dedicated session. `SBC_Cal_Fixed.xlsm` (uploaded by Raahi, chat history has the
+   extraction) is the reference to build against if/when this gets tackled.
 
 ---
 
 ## How to give Raahi an update (workflow reminder for whoever's helping)
 
-1. Make code changes in your own sandbox, verify with `python3 -m py_compile` (backend)
-   and a brace-balance check (frontend TSX, since there's no local `npm`/`tsc` available
-   to fully type-check).
+1. Make code changes in your own sandbox, verify with `python3 -m py_compile` (backend,
+   whole tree not just changed files) and `tsc --ignoreConfig --noEmit --skipLibCheck --jsx
+   react-jsx` (frontend — a real global `tsc` binary is available even though
+   `node_modules` isn't; ignore `TS2307`/`TS7xxx`/module-not-found noise, those are just
+   missing `node_modules`, but treat any `TS1xxx` as a real syntax error). For pure-logic
+   backend functions (no DB/FastAPI needed), test them directly with a mock object
+   (`types.SimpleNamespace`) standing in for the SQLAlchemy model — this catches real bugs
+   without needing `fastapi`/`sqlalchemy` installed, which they aren't in the sandbox.
 2. Zip the whole project (exclude `data/uploads/*`, `data/chroma/*`, `node_modules`,
    `__pycache__`), present it as a download.
 3. Give copy-paste Termux commands: `unzip -o ... -d geomind-new`, `rm -rf` + `cp -r` the

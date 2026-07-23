@@ -258,12 +258,9 @@ def bearing_capacity_is6403_shear(
         basis = f"interpolated between general/local shear (e={void_ratio:.2f})"
     steps.append(f"Recommended net SBC ({basis}) = {qns_recommended:.2f} t/m²")
 
-    gross_sbc = qns_recommended + gamma_avg_above_t_m3 * D_eff
-    steps.append(f"Gross allowable SBC = net SBC + γ_avg·D = {gross_sbc:.2f} t/m²")
-
     return {
-        "result": round(gross_sbc, 2),
-        "unit": "t/m² (gross allowable SBC)",
+        "result": round(qns_recommended, 2),
+        "unit": "t/m² (net safe bearing capacity)",
         "formula": "Qns = (c·Nc·Sc·dc + γ·D·(Nq-1)·Sq·dq + 0.5·B·γ·Nγ·Sγ·dγ·Rw) / FOS  [IS:6403-1981]",
         "steps": steps,
         "assumptions": [
@@ -273,7 +270,7 @@ def bearing_capacity_is6403_shear(
             "General/local shear interpolation uses void ratio thresholds e<0.55 (general) and e>0.75 (local), per the source workbook's convention",
         ],
         "warnings": [
-            "Net SBC (before adding overburden) = " + f"{qns_recommended:.2f} t/m² — use this for structural net pressure checks.",
+            "This is net SBC (soil capacity only). For gross allowable SBC (what a structural engineer checks column loads against), add γ_avg_above × D to this value -- same convention as the reference workbook, which only does that addition once, on the final recommended (shear vs settlement, whichever governs) value, not on shear alone.",
             "This is the shear-capacity check only. Compare against the settlement-based SBC (separate calculation, IS:8009) and take the lower of the two as final.",
         ],
     }
@@ -676,6 +673,7 @@ def run_batch_matrix(
                     "shear_sbc": shear_val,
                     "settlement_sbc": settlement_val,
                     "recommended_sbc": round(recommended, 2),
+                    "gross_recommended_sbc": round(recommended + gamma_above * d, 2),
                     "governing": "shear (IS:6403)" if shear_val <= settlement_val else "settlement (IS:8009)",
                 })
             except (ValueError, ZeroDivisionError) as e:

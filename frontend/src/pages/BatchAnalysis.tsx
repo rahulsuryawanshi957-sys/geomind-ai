@@ -272,7 +272,10 @@ export default function BatchAnalysis() {
                 <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="glass p-5">
                   <div className="text-xs uppercase tracking-wide text-slate-500 mb-1.5 flex items-center gap-1.5"><Target size={13} /> Critical combination (lowest recommended SBC)</div>
                   <div className="text-2xl font-display font-semibold bg-gradient-to-r from-violet-400 to-cyan-400 bg-clip-text text-transparent">
-                    {result.critical_combination.recommended_sbc} <span className="text-sm text-slate-400">{result.unit}</span>
+                    {result.critical_combination.recommended_sbc} <span className="text-sm text-slate-400">{result.unit} net</span>
+                  </div>
+                  <div className="text-xs text-slate-400 mt-0.5">
+                    Gross: {result.critical_combination.gross_recommended_sbc} {result.unit}
                   </div>
                   <div className="text-xs text-slate-400 mt-1">
                     B = {result.critical_combination.width_m}m, D = {result.critical_combination.depth_m}m ({result.critical_combination.founding_layer}) — governed by {result.critical_combination.governing}
@@ -300,7 +303,8 @@ export default function BatchAnalysis() {
                         <th className="text-left py-2 pr-3">Soil type</th>
                         <th className="text-left py-2 pr-3">Shear SBC</th>
                         <th className="text-left py-2 pr-3">Settlement SBC</th>
-                        <th className="text-left py-2 pr-3">Recommended</th>
+                        <th className="text-left py-2 pr-3">Recommended (net)</th>
+                        <th className="text-left py-2 pr-3">Recommended (gross)</th>
                         <th className="text-left py-2">Governing</th>
                       </tr>
                     </thead>
@@ -313,13 +317,14 @@ export default function BatchAnalysis() {
                             <td className="py-1.5 pr-3 text-slate-300 whitespace-nowrap">{c.depth_m}</td>
                             <td className="py-1.5 pr-3 text-slate-400 whitespace-nowrap">{c.founding_layer ?? '—'}</td>
                             {c.error ? (
-                              <td colSpan={5} className="py-1.5 text-rose-400">{c.error}</td>
+                              <td colSpan={6} className="py-1.5 text-rose-400">{c.error}</td>
                             ) : (
                               <>
                                 <td className="py-1.5 pr-3 text-slate-400 whitespace-nowrap">{c.soil_type === 'cohesive' ? 'Clay' : 'Granular'}</td>
                                 <td className="py-1.5 pr-3 text-slate-300 whitespace-nowrap">{c.shear_sbc}</td>
                                 <td className="py-1.5 pr-3 text-slate-300 whitespace-nowrap">{c.settlement_sbc}</td>
                                 <td className="py-1.5 pr-3 text-slate-50 font-medium whitespace-nowrap">{c.recommended_sbc}</td>
+                                <td className="py-1.5 pr-3 text-slate-300 whitespace-nowrap">{c.gross_recommended_sbc}</td>
                                 <td className="py-1.5 text-slate-400 whitespace-nowrap">{c.governing.includes('shear') ? 'Shear' : 'Settlement'}</td>
                               </>
                             )}
