@@ -196,16 +196,18 @@ def bearing_capacity_is6403_shear(
     steps.append(f"Dry density γd = γbulk/(1+w/100) = {gamma_dry:.3f} t/m³")
     steps.append(f"Void ratio e = G/γd - 1 = {void_ratio:.3f}")
 
-    def bearing_factors(phi_rad, phi_deg_val):
+    def bearing_factors(phi_rad, phi_deg_val, nc_at_zero):
         if phi_deg_val == 0:
-            return 5.14, 1.0, 0.0
+            return nc_at_zero, 1.0, 0.0
         Nq = math.tan(math.radians(45) + phi_rad / 2) ** 2 * math.exp(math.pi * math.tan(phi_rad))
         Nc = (Nq - 1) / math.tan(phi_rad)
         Ngamma = 2 * (Nq + 1) * math.tan(phi_rad)
         return Nc, Nq, Ngamma
 
-    Nc, Nq, Ngamma = bearing_factors(phi, phi_deg)
-    Ncl, Nql, Ngammal = bearing_factors(phi_local, phi_local_deg)
+    # Reference workbook (Shear!H26 vs Shear!H29) uses a DIFFERENT Nc constant at phi=0
+    # for general shear (5.14, classic Prandtl) vs local shear (5.7) -- not the same value.
+    Nc, Nq, Ngamma = bearing_factors(phi, phi_deg, nc_at_zero=5.14)
+    Ncl, Nql, Ngammal = bearing_factors(phi_local, phi_local_deg, nc_at_zero=5.7)
     steps.append(f"General shear: Nc={Nc:.2f}, Nq={Nq:.2f}, Nγ={Ngamma:.2f}")
     steps.append(f"Local shear: N'c={Ncl:.2f}, N'q={Nql:.2f}, N'γ={Ngammal:.2f}")
 
@@ -827,17 +829,24 @@ def run_settlement_multilayer(
             raise ValueError(f"Layer {l.from_m}-{l.to_m}m: overburden stress works out to zero or negative -- check bulk densities above it.")
 
         if is_cohesive:
-            cc = overrides.get("compression_index_cc")
-            if cc is None:
-                cc, _ = _resolve_field(layers, l, "compression_index_cc")
             e0 = overrides.get("initial_void_ratio_e0")
             if e0 is None:
                 e0, _ = _resolve_field(layers, l, "initial_void_ratio_e0")
-            if cc is None:
-                raise ValueError(f"Layer {l.from_m}-{l.to_m}m: no compression_index_cc anywhere in this borehole to fall back on.")
             if e0 is None:
                 raise ValueError(f"Layer {l.from_m}-{l.to_m}m: no initial_void_ratio_e0 anywhere in this borehole to fall back on.")
-            sl["cc"], sl["e0"] = cc, e0
+
+            cc = overrides.get("compression_index_cc")
+            cc_source = "override" if cc is not None else None
+            if cc is None:
+                cc, cc_source = _resolve_field(layers, l, "compression_index_cc")
+            if cc is None:
+                # No lab-tested Cc anywhere on this borehole -- estimate from void ratio,
+                # same empirical correlation as the reference workbook's Input!Z column
+                # ("VOID RATIO" mode): Cc = 0.3*(e0 - 0.27). Only a fallback of last
+                # resort; a real lab Cc value always wins when one exists.
+                cc = 0.3 * (e0 - 0.27)
+                cc_source = f"estimated from void ratio (Cc=0.3*(e0-0.27), e0={e0:.3f}) -- no lab Cc on this borehole"
+            sl["cc"], sl["e0"], sl["cc_source"] = cc, e0, cc_source
             if consolidation_type == "OCS" or include_elastic:
                 es = elastic_modulus_t_m2
                 if es is None:
@@ -871,8 +880,9 @@ def run_settlement_multilayer(
                 raise ValueError(f"Layer {l.from_m}-{l.to_m}m: N-value ({n_val}) must be > 3 for the IS:8009 Fig-9 chart to apply.")
             sl["settlement_at_10t"] = 10 / (0.1385 * (n_val - 3) * ((width_m + 0.3) / (2 * width_m)) ** 2)
 
+        cc_note = f", Cc {sl['cc_source']}" if is_cohesive and sl.get("cc_source", "").startswith("estimated") else ""
         layer_info.append(f"{l.from_m}-{l.to_m}m ({'cohesive' if is_cohesive else 'granular'}), "
-                           f"{H:.2f}m within influence zone, Iz={sl['Iz']:.3f}, P0={sl['P0']:.2f} t/m²")
+                           f"{H:.2f}m within influence zone, Iz={sl['Iz']:.3f}, P0={sl['P0']:.2f} t/m²{cc_note}")
 
     def total_settlement_mm(pressure: float) -> float:
         total = 0.0
