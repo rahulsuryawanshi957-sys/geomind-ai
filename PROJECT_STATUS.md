@@ -1,4 +1,4 @@
-# RaahiGeo AI — Project Status & Handoff Document
+# RaahiGeo — Project Status & Handoff Document
 
 **Read this first if you're a new Claude session (or any AI) picking up this project.**
 This file is the single source of truth for what's built, what's broken, what's next,
@@ -176,11 +176,20 @@ per soil layer, Borehole ID/Project/Water Table repeated per row) → upload →
 for everything else (see Roadmap).
 
 *Fix applied 22 Jul 2026, commit `a410da2`, done in a separate Claude session (not this
-one) — this session's own sandbox copy of `LabReports.tsx` predates this fix, so re-sync
-before doing further work on this file.* Fixed missing table cells/header fields in
-`frontend/src/pages/planned/LabReports.tsx`: Easting/Northing/RL/Date header fields and
-the Sample + Cc table body cells weren't rendering. Applied via a Python patch script
-(`patch_labreports_v2.py`) run locally in Termux, not hand-edited.
+one).* Fixed missing table cells/header fields in `frontend/src/pages/planned/LabReports.tsx`:
+Easting/Northing/RL/Date header fields and the Sample + Cc table body cells weren't
+rendering. Applied via a Python patch script (`patch_labreports_v2.py`) run locally in
+Termux, not hand-edited. *(This session re-synced from a fresh zip on 24 Jul 2026 and
+confirmed this fix is present and intact -- see entry 12 in the debugging playbook for
+why re-syncing before touching frontend files matters when more than one Claude session
+is working on this project.)*
+
+**Borehole Log** also picked up related improvements in that same separate session (same
+sync, same commit range): sample-type mapping now uses the backend's real `sample_type`
+field when present (falls back to inferring from `n_value`/`core_recovery_pct`/etc. only
+for older uploads without it), `date_of_boring` gets parsed into start/end date fields,
+and Easting/Northing/RL now auto-fill from the borehole profile instead of needing manual
+re-entry.
 
 **Soil Profile Viewer** (`/soil-profile`) — was undocumented until now, but is fully built,
 not a placeholder. Side-by-side stratigraphy columns for multiple boreholes at once (depth
@@ -206,10 +215,13 @@ reading the same data — one looks at the ground, the other sizes a foundation.
   anything that doesn't look right for the actual site.
 - No liquefaction calculator yet.
 - No pile capacity calculator yet.
-- Settlement calculators treat the depth-of-influence as ONE representative layer, not
-  true multi-layer stratification — see debugging playbook #8 for exactly what the
-  reference workbook (`SBC_Cal_Fixed.xlsm`) does differently (per-layer Steinbrenner/
-  Boussinesq rows + a VLOOKUP chart) and why this is a bigger rewrite than a quick fix.
+- Batch Analysis settlement IS true multi-layer now (see debugging playbook #8) -- but the
+  single Calculators.tsx page's standalone Settlement calculator still is NOT (playbook
+  #11). Also: no submerged/buoyant unit weight adjustment anywhere yet when the water
+  table is shallow -- open question, see playbook #10, needs Raahi's input before fixing.
+  Elastic (immediate) settlement is off by default in the multi-layer engine, water-table
+  correction isn't yet applied per sub-layer there either -- see the engine's own
+  `warnings` output for what a given run actually included.
 - `Projects`, `PDF Chat`, `Bookmarks` are still honest "Coming Soon" placeholders in the
   sidebar (see `frontend/src/pages/planned/ComingSoon.tsx` usage). Soil Profile Viewer was
   wrongly listed here in older versions of this doc — it's actually fully built (see
@@ -292,18 +304,76 @@ scoped).
    combined with another calculator's output (min, sum, etc.), verify they're on the same
    basis (units, net vs gross, before vs after a correction) -- a plausible-looking,
    correctly-computed number can still break a comparison it's used in.**
-8. **The reference workbook's settlement calculation is NOT the same architecture as this
-   app's settlement calculators**, discovered during the same verification pass. The
-   workbook (`Settlement-1/2/3` sheets) does true multi-layer stratification: every soil
-   layer within the depth of influence gets its own row with its own Steinbrenner/Boussinesq
-   influence factors (columns E-Q per layer), combined into a total settlement across all
-   of them, and reads N-value off a `VLOOKUP` chart table (`$AU$2:$BD$12`) rather than a
-   closed-form curve fit. This app's `settlement_sbc_is8009_noncohesive/cohesive()` treat
-   the whole depth of influence as ONE representative layer (already flagged in "Known
-   limitations" below, but the reference file makes the actual gap concrete now). This is
-   a substantially bigger rewrite than the shear fix above -- not attempted yet, needs a
-   dedicated session. `SBC_Cal_Fixed.xlsm` (uploaded by Raahi, chat history has the
-   extraction) is the reference to build against if/when this gets tackled.
+8. **UPDATE 23 Jul 2026: the multi-layer settlement gap from entry above is now built** --
+   `run_settlement_multilayer()` in `services/calculators.py`, replacing
+   `settlement_sbc_is8009_noncohesive/cohesive()` inside `run_batch_matrix()` (those two
+   single-layer functions still exist and still power the single Calculators.tsx page's
+   standalone Settlement calculator -- not yet migrated, see entry 11). Splits the
+   influence zone `[D, D+1.5B]` at the borehole's real layer boundaries, computes each
+   sub-layer's own consolidation (NCS log-formula or OCS linear) or IS:8009 Fig-9
+   settlement using that sub-layer's own P0/Iz, sums them, Fox+rigidity-corrects, then
+   **numerically solves (bisection) for the pressure hitting the target allowable
+   settlement** -- direct closed-form inversion isn't possible once cohesive (log-
+   nonlinear) and granular (linear) sub-layers are mixed in the same sum. Verified against
+   the reference workbook's own worked example to 9 decimal places (`3.2524220291` vs
+   `3.2524220290942716`) once entry 9's bug was also fixed and `lambda_correction=0.7`
+   was supplied to match that example's configuration.
+9. **BUG, fixed alongside #8: Boussinesq/Steinbrenner depth was measured from the wrong
+   origin.** Both old single-layer settlement functions computed `z_mid = depth_m +
+   0.5*H` (measuring from GROUND SURFACE) and fed that directly into the Iz and
+   Steinbrenner-O formulas. Those formulas need depth measured from the **footing base**
+   (where the stress bulb actually originates), not from ground level -- P0/overburden
+   stress is correctly surface-referenced, but Iz is not, and both functions used the
+   same (surface-referenced) value for both. Confirmed via the reference workbook: with
+   the bug, computed Iz=0.504; footing-base-referenced, Iz=0.628, matching the workbook's
+   implied value (back-calculated from its settlement output) almost exactly. Fixed in
+   both the old single-layer functions (now split into `z_mid_surface` for P0 and
+   `z_below_footing` for Iz/Steinbrenner) and built correctly from the start in the new
+   `run_settlement_multilayer()`.
+10. **OPEN QUESTION, not yet resolved: submerged/buoyant unit weight isn't applied
+    anywhere in this app's overburden calculations.** Discovered while verifying #8/#9 --
+    the reference workbook's `Shear!H19` ("Average Bulk Density of Soil Above Foundation
+    Level") was 0.81 t/m³ for a site with the water table at ground level, which is a
+    submerged/buoyant unit weight (roughly `saturated_density - 1.0`), not a raw bulk
+    density (which would read more like 1.5-1.6 t/m³ for the same soil). This app's
+    `bulk_density_t_m3` field and every overburden calculation built on it (Shear's
+    `_weighted_overburden`, Settlement's `_cumulative_overburden_stress`) currently use
+    the raw value with no submerged adjustment below the water table -- meaning P0 comes
+    out too HIGH when water is shallow, which understates settlement, which OVERSTATES
+    the settlement-based SBC (unconservative) for shallow-water-table sites specifically.
+    Confirmed present but not root-caused: unclear whether Raahi's lab data entry already
+    stores a submerged value in `bulk_density_t_m3` when relevant (in which case there's
+    no bug, just a labeling question), or whether a proper fix needs a separate stored
+    `saturated_density_t_m3` field plus a below-water-table `-1.0 t/m³` adjustment applied
+    automatically. **Needs Raahi's input on how density data is actually entered/stored
+    before attempting a fix** -- guessing at this one risks making it worse, not better,
+    given it's already a safety-relevant (unconservative) direction.
+11. **Follow-up not yet done:** the single Calculators.tsx page's standalone "Settlement"
+    calculator still uses the old single-layer functions (bug #9 fixed there too, but
+    still single-layer, not multi-layer like the batch engine now is). Migrating it to
+    multi-layer would mean it needs a borehole selection instead of one manually-loaded
+    layer, similar to how Batch Analysis works -- a real UX change, not just a formula
+    swap.
+12. **Raahi actively works on this project across MULTIPLE Claude sessions in parallel**
+    (this one, and at least one other that produced the LabReports/BoreholeLogs fixes
+    above). A Claude session's sandbox is a point-in-time snapshot from whatever zip it
+    was given -- it has NO live access to the actual GitHub repo (no internet in the
+    sandbox) and will NOT automatically see changes another session made. Concretely
+    this bit us once already: a zip delivered from a stale sandbox would have reverted
+    the LabReports.tsx fix if Raahi had applied it before catching the mismatch. **Before
+    delivering any change that touches a file another session might also be touching
+    (frontend especially), ask Raahi whether other sessions have made changes since your
+    sandbox was last synced, and if there's any doubt, ask for a fresh zip (repo page →
+    Code → Download ZIP) rather than assuming your sandbox is current.** Backend-only
+    changes are lower-risk to ship from a possibly-stale sandbox IF you've confirmed
+    (e.g. via diff against a fresh zip, or by asking) that no other session touches
+    backend files -- but confirm, don't assume.
+13. **Renamed 24 Jul 2026: "RaahiGeo AI" -> "RaahiGeo"** (dropped "AI" from the product
+    name) across the app title (`index.html`), sidebar/chat/history UI labels, the
+    backend's FastAPI title and startup logs, the LLM system prompt's self-identification,
+    `README.md`, and this file. `frontend/package.json`'s internal `name` field
+    (`raahigeo-frontend`) wasn't touched -- it's a package identifier, not user-facing
+    branding, and never had "AI" in it to begin with.
 
 ---
 

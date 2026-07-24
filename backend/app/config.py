@@ -1,5 +1,5 @@
 """
-Central configuration for RaahiGeo AI backend.
+Central configuration for RaahiGeo backend.
 All secrets are read from environment variables (.env locally, or Render's
 Environment tab in production). Never hard-code keys.
 """

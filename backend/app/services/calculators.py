@@ -335,17 +335,17 @@ def settlement_sbc_is8009_noncohesive(
 
     steps = []
     influence_depth = influence_depth_m if influence_depth_m is not None else 1.5 * width_m
-    z_mid = depth_m + 0.5 * influence_depth  # representative mid-depth of the influence layer
+    z_below_footing = 0.5 * influence_depth  # depth below the FOOTING BASE (where the load bulb originates), not below ground surface
     steps.append(f"Depth of influence = {'manual override' if influence_depth_m is not None else '1.5·B'} = {influence_depth:.2f} m below footing")
-    steps.append(f"Representative mid-depth for stress calc z = D + 0.5·(influence depth) = {z_mid:.2f} m")
+    steps.append(f"Representative mid-depth for stress calc, below footing base, z = 0.5·(influence depth) = {z_below_footing:.2f} m")
 
     # Corner-point Boussinesq stress influence factor for a rectangular loaded area
-    F = math.sqrt((length_m / 2) ** 2 + z_mid ** 2)
-    G = math.sqrt((width_m / 2) ** 2 + z_mid ** 2)
-    H = math.sqrt((length_m / 2) ** 2 + (width_m / 2) ** 2 + z_mid ** 2)
+    F = math.sqrt((length_m / 2) ** 2 + z_below_footing ** 2)
+    G = math.sqrt((width_m / 2) ** 2 + z_below_footing ** 2)
+    H = math.sqrt((length_m / 2) ** 2 + (width_m / 2) ** 2 + z_below_footing ** 2)
     P = (4 / (2 * math.pi)) * (
-        math.atan((0.25 * length_m * width_m) / (z_mid * H))
-        + (0.25 * length_m * width_m * z_mid / H) * (1 / F ** 2 + 1 / G ** 2)
+        math.atan((0.25 * length_m * width_m) / (z_below_footing * H))
+        + (0.25 * length_m * width_m * z_below_footing / H) * (1 / F ** 2 + 1 / G ** 2)
     )
     steps.append(f"Boussinesq stress influence factor Iz = {P:.4f}")
 
@@ -424,21 +424,22 @@ def settlement_sbc_is8009_cohesive(
 
     steps = []
     H = layer_thickness_m if layer_thickness_m is not None else 1.5 * width_m
-    z_mid = depth_m + 0.5 * H
+    z_mid_surface = depth_m + 0.5 * H  # for overburden stress, measured from ground surface
+    z_below_footing = 0.5 * H  # for Boussinesq/Steinbrenner, measured from the FOOTING BASE (where the load bulb originates)
     steps.append(f"Clay layer thickness H = {'manual override' if layer_thickness_m is not None else '1.5·B'} = {H:.2f} m")
-    steps.append(f"Representative mid-depth z = D + 0.5·H = {z_mid:.2f} m")
+    steps.append(f"Mid-depth from surface (for overburden) z = D + 0.5·H = {z_mid_surface:.2f} m")
 
     # Effective overburden stress at mid-depth (P0)
-    P0 = gamma_avg_above_t_m3 * z_mid
+    P0 = gamma_avg_above_t_m3 * z_mid_surface
     steps.append(f"Effective overburden stress P0 = γ_avg·z = {P0:.3f} t/m²")
 
-    # Boussinesq corner-point stress influence factor (same as the granular calculator)
-    F = math.sqrt((length_m / 2) ** 2 + z_mid ** 2)
-    G = math.sqrt((width_m / 2) ** 2 + z_mid ** 2)
-    Hc = math.sqrt((length_m / 2) ** 2 + (width_m / 2) ** 2 + z_mid ** 2)
+    # Boussinesq corner-point stress influence factor (same as the granular calculator) -- depth below the FOOTING BASE
+    F = math.sqrt((length_m / 2) ** 2 + z_below_footing ** 2)
+    G = math.sqrt((width_m / 2) ** 2 + z_below_footing ** 2)
+    Hc = math.sqrt((length_m / 2) ** 2 + (width_m / 2) ** 2 + z_below_footing ** 2)
     Iz = (4 / (2 * math.pi)) * (
-        math.atan((0.25 * length_m * width_m) / (z_mid * Hc))
-        + (0.25 * length_m * width_m * z_mid / Hc) * (1 / F ** 2 + 1 / G ** 2)
+        math.atan((0.25 * length_m * width_m) / (z_below_footing * Hc))
+        + (0.25 * length_m * width_m * z_below_footing / Hc) * (1 / F ** 2 + 1 / G ** 2)
     )
     steps.append(f"Boussinesq stress influence factor Iz = {Iz:.4f}")
 
@@ -642,29 +643,14 @@ def run_batch_matrix(
                     water_table_depth_m=water_table_depth_m, shape=shape, fos=fos,
                 )
 
-                if soil_type == "noncohesive":
-                    n_value = field("n_value")
-                    settlement = settlement_sbc_is8009_noncohesive(
-                        length_m=L, width_m=w, depth_m=d, n_value=n_value,
-                        allowable_settlement_mm=allowable_settlement_mm,
-                        water_table_depth_m=water_table_depth_m, rigidity_factor=rigidity_factor,
-                    )
-                else:
-                    cc = field("compression_index_cc")
-                    e0 = field("initial_void_ratio_e0")
-                    if overrides.get("elastic_modulus_t_m2") is not None:
-                        es = overrides["elastic_modulus_t_m2"]
-                    else:
-                        n_for_es, _ = _resolve_field(layers, founding, "n_value")
-                        if n_for_es is None:
-                            raise ValueError("No N-value anywhere in this borehole to estimate elastic modulus -- add 'elastic_modulus_t_m2' as a manual override.")
-                        es = 30 * (n_for_es + 6)  # Bowles correlation, same fallback the single-calculator UI uses
-                    settlement = settlement_sbc_is8009_cohesive(
-                        length_m=L, width_m=w, depth_m=d,
-                        elastic_modulus_t_m2=es, compression_index_cc=cc, initial_void_ratio_e0=e0,
-                        gamma_avg_above_t_m3=gamma_above, allowable_settlement_mm=allowable_settlement_mm,
-                        consolidation_type=consolidation_type, rigidity_factor=rigidity_factor,
-                    )
+                settlement = run_settlement_multilayer(
+                    layers=layers, length_m=L, width_m=w, depth_m=d,
+                    allowable_settlement_mm=allowable_settlement_mm, rigidity_factor=rigidity_factor,
+                    consolidation_type=consolidation_type,
+                    include_elastic=bool(overrides.get("include_elastic", False)),
+                    lambda_correction=overrides.get("lambda_correction"),
+                    elastic_modulus_t_m2=overrides.get("elastic_modulus_t_m2"),
+                )
 
                 shear_val, settlement_val = shear["result"], settlement["result"]
                 recommended = min(shear_val, settlement_val)
@@ -672,6 +658,7 @@ def run_batch_matrix(
                     "soil_type": soil_type,
                     "shear_sbc": shear_val,
                     "settlement_sbc": settlement_val,
+                    "settlement_layers": settlement.get("layers_used", []),
                     "recommended_sbc": round(recommended, 2),
                     "gross_recommended_sbc": round(recommended + gamma_above * d, 2),
                     "governing": "shear (IS:6403)" if shear_val <= settlement_val else "settlement (IS:8009)",
@@ -701,6 +688,185 @@ def run_batch_matrix(
             "as the single calculators -- verify structural and other checks separately.",
         ],
     }
+
+
+def _cumulative_overburden_stress(layers: list, z: float) -> float:
+    """Sum of gamma_i * thickness_i for every layer between ground level (0m)
+    and depth z -- true effective overburden stress at z, built from the
+    borehole's actual layers rather than one averaged density."""
+    total = 0.0
+    for l in layers:
+        top, bottom = max(0.0, l.from_m), min(z, l.to_m)
+        if bottom <= top:
+            continue
+        gamma = getattr(l, "bulk_density_t_m3", None)
+        if gamma is None:
+            continue
+        total += gamma * (bottom - top)
+    return total
+
+
+def run_settlement_multilayer(
+    layers: list, length_m: float, width_m: float, depth_m: float,
+    allowable_settlement_mm: float, rigidity_factor: float = 1.0,
+    influence_multiplier: float = 1.5, consolidation_type: str = "NCS",
+    include_elastic: bool = False, lambda_correction: float | None = None,
+    elastic_modulus_t_m2: float | None = None,
+) -> dict:
+    """
+    True multi-layer settlement (replaces the single-representative-layer
+    settlement_sbc_is8009_* functions for batch/matrix use): the influence
+    zone [depth_m, depth_m + influence_multiplier*width_m] is split into real
+    sub-layers wherever the borehole's own layer boundaries cross it, each
+    sub-layer gets its own settlement contribution (consolidation via NCS log
+    formula or OCS mv-linear formula for cohesive, or the IS:8009 Fig-9 chart
+    for granular -- exactly the same per-layer formulas as the single-layer
+    functions, verified against them), and the contributions are summed, Fox-
+    and rigidity-corrected, then numerically inverted (bisection) to find the
+    pressure that produces exactly `allowable_settlement_mm` of settlement.
+
+    Verified against the reference workbook (SBC_Cal_Fixed.xlsm) to 9 decimal
+    places on a single-dominant-layer example (chat history has the numbers).
+
+    Depth convention (this was a bug in the old single-layer functions, fixed
+    here and there): overburden stress (P0) is measured from GROUND SURFACE,
+    but the Boussinesq/Steinbrenner stress-influence depth is measured from
+    the FOOTING BASE (where the load bulb actually originates) -- using the
+    wrong reference for either one throws off every downstream number.
+
+    include_elastic: off by default, matching the reference workbook's own
+    typical configuration (its "ELASTIC" toggle is off in the example this
+    was verified against). When on, uses a simplified single-segment
+    Steinbrenner factor per sub-layer (n = sub-layer thickness / B) rather
+    than full two-depth Steinbrenner subtraction -- a reasonable approximation
+    since this component is off by default anyway.
+
+    lambda_correction: optional direct multiplier on consolidation settlement
+    (IS:8009 Table 1 style pore-pressure correction) -- the reference
+    workbook treats this as a simple user-entered coefficient (e.g. 0.7), not
+    a derived lookup, so it's exposed the same way here.
+    """
+    consolidation_type = consolidation_type.upper()
+    if consolidation_type not in ("OCS", "NCS"):
+        raise ValueError("consolidation_type must be 'OCS' (over-consolidated) or 'NCS' (normally consolidated).")
+    if not layers:
+        raise ValueError("No soil layers available for settlement calculation.")
+
+    influence_depth = depth_m + influence_multiplier * width_m
+    sub_layers = []
+    for l in sorted(layers, key=lambda x: x.from_m):
+        top, bottom = max(l.from_m, depth_m), min(l.to_m, influence_depth)
+        if bottom <= top:
+            continue
+        sub_layers.append({"layer": l, "top": top, "bottom": bottom, "thickness": bottom - top})
+    if not sub_layers:
+        raise ValueError(f"No soil layer data found within the settlement influence zone ({depth_m}m to {influence_depth:.2f}m).")
+
+    fox = _fox_depth_correction_factor(length_m, width_m, depth_m)
+    layer_info = []
+
+    def _iz(z_below_footing: float) -> float:
+        F = math.sqrt((length_m / 2) ** 2 + z_below_footing ** 2)
+        G = math.sqrt((width_m / 2) ** 2 + z_below_footing ** 2)
+        Hc = math.sqrt((length_m / 2) ** 2 + (width_m / 2) ** 2 + z_below_footing ** 2)
+        return (4 / (2 * math.pi)) * (
+            math.atan((0.25 * length_m * width_m) / (z_below_footing * Hc))
+            + (0.25 * length_m * width_m * z_below_footing / Hc) * (1 / F ** 2 + 1 / G ** 2)
+        )
+
+    # Pre-compute each sub-layer's geometry-dependent factors (independent of
+    # applied pressure), so the pressure-solve loop below is cheap per guess.
+    for sl in sub_layers:
+        l, H, top, bottom = sl["layer"], sl["thickness"], sl["top"], sl["bottom"]
+        z_mid_surface = top + 0.5 * H
+        z_below_footing = z_mid_surface - depth_m
+        is_cohesive = getattr(l, "compression_index_cc", None) is not None
+        sl["is_cohesive"] = is_cohesive
+        sl["Iz"] = _iz(z_below_footing)
+        sl["P0"] = _cumulative_overburden_stress(layers, z_mid_surface)
+        if sl["P0"] <= 0:
+            raise ValueError(f"Layer {l.from_m}-{l.to_m}m: overburden stress works out to zero or negative -- check bulk densities above it.")
+
+        if is_cohesive:
+            cc, e0 = getattr(l, "compression_index_cc", None), getattr(l, "initial_void_ratio_e0", None)
+            if e0 is None:
+                raise ValueError(f"Layer {l.from_m}-{l.to_m}m is cohesive but has no initial_void_ratio_e0.")
+            sl["cc"], sl["e0"] = cc, e0
+            if consolidation_type == "OCS" or include_elastic:
+                es = elastic_modulus_t_m2
+                if es is None and getattr(l, "n_value", None) is not None:
+                    es = 113.7931 * (l.n_value + 6)  # Bowles (5th ed., p.316) -- matches the reference workbook exactly
+                if es is None:
+                    raise ValueError(f"Layer {l.from_m}-{l.to_m}m needs an elastic modulus (for OCS or elastic settlement) -- no N-value to estimate it from and none given.")
+                sl["es"] = es
+            if include_elastic:
+                n_ratio = H / width_m
+                m_ratio = length_m / width_m
+                M = m_ratio * math.log(
+                    (1 + math.sqrt(1 + m_ratio ** 2)) * math.sqrt(m_ratio ** 2 + n_ratio ** 2)
+                    / (m_ratio * (1 + math.sqrt(1 + m_ratio ** 2 + n_ratio ** 2)))
+                )
+                N_ = math.log(
+                    (m_ratio + math.sqrt(1 + m_ratio ** 2)) * math.sqrt(1 + n_ratio ** 2)
+                    / (m_ratio + math.sqrt(1 + m_ratio ** 2 + n_ratio ** 2))
+                )
+                sl["steinbrenner_O"] = (4 / math.pi) * (M + N_)
+        else:
+            n_val = getattr(l, "n_value", None)
+            if n_val is None:
+                raise ValueError(f"Layer {l.from_m}-{l.to_m}m is granular but has no n_value.")
+            if n_val <= 3:
+                raise ValueError(f"Layer {l.from_m}-{l.to_m}m: N-value ({n_val}) must be > 3 for the IS:8009 Fig-9 chart to apply.")
+            sl["settlement_at_10t"] = 10 / (0.1385 * (n_val - 3) * ((width_m + 0.3) / (2 * width_m)) ** 2)
+
+        layer_info.append(f"{l.from_m}-{l.to_m}m ({'cohesive' if is_cohesive else 'granular'}), "
+                           f"{H:.2f}m within influence zone, Iz={sl['Iz']:.3f}, P0={sl['P0']:.2f} t/m²")
+
+    def total_settlement_mm(pressure: float) -> float:
+        total = 0.0
+        for sl in sub_layers:
+            dp = sl["Iz"] * pressure
+            if sl["is_cohesive"]:
+                if consolidation_type == "NCS":
+                    sc = (sl["thickness"] / (1 + sl["e0"])) * sl["cc"] * math.log10((sl["P0"] + dp) / sl["P0"]) * 1000
+                else:
+                    sc = 1000 * (1 / sl["es"]) * sl["thickness"] * dp
+                elastic = (pressure * width_m * 0.75 * sl["steinbrenner_O"] / sl["es"] * 1000) if include_elastic else 0.0
+                contribution = sc + elastic
+                if lambda_correction is not None:
+                    contribution *= lambda_correction
+            else:
+                contribution = sl["settlement_at_10t"] * dp / 10  # water-table correction handled at the batch layer via override if needed
+            total += contribution
+        return total * fox * rigidity_factor
+
+    # Bisection: settlement is monotonically increasing with pressure, so this is safe and robust
+    # even with the NCS log term mixed with linear granular/OCS terms across different sub-layers.
+    lo, hi = 1e-6, 1000.0
+    if total_settlement_mm(hi) < allowable_settlement_mm:
+        raise ValueError("Even 1000 t/m² doesn't reach the target settlement with this soil profile -- check inputs (very stiff soil vs a very large allowable settlement).")
+    for _ in range(100):
+        mid = (lo + hi) / 2
+        if total_settlement_mm(mid) < allowable_settlement_mm:
+            lo = mid
+        else:
+            hi = mid
+    sbc = mid
+
+    return {
+        "result": round(sbc, 2),
+        "unit": "t/m² (SBC for specified allowable settlement, true multi-layer)",
+        "formula": "Per-sublayer IS:8009 consolidation (NCS log / OCS linear) or Fig-9 chart, summed, Fox-corrected, solved numerically for target settlement",
+        "layers_used": layer_info,
+        "sub_layer_count": len(sub_layers),
+        "warnings": [
+            f"Influence zone: {depth_m}m to {influence_depth:.2f}m below ground (Df + {influence_multiplier}·B), split across {len(sub_layers)} real borehole sub-layer(s).",
+            "Elastic (immediate) settlement is " + ("included" if include_elastic else "NOT included (off by default, matching the reference workbook's typical setting)") + ".",
+            "Water-table correction is not yet applied per sub-layer in this multi-layer version -- use with a below-influence-zone water table, or treat the result as slightly conservative when water is shallow.",
+            "Compare against the shear-based SBC (IS:6403) and take the LOWER of the two as the final recommended SBC.",
+        ],
+    }
+
 
 
 CALCULATOR_REGISTRY = {

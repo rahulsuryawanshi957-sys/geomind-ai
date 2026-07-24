@@ -6,7 +6,7 @@ from app.config import settings, logger
 from app.database import Base, engine
 from app.routers import chat, documents, search, calculators, reports, clause_finder, history, lab_data
 
-logger.info("Booting RaahiGeo AI backend...")
+logger.info("Booting RaahiGeo backend...")
 
 try:
     Base.metadata.create_all(bind=engine)
@@ -16,7 +16,7 @@ except Exception:
     raise
 
 app = FastAPI(
-    title="RaahiGeo AI",
+    title="RaahiGeo",
     description="RAG-based geotechnical engineering assistant",
     version="0.2.0",
 )
@@ -77,7 +77,7 @@ def health():
     """
     return {
         "status": "ok",
-        "service": "RaahiGeo AI",
+        "service": "RaahiGeo",
         "gemini_key_configured": bool(settings.gemini_api_key),
         "chat_model": settings.chat_model,
         "embedding_model": settings.embedding_model,
@@ -88,4 +88,4 @@ def health():
     }
 
 
-logger.info("RaahiGeo AI backend startup complete.")
+logger.info("RaahiGeo backend startup complete.")

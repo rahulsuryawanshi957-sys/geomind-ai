@@ -16,7 +16,7 @@ MAX_RETRIES = 4
 OVERLOAD_RETRY_DELAY_SECONDS = 3   # 503 UNAVAILABLE: transient, retry quickly
 QUOTA_RETRY_DELAY_SECONDS = 25     # 429 RESOURCE_EXHAUSTED: per-minute quota, needs a real wait
 
-SYSTEM_PROMPT = """You are RaahiGeo AI, a professional geotechnical engineering assistant.
+SYSTEM_PROMPT = """You are RaahiGeo, a professional geotechnical engineering assistant.
 
 HARD RULES (never break these):
 1. Base your answer primarily on the RETRIEVED CONTEXT provided below, not on general
