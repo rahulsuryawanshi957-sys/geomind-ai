@@ -429,6 +429,47 @@ scoped).
     do nothing looks, to the user, exactly like the calculator is broken, not like a
     one-line wiring gap.** Worth remembering next time an override doesn't seem to work.
 
+16. **Excel-vs-code audit, 24 Jul 2026: compared `SBC_Cal_Fixed.xlsm` (reference workbook)
+    formula-by-formula against `bearing_capacity_is6403_shear()` and
+    `run_settlement_multilayer()`.** Confirmed MATCH on: void ratio/dry density formula,
+    Nq/Nγ Meyerhof factors, local-shear φ' reduction, shape/depth factors, water-table
+    Rw 3-zone logic, gross-SBC-computed-once-on-recommended, shear-vs-settlement
+    governing logic. Two findings acted on:
+    - **BUG FIXED:** at φ=0 (purely cohesive), the reference workbook uses Nc=5.14 for
+      GENERAL shear (`Shear!H26`, classic Prandtl) but Nc=**5.7** for LOCAL shear
+      (`Shear!H29`) -- a different constant, not the same one twice. The shared
+      `bearing_factors()` helper was using 5.14 for both. Fixed: `bearing_factors()` now
+      takes an explicit `nc_at_zero` param (5.14 for general, 5.7 for local).
+    - **GAP FILLED (per Raahi's decision):** added a Cc (compression index) auto-estimate
+      fallback in `run_settlement_multilayer()`, matching the reference workbook's
+      Input!Z-column "VOID RATIO" branch: `Cc = 0.3*(e0-0.27)`, used only when no lab-tested
+      Cc exists anywhere on the borehole (after `_resolve_field`'s normal neighbour-layer
+      fallback also comes up empty). The workbook has a second correlation option
+      (liquid-limit based, `Cc = 0.009*(LL-10)`, Terzaghi & Peck) gated by a toggle
+      (`Input!$AH$2`) -- **not implemented**, since it needs a `liquid_limit_pct` field
+      that doesn't exist yet on `SoilLayer` (would need a model + lab-data-template
+      migration, out of scope for this pass). The `layers_used` transparency string now
+      notes when Cc was estimated vs lab-sourced, so this is never a silent black box.
+    - **Explicitly declined by Raahi, do NOT add without asking again:** a "WORST case"
+      water table toggle (`Input!AF4="WORST"` forces Rw=0.5 regardless of actual water
+      table depth). Exists in the reference workbook; Raahi said not needed for this app.
+    - **Confirmed intentionally different, NOT a bug:** the workbook computes
+      `gamma_avg_above` (overburden density) as a plain average of test-row densities
+      above the footing depth (`AVERAGEIFS` on raw lab rows), while this app's
+      `_weighted_overburden()` uses a thickness-weighted average across the borehole's
+      layer model. Raahi confirmed: keep the current thickness-weighted approach.
+    - **Not fully audited (flagged, not chased further this pass):** `Input!AC3` site-
+      condition modifiers (Filled up / Scourable Depth / Basement / Disturbed Soil) change
+      which density feeds `gamma_avg_above` and, for Filled up, add a fixed density
+      override -- only scour (`scour_correction_m`, already a param on
+      `bearing_capacity_is6403_shear`) has an equivalent in this app. Also,
+      `Input!$AJ$2` ("WEIGHTED AVERAGE?") toggles between two different lookup branches
+      inside the workbook (a direct depth-indexed average vs an alternate `BI`-column
+      path) -- this specific project's workbook has it set to the second branch, which
+      wasn't traced to full depth. Worth a closer look if a future borehole's numbers
+      don't match the workbook's, but not chased blind given the size of the workbook
+      (~6,400 formulas) and the risk of guessing on something this safety-relevant.
+
 ---
 
 ## How to give Raahi an update (workflow reminder for whoever's helping)
