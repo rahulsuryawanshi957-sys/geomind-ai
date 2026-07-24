@@ -693,13 +693,30 @@ def run_batch_matrix(
 def _cumulative_overburden_stress(layers: list, z: float) -> float:
     """Sum of gamma_i * thickness_i for every layer between ground level (0m)
     and depth z -- true effective overburden stress at z, built from the
-    borehole's actual layers rather than one averaged density."""
+    borehole's actual layers rather than one averaged density.
+
+    A layer segment missing bulk_density_t_m3 (very common for SPT-only
+    layers, which typically record N-value but not lab density) borrows it
+    via the same nearest-layer/borehole-average fallback used for shear's
+    cohesion/phi -- silently treating a missing density as zero was
+    understating overburden stress, which could drive it to zero or negative
+    and abort the whole settlement calculation. If the shallowest recorded
+    layer starts below ground level (a logging gap near the surface -- the
+    top stratum often isn't separately sampled), that gap is filled using
+    the shallowest layer's own (fallback-resolved) density too."""
+    if not layers:
+        return 0.0
+    ordered = sorted(layers, key=lambda l: l.from_m)
     total = 0.0
-    for l in layers:
+    if ordered[0].from_m > 0:
+        gamma, _ = _resolve_field(layers, ordered[0], "bulk_density_t_m3")
+        if gamma is not None:
+            total += gamma * (min(z, ordered[0].from_m) - 0.0)
+    for l in ordered:
         top, bottom = max(0.0, l.from_m), min(z, l.to_m)
         if bottom <= top:
             continue
-        gamma = getattr(l, "bulk_density_t_m3", None)
+        gamma, _ = _resolve_field(layers, l, "bulk_density_t_m3")
         if gamma is None:
             continue
         total += gamma * (bottom - top)

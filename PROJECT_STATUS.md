@@ -374,6 +374,20 @@ scoped).
     `README.md`, and this file. `frontend/package.json`'s internal `name` field
     (`raahigeo-frontend`) wasn't touched -- it's a package identifier, not user-facing
     branding, and never had "AI" in it to begin with.
+14. **BUG, fixed 24 Jul 2026, found via live testing on real project data (BH-01, Mokama
+    to Munger Highway, Bihar):** `_cumulative_overburden_stress()` silently skipped any
+    layer segment missing `bulk_density_t_m3` (treated it as zero contribution) instead
+    of falling back to a nearby layer like `_resolve_field()` already does for shear's
+    cohesion/phi. SPT-only layers very commonly lack lab-tested bulk density, so on a
+    borehole with several SPT-only layers near the founding depth, cumulative overburden
+    could come out to zero (or even negative from floating-point noise), which aborted
+    the whole settlement calculation with "overburden stress works out to zero or
+    negative." Fixed by routing every layer segment's density through
+    `_resolve_field()` the same way, plus filling a near-surface gap (if the borehole's
+    shallowest layer doesn't start at 0m) using that shallowest layer's own
+    fallback-resolved density. Also added an "L (m)" column to the Batch Analysis results
+    table -- footing length was always being used correctly, but with no column showing
+    it, Raahi (reasonably) couldn't tell from the UI whether it was.
 
 ---
 

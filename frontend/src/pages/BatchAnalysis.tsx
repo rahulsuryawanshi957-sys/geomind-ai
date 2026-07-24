@@ -298,6 +298,7 @@ export default function BatchAnalysis() {
                     <thead>
                       <tr className="border-b border-white/[0.08] text-slate-400">
                         <th className="text-left py-2 pr-3">B (m)</th>
+                        <th className="text-left py-2 pr-3">L (m)</th>
                         <th className="text-left py-2 pr-3">D (m)</th>
                         <th className="text-left py-2 pr-3">Founding layer</th>
                         <th className="text-left py-2 pr-3">Soil type</th>
@@ -314,10 +315,11 @@ export default function BatchAnalysis() {
                         return (
                           <tr key={i} className={`border-b border-white/[0.04] ${isCritical ? 'bg-violet-500/10' : ''}`}>
                             <td className="py-1.5 pr-3 text-slate-300 whitespace-nowrap">{c.width_m}</td>
+                            <td className="py-1.5 pr-3 text-slate-300 whitespace-nowrap">{c.length_m}</td>
                             <td className="py-1.5 pr-3 text-slate-300 whitespace-nowrap">{c.depth_m}</td>
                             <td className="py-1.5 pr-3 text-slate-400 whitespace-nowrap">{c.founding_layer ?? '—'}</td>
                             {c.error ? (
-                              <td colSpan={6} className="py-1.5 text-rose-400">{c.error}</td>
+                              <td colSpan={7} className="py-1.5 text-rose-400">{c.error}</td>
                             ) : (
                               <>
                                 <td className="py-1.5 pr-3 text-slate-400 whitespace-nowrap">{c.soil_type === 'cohesive' ? 'Clay' : 'Granular'}</td>
