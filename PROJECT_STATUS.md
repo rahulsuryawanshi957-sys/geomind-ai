@@ -382,12 +382,35 @@ scoped).
     borehole with several SPT-only layers near the founding depth, cumulative overburden
     could come out to zero (or even negative from floating-point noise), which aborted
     the whole settlement calculation with "overburden stress works out to zero or
-    negative." Fixed by routing every layer segment's density through
-    `_resolve_field()` the same way, plus filling a near-surface gap (if the borehole's
-    shallowest layer doesn't start at 0m) using that shallowest layer's own
-    fallback-resolved density. Also added an "L (m)" column to the Batch Analysis results
-    table -- footing length was always being used correctly, but with no column showing
-    it, Raahi (reasonably) couldn't tell from the UI whether it was.
+    negative." Also added an "L (m)" column to the Batch Analysis results table --
+    footing length was always being used correctly, but with no column showing it, Raahi
+    (reasonably) couldn't tell from the UI whether it was.
+
+    **Same live-testing round also found two more instances of the identical pattern**
+    inside `run_settlement_multilayer()` itself: `compression_index_cc`, `initial_void_
+    ratio_e0`, and `n_value` were all read with a plain `getattr()` and no fallback,
+    so a real layer with SOME but not all lab data (e.g. Cc recorded but not e0 -- a
+    real gap hit on this same borehole, at its 2.5-2.8m layer) hard-failed instead of
+    borrowing from a neighbour. Fixed by routing all of these through `_resolve_field()`
+    too, same as overburden density above.
+
+    **A related, more fundamental bug found in the same pass:** whether a layer was
+    treated as cohesive vs granular was being decided by "does this layer have
+    compression_index_cc" -- i.e. by which lab test happened to be run, not by the
+    soil's actual type. An SPT-only CI (clay) layer -- exactly what much of BH-01 is --
+    would get MISCLASSIFIED as granular purely because Cc wasn't tested, and then run
+    through the sand-only IS:8009 Fig-9 chart, which is physically wrong for clay. Fixed
+    to use the layer's actual USCS `classification` first (C../M.. prefix = cohesive,
+    S../G.. = granular), only falling back to "does it have Cc" when a layer has no
+    classification recorded at all. Applied in both `run_settlement_multilayer()` and
+    the batch loop's own soil-type display logic in `run_batch_matrix()`.
+
+    **General lesson reinforced three times in one debugging session:** any field read
+    directly off ONE layer via `getattr()`, without going through `_resolve_field()`'s
+    borehole-wide fallback, is a latent bug waiting for real field data (which is messy
+    and incomplete far more often than clean test data suggests) to hit it. When adding
+    a new field to the batch/settlement engines, route it through `_resolve_field()`
+    unless there's a specific reason not to.
 
 ---
 

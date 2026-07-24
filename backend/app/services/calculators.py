@@ -633,7 +633,13 @@ def run_batch_matrix(
                 else:
                     gamma_above = _weighted_overburden(layers, d, "bulk_density_t_m3") or gamma_base
 
-                soil_type = overrides.get("soil_type") or ("cohesive" if founding.compression_index_cc is not None else "noncohesive")
+                _founding_class = (getattr(founding, "classification", None) or "").strip().upper()
+                if overrides.get("soil_type"):
+                    soil_type = overrides["soil_type"]
+                elif _founding_class:
+                    soil_type = "cohesive" if _founding_class[0] in ("C", "M") else "noncohesive"
+                else:
+                    soil_type = "cohesive" if founding.compression_index_cc is not None else "noncohesive"
 
                 shear = bearing_capacity_is6403_shear(
                     length_m=L, width_m=w, depth_m=d,
@@ -797,7 +803,14 @@ def run_settlement_multilayer(
         l, H, top, bottom = sl["layer"], sl["thickness"], sl["top"], sl["bottom"]
         z_mid_surface = top + 0.5 * H
         z_below_footing = z_mid_surface - depth_m
-        is_cohesive = getattr(l, "compression_index_cc", None) is not None
+        classification = (getattr(l, "classification", None) or "").strip().upper()
+        if classification:
+            # USCS: C../M.. (clay/silt) behave as cohesive; S../G.. (sand/gravel) as granular.
+            # This is the soil's actual type, not which lab test happened to be run on it --
+            # an SPT-only clay layer is still clay, not "granular" just because it lacks Cc/e0.
+            is_cohesive = classification[0] in ("C", "M")
+        else:
+            is_cohesive = getattr(l, "compression_index_cc", None) is not None
         sl["is_cohesive"] = is_cohesive
         sl["Iz"] = _iz(z_below_footing)
         sl["P0"] = _cumulative_overburden_stress(layers, z_mid_surface)
@@ -805,16 +818,21 @@ def run_settlement_multilayer(
             raise ValueError(f"Layer {l.from_m}-{l.to_m}m: overburden stress works out to zero or negative -- check bulk densities above it.")
 
         if is_cohesive:
-            cc, e0 = getattr(l, "compression_index_cc", None), getattr(l, "initial_void_ratio_e0", None)
+            cc, _ = _resolve_field(layers, l, "compression_index_cc")
+            e0, _ = _resolve_field(layers, l, "initial_void_ratio_e0")
+            if cc is None:
+                raise ValueError(f"Layer {l.from_m}-{l.to_m}m: no compression_index_cc anywhere in this borehole to fall back on.")
             if e0 is None:
-                raise ValueError(f"Layer {l.from_m}-{l.to_m}m is cohesive but has no initial_void_ratio_e0.")
+                raise ValueError(f"Layer {l.from_m}-{l.to_m}m: no initial_void_ratio_e0 anywhere in this borehole to fall back on.")
             sl["cc"], sl["e0"] = cc, e0
             if consolidation_type == "OCS" or include_elastic:
                 es = elastic_modulus_t_m2
-                if es is None and getattr(l, "n_value", None) is not None:
-                    es = 113.7931 * (l.n_value + 6)  # Bowles (5th ed., p.316) -- matches the reference workbook exactly
                 if es is None:
-                    raise ValueError(f"Layer {l.from_m}-{l.to_m}m needs an elastic modulus (for OCS or elastic settlement) -- no N-value to estimate it from and none given.")
+                    n_for_es, _ = _resolve_field(layers, l, "n_value")
+                    if n_for_es is not None:
+                        es = 113.7931 * (n_for_es + 6)  # Bowles (5th ed., p.316) -- matches the reference workbook exactly
+                if es is None:
+                    raise ValueError(f"Layer {l.from_m}-{l.to_m}m needs an elastic modulus (for OCS or elastic settlement) -- no N-value anywhere in this borehole to estimate it from, and none given.")
                 sl["es"] = es
             if include_elastic:
                 n_ratio = H / width_m
@@ -829,9 +847,9 @@ def run_settlement_multilayer(
                 )
                 sl["steinbrenner_O"] = (4 / math.pi) * (M + N_)
         else:
-            n_val = getattr(l, "n_value", None)
+            n_val, _ = _resolve_field(layers, l, "n_value")
             if n_val is None:
-                raise ValueError(f"Layer {l.from_m}-{l.to_m}m is granular but has no n_value.")
+                raise ValueError(f"Layer {l.from_m}-{l.to_m}m: no n_value anywhere in this borehole to fall back on.")
             if n_val <= 3:
                 raise ValueError(f"Layer {l.from_m}-{l.to_m}m: N-value ({n_val}) must be > 3 for the IS:8009 Fig-9 chart to apply.")
             sl["settlement_at_10t"] = 10 / (0.1385 * (n_val - 3) * ((width_m + 0.3) / (2 * width_m)) ** 2)
