@@ -411,6 +411,23 @@ scoped).
     and incomplete far more often than clean test data suggests) to hit it. When adding
     a new field to the batch/settlement engines, route it through `_resolve_field()`
     unless there's a specific reason not to.
+15. **BUG, fixed 24 Jul 2026, found immediately after #14 on the same borehole (which
+    turns out to have NO `initial_void_ratio_e0` anywhere at all -- not a gap, a total
+    absence for this field):** manual overrides for `compression_index_cc`,
+    `initial_void_ratio_e0`, `n_value`, and `bulk_density_t_m3` were silently ignored by
+    `run_settlement_multilayer()` and `_cumulative_overburden_stress()` -- Raahi typed a
+    value into the Manual Overrides panel and the settlement engine never looked at it,
+    since these two functions only checked each layer's own data plus `_resolve_field()`
+    fallback, never the `overrides` dict. (Shear's `field()` closure in `run_batch_matrix`
+    already checked overrides correctly -- this bug was specific to the settlement side,
+    introduced when the multi-layer engine was built without wiring overrides all the way
+    through.) Fixed: both functions now take an `overrides` param and check it before
+    `_resolve_field`, and `run_batch_matrix` passes the full overrides dict through to
+    settlement, not just `elastic_modulus_t_m2`/`lambda_correction`/`include_elastic`.
+    **When a borehole has no data at all for some field even a good fallback can't fix,
+    manual override is the ONLY way through -- so a bug that makes overrides silently
+    do nothing looks, to the user, exactly like the calculator is broken, not like a
+    one-line wiring gap.** Worth remembering next time an override doesn't seem to work.
 
 ---
 

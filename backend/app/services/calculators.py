@@ -656,6 +656,7 @@ def run_batch_matrix(
                     include_elastic=bool(overrides.get("include_elastic", False)),
                     lambda_correction=overrides.get("lambda_correction"),
                     elastic_modulus_t_m2=overrides.get("elastic_modulus_t_m2"),
+                    overrides=overrides,
                 )
 
                 shear_val, settlement_val = shear["result"], settlement["result"]
@@ -696,7 +697,7 @@ def run_batch_matrix(
     }
 
 
-def _cumulative_overburden_stress(layers: list, z: float) -> float:
+def _cumulative_overburden_stress(layers: list, z: float, overrides: dict | None = None) -> float:
     """Sum of gamma_i * thickness_i for every layer between ground level (0m)
     and depth z -- true effective overburden stress at z, built from the
     borehole's actual layers rather than one averaged density.
@@ -709,20 +710,27 @@ def _cumulative_overburden_stress(layers: list, z: float) -> float:
     and abort the whole settlement calculation. If the shallowest recorded
     layer starts below ground level (a logging gap near the surface -- the
     top stratum often isn't separately sampled), that gap is filled using
-    the shallowest layer's own (fallback-resolved) density too."""
+    the shallowest layer's own (fallback-resolved) density too. A manual
+    `overrides["bulk_density_t_m3"]` pin, if given, wins over all of that."""
     if not layers:
         return 0.0
+    overrides = overrides or {}
+    override_gamma = overrides.get("bulk_density_t_m3")
     ordered = sorted(layers, key=lambda l: l.from_m)
     total = 0.0
     if ordered[0].from_m > 0:
-        gamma, _ = _resolve_field(layers, ordered[0], "bulk_density_t_m3")
+        gamma = override_gamma
+        if gamma is None:
+            gamma, _ = _resolve_field(layers, ordered[0], "bulk_density_t_m3")
         if gamma is not None:
             total += gamma * (min(z, ordered[0].from_m) - 0.0)
     for l in ordered:
         top, bottom = max(0.0, l.from_m), min(z, l.to_m)
         if bottom <= top:
             continue
-        gamma, _ = _resolve_field(layers, l, "bulk_density_t_m3")
+        gamma = override_gamma
+        if gamma is None:
+            gamma, _ = _resolve_field(layers, l, "bulk_density_t_m3")
         if gamma is None:
             continue
         total += gamma * (bottom - top)
@@ -734,7 +742,7 @@ def run_settlement_multilayer(
     allowable_settlement_mm: float, rigidity_factor: float = 1.0,
     influence_multiplier: float = 1.5, consolidation_type: str = "NCS",
     include_elastic: bool = False, lambda_correction: float | None = None,
-    elastic_modulus_t_m2: float | None = None,
+    elastic_modulus_t_m2: float | None = None, overrides: dict | None = None,
 ) -> dict:
     """
     True multi-layer settlement (replaces the single-representative-layer
@@ -774,6 +782,7 @@ def run_settlement_multilayer(
         raise ValueError("consolidation_type must be 'OCS' (over-consolidated) or 'NCS' (normally consolidated).")
     if not layers:
         raise ValueError("No soil layers available for settlement calculation.")
+    overrides = overrides or {}
 
     influence_depth = depth_m + influence_multiplier * width_m
     sub_layers = []
@@ -813,13 +822,17 @@ def run_settlement_multilayer(
             is_cohesive = getattr(l, "compression_index_cc", None) is not None
         sl["is_cohesive"] = is_cohesive
         sl["Iz"] = _iz(z_below_footing)
-        sl["P0"] = _cumulative_overburden_stress(layers, z_mid_surface)
+        sl["P0"] = _cumulative_overburden_stress(layers, z_mid_surface, overrides)
         if sl["P0"] <= 0:
             raise ValueError(f"Layer {l.from_m}-{l.to_m}m: overburden stress works out to zero or negative -- check bulk densities above it.")
 
         if is_cohesive:
-            cc, _ = _resolve_field(layers, l, "compression_index_cc")
-            e0, _ = _resolve_field(layers, l, "initial_void_ratio_e0")
+            cc = overrides.get("compression_index_cc")
+            if cc is None:
+                cc, _ = _resolve_field(layers, l, "compression_index_cc")
+            e0 = overrides.get("initial_void_ratio_e0")
+            if e0 is None:
+                e0, _ = _resolve_field(layers, l, "initial_void_ratio_e0")
             if cc is None:
                 raise ValueError(f"Layer {l.from_m}-{l.to_m}m: no compression_index_cc anywhere in this borehole to fall back on.")
             if e0 is None:
@@ -828,7 +841,9 @@ def run_settlement_multilayer(
             if consolidation_type == "OCS" or include_elastic:
                 es = elastic_modulus_t_m2
                 if es is None:
-                    n_for_es, _ = _resolve_field(layers, l, "n_value")
+                    n_for_es = overrides.get("n_value")
+                    if n_for_es is None:
+                        n_for_es, _ = _resolve_field(layers, l, "n_value")
                     if n_for_es is not None:
                         es = 113.7931 * (n_for_es + 6)  # Bowles (5th ed., p.316) -- matches the reference workbook exactly
                 if es is None:
@@ -847,7 +862,9 @@ def run_settlement_multilayer(
                 )
                 sl["steinbrenner_O"] = (4 / math.pi) * (M + N_)
         else:
-            n_val, _ = _resolve_field(layers, l, "n_value")
+            n_val = overrides.get("n_value")
+            if n_val is None:
+                n_val, _ = _resolve_field(layers, l, "n_value")
             if n_val is None:
                 raise ValueError(f"Layer {l.from_m}-{l.to_m}m: no n_value anywhere in this borehole to fall back on.")
             if n_val <= 3:
