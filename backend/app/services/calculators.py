@@ -659,6 +659,7 @@ def run_batch_matrix(
                     lambda_correction=overrides.get("lambda_correction"),
                     elastic_modulus_t_m2=overrides.get("elastic_modulus_t_m2"),
                     overrides=overrides,
+                    water_table_depth_m=overrides.get("water_table_depth_m", water_table_depth_m),
                 )
 
                 shear_val, settlement_val = shear["result"], settlement["result"]
@@ -668,6 +669,10 @@ def run_batch_matrix(
                     "shear_sbc": shear_val,
                     "settlement_sbc": settlement_val,
                     "settlement_layers": settlement.get("layers_used", []),
+                    "settlement_layer_report": settlement.get("layer_report", []),
+                    "influence_zone_mode": settlement.get("influence_zone_mode"),
+                    "influence_zone_note": settlement.get("influence_zone_note"),
+                    "water_table_correction_note": settlement.get("water_table_correction_note"),
                     "recommended_sbc": round(recommended, 2),
                     "gross_recommended_sbc": round(recommended + gamma_above * d, 2),
                     "governing": "shear (IS:6403)" if shear_val <= settlement_val else "settlement (IS:8009)",
@@ -745,21 +750,32 @@ def run_settlement_multilayer(
     influence_multiplier: float = 1.5, consolidation_type: str = "NCS",
     include_elastic: bool = False, lambda_correction: float | None = None,
     elastic_modulus_t_m2: float | None = None, overrides: dict | None = None,
+    water_table_depth_m: float | None = None,
 ) -> dict:
     """
     True multi-layer settlement (replaces the single-representative-layer
     settlement_sbc_is8009_* functions for batch/matrix use): the influence
-    zone [depth_m, depth_m + influence_multiplier*width_m] is split into real
+    zone [depth_m, depth_m + influence_multiplier*width_m] (or a manually
+    overridden zone, see overrides["influence_zone_m"]) is split into real
     sub-layers wherever the borehole's own layer boundaries cross it, each
     sub-layer gets its own settlement contribution (consolidation via NCS log
-    formula or OCS mv-linear formula for cohesive, or the IS:8009 Fig-9 chart
-    for granular -- exactly the same per-layer formulas as the single-layer
-    functions, verified against them), and the contributions are summed, Fox-
-    and rigidity-corrected, then numerically inverted (bisection) to find the
-    pressure that produces exactly `allowable_settlement_mm` of settlement.
+    formula or OCS mv-linear formula for cohesive/silt, or the IS:8009 Fig-9
+    chart for granular -- exactly the same per-layer formulas as the
+    single-layer functions, verified against them), and the contributions
+    are summed, Fox- and rigidity-corrected, then numerically inverted
+    (bisection) to find the pressure that produces exactly
+    `allowable_settlement_mm` of settlement.
 
     Verified against the reference workbook (SBC_Cal_Fixed.xlsm) to 9 decimal
     places on a single-dominant-layer example (chat history has the numbers).
+    Re-audited directly against the workbook's Settlement-1/2/3 sheet
+    formulas: Df-split first layer, influence-zone-bounded summation, and
+    COHESIVE-vs-NON-COHESIVE routing (silt -- MI/MH/ML -- is COHESIVE in the
+    reference workbook, same as this engine) were already correct. Two real
+    gaps found in that audit are fixed here: manual Influence Zone
+    override/reporting, and the per-layer water-table correction on granular
+    sub-layers (was computed in the single-layer function but never applied
+    here).
 
     Depth convention (this was a bug in the old single-layer functions, fixed
     here and there): overburden stress (P0) is measured from GROUND SURFACE,
@@ -778,6 +794,16 @@ def run_settlement_multilayer(
     (IS:8009 Table 1 style pore-pressure correction) -- the reference
     workbook treats this as a simple user-entered coefficient (e.g. 0.7), not
     a derived lookup, so it's exposed the same way here.
+
+    overrides["influence_zone_m"]: manual Influence Zone thickness (metres
+    below the founding depth), overriding the automatic Df + multiplier*B
+    zone. The report always states whether Automatic or Manual was used.
+
+    water_table_depth_m (or overrides["water_table_depth_m"]): depth below
+    ground of the water table. Applies a single Aw correction factor (0.5 at
+    or above founding level, scaling linearly to 1.0 at the base of the
+    influence zone -- same convention as the single-layer granular function)
+    to every granular sub-layer's settlement.
     """
     consolidation_type = consolidation_type.upper()
     if consolidation_type not in ("OCS", "NCS"):
@@ -785,8 +811,32 @@ def run_settlement_multilayer(
     if not layers:
         raise ValueError("No soil layers available for settlement calculation.")
     overrides = overrides or {}
+    water_table_depth_m = overrides.get("water_table_depth_m", water_table_depth_m)
 
-    influence_depth = depth_m + influence_multiplier * width_m
+    iz_override = overrides.get("influence_zone_m")
+    if iz_override is not None:
+        influence_depth = depth_m + iz_override
+        iz_mode = "Manual"
+        iz_note = f"Manual Influence Zone override = {iz_override:.2f} m below founding depth (to {influence_depth:.2f} m)"
+    else:
+        influence_depth = depth_m + influence_multiplier * width_m
+        iz_mode = "Automatic"
+        iz_note = f"Automatic Influence Zone = Df + {influence_multiplier}\u00b7B = {influence_depth:.2f} m below ground"
+
+    iz_thickness = influence_depth - depth_m
+    if water_table_depth_m is None:
+        Aw = 1.0
+        aw_note = "No water table depth given -- Aw = 1.0 (no correction applied to granular sub-layers)"
+    elif water_table_depth_m <= depth_m:
+        Aw = 0.5
+        aw_note = f"Water table at/above founding depth ({water_table_depth_m}m \u2264 {depth_m}m) -- Aw = 0.5"
+    elif water_table_depth_m >= influence_depth:
+        Aw = 1.0
+        aw_note = f"Water table below the influence zone ({water_table_depth_m}m \u2265 {influence_depth:.2f}m) -- Aw = 1.0"
+    else:
+        Aw = 0.5 + 0.5 * (water_table_depth_m - depth_m) / iz_thickness
+        aw_note = f"Water table within the influence zone -- Aw = 0.5 + 0.5\u00b7(Dw\u2212Df)/Iz = {Aw:.3f}"
+
     sub_layers = []
     for l in sorted(layers, key=lambda x: x.from_m):
         top, bottom = max(l.from_m, depth_m), min(l.to_m, influence_depth)
@@ -872,34 +922,40 @@ def run_settlement_multilayer(
                 sl["steinbrenner_O"] = (4 / math.pi) * (M + N_)
         else:
             n_val = overrides.get("n_value")
+            n_source = "override" if n_val is not None else None
             if n_val is None:
-                n_val, _ = _resolve_field(layers, l, "n_value")
+                n_val, n_source = _resolve_field(layers, l, "n_value")
             if n_val is None:
                 raise ValueError(f"Layer {l.from_m}-{l.to_m}m: no n_value anywhere in this borehole to fall back on.")
             if n_val <= 3:
                 raise ValueError(f"Layer {l.from_m}-{l.to_m}m: N-value ({n_val}) must be > 3 for the IS:8009 Fig-9 chart to apply.")
+            sl["n_val"], sl["n_source"] = n_val, n_source
             sl["settlement_at_10t"] = 10 / (0.1385 * (n_val - 3) * ((width_m + 0.3) / (2 * width_m)) ** 2)
 
         cc_note = f", Cc {sl['cc_source']}" if is_cohesive and sl.get("cc_source", "").startswith("estimated") else ""
         layer_info.append(f"{l.from_m}-{l.to_m}m ({'cohesive' if is_cohesive else 'granular'}), "
                            f"{H:.2f}m within influence zone, Iz={sl['Iz']:.3f}, P0={sl['P0']:.2f} t/m²{cc_note}")
 
-    def total_settlement_mm(pressure: float) -> float:
-        total = 0.0
-        for sl in sub_layers:
-            dp = sl["Iz"] * pressure
-            if sl["is_cohesive"]:
-                if consolidation_type == "NCS":
-                    sc = (sl["thickness"] / (1 + sl["e0"])) * sl["cc"] * math.log10((sl["P0"] + dp) / sl["P0"]) * 1000
-                else:
-                    sc = 1000 * (1 / sl["es"]) * sl["thickness"] * dp
-                elastic = (pressure * width_m * 0.75 * sl["steinbrenner_O"] / sl["es"] * 1000) if include_elastic else 0.0
-                contribution = sc + elastic
-                if lambda_correction is not None:
-                    contribution *= lambda_correction
+    def _layer_contribution_mm(sl: dict, pressure: float) -> tuple[float, float]:
+        """Returns (contribution_mm_before_fox_rigidity, stress_increase_dp) for one sub-layer."""
+        dp = sl["Iz"] * pressure
+        if sl["is_cohesive"]:
+            if consolidation_type == "NCS":
+                sc = (sl["thickness"] / (1 + sl["e0"])) * sl["cc"] * math.log10((sl["P0"] + dp) / sl["P0"]) * 1000
             else:
-                contribution = sl["settlement_at_10t"] * dp / 10  # water-table correction handled at the batch layer via override if needed
-            total += contribution
+                sc = 1000 * (1 / sl["es"]) * sl["thickness"] * dp
+            elastic = (pressure * width_m * 0.75 * sl["steinbrenner_O"] / sl["es"] * 1000) if include_elastic else 0.0
+            contribution = sc + elastic
+            if lambda_correction is not None:
+                contribution *= lambda_correction
+        else:
+            # Water-table correction (Aw) applied here -- previously computed
+            # elsewhere but never actually applied to this multi-layer path.
+            contribution = sl["settlement_at_10t"] * dp / (10 * Aw)
+        return contribution, dp
+
+    def total_settlement_mm(pressure: float) -> float:
+        total = sum(_layer_contribution_mm(sl, pressure)[0] for sl in sub_layers)
         return total * fox * rigidity_factor
 
     # Bisection: settlement is monotonically increasing with pressure, so this is safe and robust
@@ -915,16 +971,55 @@ def run_settlement_multilayer(
             hi = mid
     sbc = mid
 
+    # Build the fully transparent, per-layer breakdown at the solved pressure --
+    # every field the engineer needs to verify the calculation without reading code.
+    layer_report = []
+    running = 0.0
+    for sl in sub_layers:
+        l = sl["layer"]
+        raw_contribution, dp = _layer_contribution_mm(sl, sbc)
+        layer_settlement_mm = raw_contribution * fox * rigidity_factor
+        running += layer_settlement_mm
+        if sl["is_cohesive"]:
+            method = f"Clay/Silt consolidation ({consolidation_type})" + (" + elastic" if include_elastic else "")
+            es_val = sl.get("es")
+            es_note = f"{es_val:.1f} t/m² (from N-value correlation, Es=113.79·(N+6))" if es_val is not None else "not used"
+        else:
+            method = "Sand/Gravel -- IS:8009 Fig-9 chart"
+            es_note = "not used (granular method)"
+        layer_report.append({
+            "from_m": l.from_m, "to_m": l.to_m,
+            "effective_from_m": round(sl["top"], 2), "effective_to_m": round(sl["bottom"], 2),
+            "effective_thickness_m": round(sl["thickness"], 2),
+            "soil_type": "Cohesive (incl. Silt)" if sl["is_cohesive"] else "Non-cohesive (granular)",
+            "classification": (getattr(l, "classification", None) or "n/a"),
+            "settlement_method": method,
+            "spt_n_used": sl.get("n_val", "n/a (cohesive layer)"),
+            "spt_n_source": sl.get("n_source", "n/a"),
+            "elastic_modulus_used": es_note,
+            "stress_increase_t_m2": round(dp, 3),
+            "layer_settlement_mm": round(layer_settlement_mm, 3),
+            "running_settlement_mm": round(running, 3),
+        })
+
     return {
         "result": round(sbc, 2),
         "unit": "t/m² (SBC for specified allowable settlement, true multi-layer)",
         "formula": "Per-sublayer IS:8009 consolidation (NCS log / OCS linear) or Fig-9 chart, summed, Fox-corrected, solved numerically for target settlement",
         "layers_used": layer_info,
+        "layer_report": layer_report,
         "sub_layer_count": len(sub_layers),
+        "influence_zone_mode": iz_mode,
+        "influence_zone_note": iz_note,
+        "influence_zone_from_m": depth_m,
+        "influence_zone_to_m": round(influence_depth, 2),
+        "water_table_correction_note": aw_note,
+        "total_settlement_at_recommended_sbc_mm": round(running, 3),
         "warnings": [
-            f"Influence zone: {depth_m}m to {influence_depth:.2f}m below ground (Df + {influence_multiplier}·B), split across {len(sub_layers)} real borehole sub-layer(s).",
+            f"Influence zone: {depth_m}m to {influence_depth:.2f}m below ground ({iz_mode}), split across {len(sub_layers)} real borehole sub-layer(s).",
             "Elastic (immediate) settlement is " + ("included" if include_elastic else "NOT included (off by default, matching the reference workbook's typical setting)") + ".",
-            "Water-table correction is not yet applied per sub-layer in this multi-layer version -- use with a below-influence-zone water table, or treat the result as slightly conservative when water is shallow.",
+            "Water-table correction (Aw) is now applied to every granular sub-layer's settlement -- previously computed but not applied in this multi-layer version.",
+            "Silt (MI/MH/ML) is treated as COHESIVE, same as the reference workbook -- there is no separate 'silt method' in the source Excel.",
             "Compare against the shear-based SBC (IS:6403) and take the LOWER of the two as the final recommended SBC.",
         ],
     }
