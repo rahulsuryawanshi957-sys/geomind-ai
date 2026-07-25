@@ -573,6 +573,42 @@ scoped).
     = 9.56 mm`. Shown as an italic sub-row under each layer in the "▸ Full calc" table
     on the frontend. Gap-filled rows are marked with a "~" prefix on the depth range.
 
+20. **UI clarity + two override-exposure gaps, fixed 25 Jul 2026, both raised by Raahi
+    while reading his own "Full calc" output against IS:6403/8009 directly:**
+    - The "Founding layer" column showed the raw borehole layer's own boundaries (e.g.
+      "1.95-2.25m"), which Raahi reasonably read as "the calculation starts at 1.95m" --
+      it doesn't; settlement always starts exactly at Df (visible in the settlement
+      table's own first row). Relabelled to "Founding layer (raw)" with a tooltip on
+      both the header and the cell explaining the distinction.
+    - `lambda_correction` (IS:8009 Table 1 λ) existed as a working backend override
+      (`overrides["lambda_correction"]`, applied as a multiplier on consolidation
+      settlement) since entry #17-18's work, but was never added to the frontend's
+      `OVERRIDE_FIELDS` list -- there was no way to actually set it from the UI. Added.
+    - `include_elastic` existed as a backend flag but had no UI control at all (always
+      false, no way to turn it on). Added as a checkbox above Consolidation Type,
+      wired through `overrides.include_elastic`.
+    - **Confirmed NOT a bug, just needs explaining:** for the default configuration
+      (NCS + elastic off, matching the reference workbook's typical setup), the
+      settlement formula genuinely doesn't use Elastic Modulus at all -- IS:8009's
+      primary consolidation formula only needs Cc/e0/H/P0/Δσ. Es only enters when OCS
+      (mv=1/Es) or elastic settlement is explicitly turned on -- both already existed
+      in the engine, just weren't exposed until this entry. Fox's depth correction
+      factor (the settlement equivalent of shear's depth factors) was already being
+      applied the whole time -- visible as "×Fox(...)" in every layer's `working`
+      string -- just not obviously labelled as "the depth factor" to someone scanning
+      for that exact term.
+    - **Still open:** λ is applied as a flat manual multiplier across every cohesive
+      layer in a run; the actual IS:8009 Table 1 look-up (which Raahi says depends on
+      drainage conditions -- e.g. whether the clay layer is bounded by a sand layer,
+      giving single vs double drainage) is NOT implemented, because the actual table
+      values/criteria have never been seen in this codebase's context (only the
+      *existence* of a "IS-8009(I)-Tab-1 (λ)" cell label in the reference workbook, and
+      one example value of 0.7). If Raahi wants this automatic, the actual IS:8009
+      Table 1 (a photo, like the IS:6403 Table 3 one that resolved the shear
+      Dense/Medium/Loose question) is needed before implementing it -- guessing at
+      drainage-condition criteria here is exactly the kind of thing "never guess
+      engineering values" (Raahi's own spec doc, 24-25 Jul) warns against.
+
 ---
 
 ## How to give Raahi an update (workflow reminder for whoever's helping)

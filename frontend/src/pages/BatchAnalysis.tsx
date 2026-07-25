@@ -26,6 +26,7 @@ const OVERRIDE_FIELDS: { key: string; label: string }[] = [
   { key: 'initial_void_ratio_e0', label: 'Initial void ratio e0' },
   { key: 'influence_zone_m', label: 'Influence Zone override (m below founding depth; blank = auto Df+1.5B)' },
   { key: 'elastic_modulus_t_m2', label: 'Elastic modulus Es (t/m²)' },
+  { key: 'lambda_correction', label: 'λ correction on consolidation settlement (IS:8009 Table 1; blank = not applied)' },
 ]
 
 export default function BatchAnalysis() {
@@ -38,6 +39,7 @@ export default function BatchAnalysis() {
   const [fos, setFos] = useState('2.5')
   const [allowableSettlement, setAllowableSettlement] = useState('25')
   const [consolidationType, setConsolidationType] = useState('NCS')
+  const [includeElastic, setIncludeElastic] = useState(false)
   const [rigidityFactor, setRigidityFactor] = useState('1')
   const [soilTypeForce, setSoilTypeForce] = useState('') // '' = auto per depth
   const [overrides, setOverrides] = useState<Record<string, string>>({})
@@ -70,6 +72,7 @@ export default function BatchAnalysis() {
       if (v !== '' && v != null && !isNaN(parseFloat(v))) out[key] = parseFloat(v)
     }
     if (soilTypeForce) out.soil_type = soilTypeForce
+    if (includeElastic) out.include_elastic = true
     return out
   }
 
@@ -203,6 +206,10 @@ export default function BatchAnalysis() {
                   <label className="text-xs text-slate-400 mb-1 block">Allowable settlement (mm)</label>
                   <input type="number" step="any" className="gm-input w-full" value={allowableSettlement} onChange={(e) => setAllowableSettlement(e.target.value)} />
                 </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <input type="checkbox" id="include-elastic" checked={includeElastic} onChange={(e) => setIncludeElastic(e.target.checked)} className="accent-violet-500" />
+                <label htmlFor="include-elastic" className="text-xs text-slate-400">Include elastic (immediate) settlement — off by default, matching the reference workbook's typical setting; NCS clay's consolidation formula alone doesn't use Es, only this adds it</label>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
