@@ -302,7 +302,7 @@ export default function BatchAnalysis() {
                         <th className="text-left py-2 pr-3">B (m)</th>
                         <th className="text-left py-2 pr-3">L (m)</th>
                         <th className="text-left py-2 pr-3">D (m)</th>
-                        <th className="text-left py-2 pr-3">Founding layer</th>
+                        <th className="text-left py-2 pr-3" title="The borehole layer containing depth D, shown with its own full boundaries -- NOT where the settlement calculation starts. Settlement always starts exactly at D; see the effective layer range in 'Full calc' below.">Founding layer (raw)</th>
                         <th className="text-left py-2 pr-3">Soil type</th>
                         <th className="text-left py-2 pr-3">Shear SBC</th>
                         <th className="text-left py-2 pr-3">Settlement SBC</th>
@@ -330,7 +330,7 @@ export default function BatchAnalysis() {
                             <td className="py-1.5 pr-3 text-slate-300 whitespace-nowrap">{c.width_m}</td>
                             <td className="py-1.5 pr-3 text-slate-300 whitespace-nowrap">{c.length_m}</td>
                             <td className="py-1.5 pr-3 text-slate-300 whitespace-nowrap">{c.depth_m}</td>
-                            <td className="py-1.5 pr-3 text-slate-400 whitespace-nowrap">{c.founding_layer ?? '—'}</td>
+                            <td className="py-1.5 pr-3 text-slate-400 whitespace-nowrap" title="Raw layer boundaries -- the calculation itself always starts at D, not necessarily this layer's own top">{c.founding_layer ?? '—'}</td>
                             {c.error ? (
                               <td colSpan={7} className="py-1.5 text-rose-400">{c.error}</td>
                             ) : (
