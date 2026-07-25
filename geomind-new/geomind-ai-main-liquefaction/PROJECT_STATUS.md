@@ -700,25 +700,6 @@ scoped).
       estimates (the workbook only goes as far as FOS + Liquefiable/Non Liquefiable per
       layer) -- out of scope unless Raahi asks.
 
-23. **BUG, fixed 26 Jul 2026, found by Raahi: Lab Data Import broke for his own
-    `BH_Log_Converter_Master` tool's output.** `parse_uploaded_workbook()` required the
-    "Soil Data" sheet's header row to match `COLUMNS` EXACTLY, position-for-position --
-    so the moment entry #22 added "Fines Content (%)" to the template (right after SPT
-    N, for Liquefaction Analysis), every sheet from Raahi's own older converter tool
-    (which doesn't have that column) hard-failed on upload with "column headers don't
-    match", even though every OTHER column was present and fine. Fixed: header matching
-    is now BY NAME (a `header_to_col` lookup), not position or full-set equality --
-    only `Borehole ID`, `Project Name`, `Water Table Depth (m)`, `From (m)`, `To (m)`
-    are actually required; any other expected column that's simply absent (older
-    template, different tool) is now treated as blank for every row (with a warning),
-    same as an individual blank cell already was, instead of failing the whole upload.
-    Verified directly against Raahi's actual `BH_Log_Converter_Master` file: BH-01,
-    20 layers, parses cleanly now (one warning noting Fines Content is blank
-    throughout -- expected, since liquefaction analysis on this borehole will need it
-    filled in separately if he wants that feature for it). This also means the
-    template can keep growing new optional columns in the future without breaking
-    every external/older sheet again.
-
 ---
 
 ## How to give Raahi an update (workflow reminder for whoever's helping)

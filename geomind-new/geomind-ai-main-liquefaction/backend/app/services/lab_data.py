@@ -102,41 +102,21 @@ def parse_uploaded_workbook(file_bytes: bytes) -> dict:
 
     header_row = [cell.value for cell in ws[1]]
     expected_headers = [c[0] for c in COLUMNS]
-
-    # Match columns BY NAME, not by strict position/full-set equality. An
-    # older or externally-built sheet (e.g. Raahi's own BH_Log_Converter tool,
-    # built before "Fines Content (%)" was added for Liquefaction Analysis)
-    # would otherwise hard-fail on EVERY row just because one non-essential
-    # column is missing or the columns are in a different order. Only the
-    # columns actually needed to build a soil layer at all are required;
-    # anything else missing is filled blank with a warning, same as an
-    # individual blank cell already was.
-    REQUIRED_HEADERS = {"Borehole ID", "Project Name", "Water Table Depth (m)", "From (m)", "To (m)"}
-    header_to_col = {h: i for i, h in enumerate(header_row) if h}
-    missing_headers = [h for h in expected_headers if h not in header_to_col]
-    missing_required = [h for h in missing_headers if h in REQUIRED_HEADERS]
-    if missing_required:
+    if header_row[:len(expected_headers)] != expected_headers:
         raise ValueError(
-            "Missing required column(s): " + ", ".join(missing_required) + ". "
-            "Please use the downloaded template, or keep these exact column names if using your own sheet."
+            "The column headers don't match the expected template. "
+            "Please use the downloaded template without renaming columns."
         )
 
     boreholes: dict = {}
     warnings = []
-    if missing_headers:
-        warnings.append(
-            "This sheet is missing column(s) not present in the current template ("
-            + ", ".join(missing_headers) + ") -- treated as blank for every row. "
-            "Re-download the template if you want these filled in."
-        )
 
     for row_num, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
         if row is None or all(v is None for v in row):
             continue
         row_dict = {}
-        for label, key, cast in COLUMNS:
-            col_idx = header_to_col.get(label)
-            raw_value = row[col_idx] if col_idx is not None and col_idx < len(row) else None
+        row_ok = True
+        for (label, key, cast), raw_value in zip(COLUMNS, row):
             if raw_value is None or raw_value == "":
                 row_dict[key] = None
                 continue
