@@ -1076,6 +1076,360 @@ def run_settlement_multilayer(
     }
 
 
+# ============================================================================
+# LIQUEFACTION ANALYSIS -- IRC:SP:114 / IS 1893:2016 simplified (Seed-Idriss /
+# NCEER 1997 / Idriss-Boulanger 2008) procedure, matching LIQUEFACTION.xlsx
+# formula-for-formula (audited 25 Jul 2026).
+# ============================================================================
+
+# Zone -> amax/g (peak ground acceleration ratio), exactly as the workbook's H-column lookup.
+_ZONE_PGA = {"II": 0.10, "III": 0.16, "IV": 0.24, "V": 0.36}
+
+# Classifications the workbook's AE-column (FOS) formula treats as automatically
+# non-liquefiable (cohesive/plastic fine-grained soils) -- skipped entirely,
+# no CSR/CRR/FOS math computed for these, same as the source Excel.
+# The source workbook uses TWO DIFFERENT classification lists for two different
+# skips -- not the same list, and not merged, even though they overlap heavily.
+# Replicated exactly as written rather than harmonizing them, since a real
+# (if slightly messy) inconsistency in the source-of-truth Excel isn't ours to
+# silently "fix" -- flagged in the function's warnings instead.
+_DR_EXEMPT_CLASSIFICATIONS = {"FILL", "CI", "CL", "ML-CL", "CH", "ML", "MI"}          # Y-column list (Dr% -> "NA")
+_FOS_EXEMPT_CLASSIFICATIONS = {"CL", "CI", "CH", "CL-ML", "ML", "MI", "MH"}            # AE-column list (FOS -> ">1.0", no CSR/CRR compare)
+
+
+def _rd_stress_reduction(depth_m: float) -> float:
+    """Stress reduction coefficient rd, exactly the workbook's J-column piecewise formula."""
+    if depth_m < 9.15:
+        return 1 - depth_m * 0.00765
+    if depth_m < 23:
+        return 1.174 - 0.0267 * depth_m
+    if depth_m < 30:
+        return 0.744 - 0.008 * depth_m
+    return 0.50
+
+
+def _cr_rod_length(depth_m: float) -> float:
+    """Rod length correction CR, exactly the workbook's R-column piecewise formula
+    (bucketed on depth + 1.5m, matching the source Excel exactly)."""
+    d = depth_m + 1.5
+    if d >= 10:
+        return 1.0
+    if d >= 6:
+        return 0.95
+    if d >= 4:
+        return 0.85
+    if d > 3:
+        return 0.80
+    return 0.75
+
+
+def _fines_alpha_beta(fines_pct: float) -> tuple[float, float]:
+    """alpha, beta fines-content correction terms, exactly the workbook's U/V-column
+    formulas (Idriss-Boulanger 2008 / NCEER 1997 fines correction)."""
+    if fines_pct <= 5:
+        alpha, beta = 0.0, 1.0
+    elif fines_pct >= 35:
+        alpha, beta = 5.0, 1.2
+    else:
+        alpha = math.exp(1.76 - (190 / fines_pct ** 2))
+        beta = 0.99 + (fines_pct ** 1.5) / 1000
+    return alpha, beta
+
+
+def _crr_7_5(n1_60cs: float):
+    """CRR at M=7.5, sigma'v=1 atm, exactly the workbook's X-column NCEER 1997
+    curve-fit formula. Returns None (the workbook's "NA") above (N1)60cs=30 --
+    soil dense enough that the curve-fit itself is undefined/inapplicable, not
+    a real liquefaction risk."""
+    if n1_60cs > 30:
+        return None
+    return 1 / (34 - n1_60cs) + n1_60cs / 135 + 50 / (10 * n1_60cs + 45) ** 2 - 1 / 200
+
+
+def _relative_density_pct(n1_60: float):
+    """Dr%, exactly the workbook's Y-column piecewise linear interpolation on (N1)60.
+    Returns None ("NA") above (N1)60=100 -- caller should not reach this for real data."""
+    if n1_60 <= 4:
+        return 0 + (n1_60 - 0) * (10 / 4)
+    if n1_60 <= 10:
+        return 10 + (n1_60 - 4) * (10 / 6)
+    if n1_60 <= 30:
+        return 20 + (n1_60 - 10) * (45 / 20)
+    if n1_60 <= 35:
+        return 65 + (n1_60 - 30) * (5 / 5)
+    if n1_60 <= 50:
+        return 70 + (n1_60 - 35) * (15 / 15)
+    if n1_60 <= 100:
+        return 85 + (n1_60 - 50) * (15 / 50)
+    return None
+
+
+def _f_exponent(dr_pct: float):
+    """f exponent (used in Ksigma), exactly the workbook's Z-column piecewise
+    linear interpolation on Dr%. Returns None ("NA") above Dr=100."""
+    if dr_pct <= 20:
+        return 1 + (dr_pct - 0) * (-0.1 / 20)
+    if dr_pct <= 40:
+        return 0.9 + (dr_pct - 20) * (-0.1 / 20)
+    if dr_pct <= 60:
+        return 0.8 + (dr_pct - 40) * (-0.1 / 20)
+    if dr_pct <= 80:
+        return 0.7 + (dr_pct - 60) * (-0.1 / 20)
+    if dr_pct <= 100:
+        return 0.6 + (dr_pct - 80) * (-0.1 / 20)
+    return None
+
+
+def _stress_increment(prev_depth: float, cur_depth: float, bulk_density: float, water_table_depth_m):
+    """Total and effective overburden stress increments for the slice
+    [prev_depth, cur_depth], both using `bulk_density` (the workbook's single
+    density-per-layer convention -- there's no separate moist/saturated input).
+
+    DEVIATES FROM THE LITERAL EXCEL FORMULA BY RAAHI'S EXPLICIT DECISION
+    (25 Jul 2026): the source workbook subtracts 1 t/m3 (submerged/buoyant
+    unit weight, gamma_w=1) from every single layer unconditionally, even
+    where a layer is above the actual recorded water table -- its "Water
+    table assumed for Calculation" input cell is never actually referenced by
+    any formula in the sheet. That's only "correct" in the source example
+    because its water table happens to be at 0m (ground level), so every
+    layer legitimately is submerged. Raahi confirmed (asked directly,
+    flagged as the one real ambiguity in this workbook): apply full bulk
+    density above the water table (no buoyancy) and submerged density
+    (bulk - 1) below it -- splitting a slice that straddles the water table
+    proportionally -- rather than blindly replicating the always-submerged
+    formula for boreholes where the water table isn't at the surface.
+    """
+    total = bulk_density * (cur_depth - prev_depth)
+    if water_table_depth_m is None or cur_depth <= water_table_depth_m:
+        effective = bulk_density * (cur_depth - prev_depth)
+    elif prev_depth >= water_table_depth_m:
+        effective = (bulk_density - 1) * (cur_depth - prev_depth)
+    else:
+        above = water_table_depth_m - prev_depth
+        below = cur_depth - water_table_depth_m
+        effective = bulk_density * above + (bulk_density - 1) * below
+    return total, effective
+
+
+def run_liquefaction_analysis(
+    layers: list, earthquake_magnitude_mw: float,
+    earthquake_zone: str | None = None, pga_g: float | None = None,
+    water_table_depth_m: float | None = None,
+    borehole_diameter_correction: float = 1.05,   # CB -- workbook's Q-column, 150mm borehole
+    hammer_energy_correction: float = 1.0,          # CE -- workbook's O-column
+    hammer_type_correction: float = 1.0,            # CH -- workbook's P-column
+    sampler_correction: float = 1.0,                # CS -- workbook's S-column
+    static_shear_correction: float = 1.0,           # K-alpha -- workbook's AB-column, 1.0 for flat ground
+    overrides: dict | None = None,
+) -> dict:
+    """
+    Liquefaction potential (IRC:SP:114 / IS 1893:2016 simplified procedure --
+    Seed-Idriss CSR, NCEER 1997 CRR curve fit, Idriss-Boulanger 2008 fines
+    correction and Ksigma/MSF), audited formula-for-formula against
+    LIQUEFACTION.xlsx (25 Jul 2026).
+
+    Layers are processed in depth order using each layer's `from_m` as the
+    workbook's "depth below EGL" point (the workbook is a point-per-row
+    sheet, one SPT test depth per row, not a from/to range) -- this reuses
+    the same borehole SoilLayer records already used for SBC/settlement, per
+    Raahi's request to connect this to the existing soil profile rather than
+    a separate data entry flow. Overburden stress (total and effective) is
+    built cumulatively exactly as the workbook's K/L columns: each increment
+    [previous depth, this depth] uses the PREVIOUS layer's bulk density --
+    see `_stress_increment` for the one deliberate deviation from the
+    literal Excel formula (water-table-aware effective stress, confirmed
+    with Raahi).
+
+    Per layer: SPT correction chain (N1)60 = N*CN*CE*CH*CB*CR*CS, fines
+    correction to (N1)60cs, CRR7.5 (NCEER 1997 curve fit), Ksigma (via Dr% and
+    the f exponent), MSF (Idriss 1999), CRR = CRR7.5*Ksigma*Kalpha*MSF, and
+    FOS = CRR/CSR. Cohesive/plastic layers (CL, CI, CH, CL-ML, ML, MI, MH --
+    exactly the workbook's own exemption list) are automatically
+    "Non Liquefiable" with no CSR/CRR math, same as the source Excel -- this
+    simplified method doesn't apply to fine-grained plastic soils.
+
+    overrides: per-field dict, same pattern as the SBC engines. Global
+    overrides: "water_table_depth_m", "earthquake_magnitude_mw", "pga_g"
+    (bypasses the zone lookup entirely), "earthquake_zone". Per-layer overrides
+    keyed by the SoilLayer's `id` (falls back to a plain field name applied
+    to every layer if no per-layer id key exists), e.g.
+    {"n_value": 20} applies N=20 to every layer, or
+    {"<layer_id>": {"n_value": 20}} to just that one layer.
+    """
+    if not layers:
+        raise ValueError("No soil layers available for liquefaction analysis.")
+    overrides = overrides or {}
+    water_table_depth_m = overrides.get("water_table_depth_m", water_table_depth_m)
+    mw = overrides.get("earthquake_magnitude_mw", earthquake_magnitude_mw)
+    earthquake_zone = overrides.get("earthquake_zone", earthquake_zone)
+    pga_g = overrides.get("pga_g", pga_g)
+    if pga_g is None:
+        if not earthquake_zone or earthquake_zone.upper() not in _ZONE_PGA:
+            raise ValueError("Provide either pga_g directly, or a valid earthquake_zone (II/III/IV/V).")
+        pga_g = _ZONE_PGA[earthquake_zone.upper()]
+        pga_source = f"Zone {earthquake_zone.upper()} lookup"
+    else:
+        pga_source = "manual override"
+    if not mw:
+        raise ValueError("earthquake_magnitude_mw is required.")
+    msf = (10 ** 2.24) / (mw ** 2.56)
+
+    def _get(layer, field, default=None):
+        per_layer = overrides.get(getattr(layer, "id", None))
+        if isinstance(per_layer, dict) and field in per_layer:
+            return per_layer[field]
+        if field in overrides and not isinstance(overrides[field], dict):
+            return overrides[field]
+        val = getattr(layer, field, None)
+        return val if val is not None else default
+
+    ordered = sorted(layers, key=lambda l: l.from_m)
+    K = L = 0.0
+    prev_depth = 0.0
+    prev_density = None  # the workbook's K[i]=K[i-1]+D[i-1]*(A[i]-A[i-1]) uses the PREVIOUS
+    # row's density for each increment -- only the very first row uses its own density,
+    # for the surface-to-first-sample interval. Replicated exactly (not current row's
+    # density, which would be an off-by-one relative to the source workbook).
+    layer_report = []
+    liquefiable_ranges, non_liquefiable_ranges = [], []
+    numeric_fs = []
+
+    for l in ordered:
+        depth = l.from_m
+        bulk_density = _get(l, "bulk_density_t_m3")
+        if bulk_density is None:
+            raise ValueError(f"Layer at {depth}m: no bulk_density_t_m3 (needed for overburden stress) and no override given.")
+        density_for_increment = bulk_density if prev_density is None else prev_density
+        dK, dL = _stress_increment(prev_depth, depth, density_for_increment, water_table_depth_m)
+        K += dK
+        L += dL
+        prev_depth = depth
+        prev_density = bulk_density
+
+        classification = (_get(l, "classification") or "").strip().upper()
+        rd = _rd_stress_reduction(depth)
+        csr = 0.65 * (K / L) * rd * pga_g if L > 0 else 0.0
+
+        row = {
+            "depth_m": depth, "classification": classification or "n/a",
+            "total_overburden_t_m2": round(K, 3), "effective_overburden_t_m2": round(L, 3),
+            "rd": round(rd, 4), "csr": round(csr, 4),
+        }
+
+        if getattr(l, "rock_type", None) and not classification:
+            row.update({"note": "Rock layer -- liquefaction analysis not applicable.", "fos": "n/a", "conclusion": "n/a"})
+            layer_report.append(row)
+            continue
+
+        n_obs = _get(l, "n_value")
+        if n_obs is None:
+            raise ValueError(f"Layer at {depth}m ({classification or 'unclassified'}): no n_value and no override given.")
+        fines_pct = _get(l, "fines_content_pct")
+        if fines_pct is None:
+            raise ValueError(f"Layer at {depth}m: no fines_content_pct recorded and no override given -- "
+                              f"required for the fines correction (alpha/beta), which the reference workbook applies to every layer regardless of soil type.")
+
+        # (N1)60 / (N1)60cs / CRR7.5 are computed for EVERY layer regardless of
+        # soil type -- exactly as the reference workbook's T/U/V/W/X columns
+        # have no soil-type check at all. Only Dr% (its own exempt list) and
+        # the final FOS (a DIFFERENT exempt list) are skipped for cohesive/
+        # plastic classifications -- see the two separate lists above.
+        cn = min(math.sqrt(10 / L), 1.7) if L > 0 else 1.7
+        ce = _get(l, "hammer_energy_correction", hammer_energy_correction)
+        ch = _get(l, "hammer_type_correction", hammer_type_correction)
+        cb = _get(l, "borehole_diameter_correction", borehole_diameter_correction)
+        cr = _cr_rod_length(depth)
+        cs = _get(l, "sampler_correction", sampler_correction)
+        n1_60 = n_obs * cn * ce * ch * cb * cr * cs
+
+        alpha, beta = _fines_alpha_beta(fines_pct)
+        n1_60cs = alpha + beta * n1_60
+
+        crr_7_5 = _crr_7_5(n1_60cs)
+
+        if classification in _DR_EXEMPT_CLASSIFICATIONS:
+            dr_pct, f_exp = None, None
+        else:
+            dr_pct = _relative_density_pct(n1_60)
+            f_exp = _f_exponent(dr_pct) if dr_pct is not None else None
+        if f_exp is None:
+            k_sigma = 1.00
+        elif depth <= 15:
+            k_sigma = 1.0
+        else:
+            k_sigma = (L / 10) ** (f_exp - 1)
+        k_alpha = _get(l, "static_shear_correction", static_shear_correction)
+
+        crr = (crr_7_5 * k_sigma * k_alpha * msf) if crr_7_5 is not None else None
+
+        if classification in _FOS_EXEMPT_CLASSIFICATIONS:
+            fos = ">1.0"  # cohesive/plastic soil -- exempt from this simplified method entirely, same as the reference workbook
+        elif crr_7_5 is None or crr_7_5 > 1 or csr <= 0:
+            fos = ">1.0"  # matches the workbook's own "IF(X<=1, AD/M, \">1.0\")" branch exactly
+        else:
+            fos = round(crr / csr, 3)
+
+        is_liquefiable = isinstance(fos, (int, float)) and fos <= 1.0
+        (liquefiable_ranges if is_liquefiable else non_liquefiable_ranges).append(depth)
+        if isinstance(fos, (int, float)):
+            numeric_fs.append(fos)
+
+        row.update({
+            "n_observed": n_obs, "fines_content_pct": fines_pct,
+            "cn": round(cn, 3), "ce": ce, "ch": ch, "cb": cb, "cr": cr, "cs": cs,
+            "n1_60": round(n1_60, 2), "alpha": round(alpha, 3), "beta": round(beta, 3),
+            "n1_60cs": round(n1_60cs, 2),
+            "crr_7_5": round(crr_7_5, 4) if crr_7_5 is not None else "NA (>30 -- too dense for curve fit)",
+            "relative_density_pct": round(dr_pct, 1) if dr_pct is not None else "n/a",
+            "f_exponent": round(f_exp, 4) if f_exp is not None else "n/a",
+            "k_sigma": round(k_sigma, 4), "k_alpha": k_alpha, "msf": round(msf, 4),
+            "crr": round(crr, 4) if crr is not None else "n/a",
+            "fos": fos,
+            "conclusion": "Liquefiable" if is_liquefiable else "Non Liquefiable",
+        })
+        layer_report.append(row)
+
+    liquefiable_ranges.sort()
+    non_liquefiable_ranges.sort()
+
+    def _ranges(depths):
+        if not depths:
+            return []
+        out, start, prev = [], depths[0], depths[0]
+        for d in depths[1:]:
+            if d - prev > 3.0:  # gap bigger than a typical sample spacing -> new range
+                out.append((start, prev))
+                start = d
+            prev = d
+        out.append((start, prev))
+        return [f"{a}m-{b}m" for a, b in out]
+
+    return {
+        "layer_report": layer_report,
+        "summary": {
+            "liquefiable_depth_ranges": _ranges(liquefiable_ranges),
+            "non_liquefiable_depth_ranges": _ranges(non_liquefiable_ranges),
+            "minimum_fos": min(numeric_fs) if numeric_fs else None,
+            "overall_conclusion": "LIQUEFACTION POTENTIAL IDENTIFIED" if liquefiable_ranges else "No liquefaction potential identified in this borehole",
+        },
+        "inputs_used": {
+            "earthquake_magnitude_mw": mw, "pga_g": pga_g, "pga_source": pga_source,
+            "earthquake_zone": earthquake_zone, "water_table_depth_m": water_table_depth_m,
+            "msf": round(msf, 4),
+        },
+        "warnings": [
+            "Cohesive/plastic layers are automatically Non Liquefiable (FOS reported as '>1.0', no CSR/CRR comparison) -- "
+            "this simplified SPT-based method doesn't apply to fine-grained plastic soils, same as the reference workbook.",
+            "Note: the source workbook uses two DIFFERENT classification lists for two different skips -- Dr% is 'NA' for "
+            "Fill/CI/CL/ML-CL/CH/ML/MI, while the FOS skip uses CL/CI/CH/CL-ML/ML/MI/MH (no 'Fill', includes 'MH', and "
+            "spells the CL/ML mix the other way round). Replicated exactly as two separate lists rather than merged/fixed.",
+            "Effective stress uses full bulk density above the water table and submerged (bulk-1 t/m3) density below it "
+            "-- this deliberately deviates from the source Excel, which subtracts 1 t/m3 from every layer unconditionally "
+            "regardless of water table position (confirmed with Raahi, 25 Jul 2026 -- see run_liquefaction_analysis docstring).",
+            "Depth used per layer is each SoilLayer's from_m (its top), matching the source workbook's one-point-per-row convention.",
+        ],
+    }
+
 
 CALCULATOR_REGISTRY = {
     "bearing_capacity_terzaghi": terzaghi_bearing_capacity,
@@ -1086,4 +1440,5 @@ CALCULATOR_REGISTRY = {
     "consolidation_settlement": consolidation_settlement,
     "spt_correction": spt_correction,
     "earth_pressure_rankine": rankine_earth_pressure,
+    "liquefaction_analysis": run_liquefaction_analysis,
 }

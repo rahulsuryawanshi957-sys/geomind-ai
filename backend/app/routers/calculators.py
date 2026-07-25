@@ -3,8 +3,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import CalculationLog, BoreholeProfile
-from app.schemas import CalculatorRequest, BatchRunRequest
-from app.services.calculators import CALCULATOR_REGISTRY, run_batch_matrix
+from app.schemas import CalculatorRequest, BatchRunRequest, LiquefactionRequest
+from app.services.calculators import CALCULATOR_REGISTRY, run_batch_matrix, run_liquefaction_analysis
 
 router = APIRouter(prefix="/api/calculators", tags=["calculators"])
 
@@ -13,7 +13,7 @@ router = APIRouter(prefix="/api/calculators", tags=["calculators"])
 # "coming soon" instead of pretending the feature exists.
 PLANNED_CALCULATORS = [
     "raft_foundation", "isolated_footing", "pile_capacity", "group_efficiency",
-    "lateral_pile", "retaining_wall_stability", "liquefaction", "plate_load_test",
+    "lateral_pile", "retaining_wall_stability", "plate_load_test",
     "safe_bearing_capacity", "modulus_subgrade_reaction", "rock_bearing_capacity",
 ]
 
@@ -76,6 +76,38 @@ def run_batch(req: BatchRunRequest, db: Session = Depends(get_db)):
 
     log = CalculationLog(
         calculator_type="batch_matrix",
+        inputs_json=json.dumps(req.model_dump()),
+        result_json=json.dumps(result),
+    )
+    db.add(log)
+    db.commit()
+
+    result["borehole_id"] = profile.borehole_id
+    return result
+
+
+@router.post("/liquefaction")
+def run_liquefaction(req: LiquefactionRequest, db: Session = Depends(get_db)):
+    profile = db.query(BoreholeProfile).filter(BoreholeProfile.id == req.borehole_id).first()
+    if not profile:
+        raise HTTPException(404, "Borehole profile not found.")
+    if not profile.layers:
+        raise HTTPException(422, "This borehole has no soil layers recorded.")
+
+    try:
+        result = run_liquefaction_analysis(
+            layers=list(profile.layers),
+            earthquake_magnitude_mw=req.earthquake_magnitude_mw,
+            earthquake_zone=req.earthquake_zone,
+            pga_g=req.pga_g,
+            water_table_depth_m=profile.water_table_depth_m,
+            overrides=req.overrides,
+        )
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+
+    log = CalculationLog(
+        calculator_type="liquefaction_analysis",
         inputs_json=json.dumps(req.model_dump()),
         result_json=json.dumps(result),
     )

@@ -11,6 +11,23 @@ logger.info("Booting RaahiGeo backend...")
 try:
     Base.metadata.create_all(bind=engine)
     logger.info(f"SQLite ready at {settings.sqlite_path}")
+    # create_all only creates missing TABLES, not missing COLUMNS on tables
+    # that already existed (relevant if persistent storage is configured --
+    # see /api/health -- so the DB file survives a redeploy). This adds any
+    # column a newer version of a model expects but an older persisted DB
+    # doesn't have yet, one at a time, ignoring "already exists" errors.
+    from sqlalchemy import text
+    NEW_COLUMNS = [
+        ("soil_layers", "fines_content_pct", "FLOAT"),
+    ]
+    with engine.connect() as conn:
+        for table, column, coltype in NEW_COLUMNS:
+            try:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}"))
+                conn.commit()
+                logger.info(f"Migration: added {table}.{column}")
+            except Exception:
+                conn.rollback()  # column already exists (or table is brand new from create_all) -- fine
 except Exception:
     logger.exception("Failed to initialize SQLite database")
     raise

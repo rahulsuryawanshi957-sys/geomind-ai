@@ -78,6 +78,23 @@ class BatchRunRequest(BaseModel):
     # n_value, compression_index_cc, initial_void_ratio_e0, elastic_modulus_t_m2, soil_type
 
 
+class LiquefactionRequest(BaseModel):
+    """
+    Liquefaction analysis request -- reads the borehole's own soil layers
+    (same BoreholeProfile used for SBC batch analysis, per Raahi's request to
+    connect this to the existing soil sheet rather than separate data entry).
+    `overrides` follows the same pattern as batch: global keys
+    (water_table_depth_m, earthquake_magnitude_mw, earthquake_zone, pga_g)
+    apply borehole-wide; a layer's own `id` as a dict key
+    ({"<layer_id>": {"n_value": 20}}) overrides just that one layer.
+    """
+    borehole_id: str
+    earthquake_magnitude_mw: float
+    earthquake_zone: str | None = None  # "II"/"III"/"IV"/"V" -- IS 1893 zone lookup for PGA, unless pga_g given directly
+    pga_g: float | None = None  # manual PGA override (amax/g), bypasses the zone lookup entirely
+    overrides: dict = {}
+
+
 class ReportSectionRequest(BaseModel):
     section_type: str
     project_inputs: dict
@@ -91,6 +108,7 @@ class SoilLayerOut(BaseModel):
     description: str | None = None
     classification: str | None = None
     n_value: float | None = None
+    fines_content_pct: float | None = None
     bulk_density_t_m3: float | None = None
     specific_gravity: float | None = None
     moisture_content_pct: float | None = None

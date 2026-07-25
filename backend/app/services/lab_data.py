@@ -20,6 +20,7 @@ COLUMNS = [
     ("Description", "description", str),
     ("Classification (USCS)", "classification", str),
     ("SPT N (field)", "n_value", float),
+    ("Fines Content (%)", "fines_content_pct", float),
     ("Bulk Density (t/m3)", "bulk_density_t_m3", float),
     ("Specific Gravity", "specific_gravity", float),
     ("Moisture Content (%)", "moisture_content_pct", float),
@@ -42,11 +43,11 @@ COLUMNS = [
 ]
 
 EXAMPLE_ROWS = [
-    ["BH-01", "Sample Project", 3.5, 0, 1.5, "Filled up", "", "", 1.8, "", "", "", "", "", "", "", "", "", "", ""],
-    ["BH-01", "Sample Project", 3.5, 1.5, 4.5, "Stiff silty clay", "CI", 8, 1.9, 2.68, 22, 2.5, 0, 0.17, 0.75, "", "", "", "", ""],
-    ["BH-01", "Sample Project", 3.5, 4.5, 10, "Medium dense sand", "SM", 18, 1.85, 2.65, 15, 0, 30, "", "", "", "", "", "", ""],
-    ["BH-02", "Sample Project", "", 0, 1.5, "Highly weathered fine-grained basalt", "", "", "", "", "", "", "", "", "", "Fine-Grained Basalt", "Grade IV", 30, 7, 120],
-    ["BH-02", "Sample Project", "", 1.5, 3.0, "Fresh fine-grained basalt", "", "", "", "", "", "", "", "", "", "Fine-Grained Basalt", "Grade I", 95, 95, 850],
+    ["BH-01", "Sample Project", 3.5, 0, 1.5, "Filled up", "", "", "", 1.8, "", "", "", "", "", "", "", "", "", "", ""],
+    ["BH-01", "Sample Project", 3.5, 1.5, 4.5, "Stiff silty clay", "CI", 8, 90, 1.9, 2.68, 22, 2.5, 0, 0.17, 0.75, "", "", "", "", ""],
+    ["BH-01", "Sample Project", 3.5, 4.5, 10, "Medium dense sand", "SM", 18, 15, 1.85, 2.65, 15, 0, 30, "", "", "", "", "", "", ""],
+    ["BH-02", "Sample Project", "", 0, 1.5, "Highly weathered fine-grained basalt", "", "", "", "", "", "", "", "", "", "", "Fine-Grained Basalt", "Grade IV", 30, 7, 120],
+    ["BH-02", "Sample Project", "", 1.5, 3.0, "Fresh fine-grained basalt", "", "", "", "", "", "", "", "", "", "", "Fine-Grained Basalt", "Grade I", 95, 95, 850],
 ]
 
 
@@ -150,6 +151,7 @@ def parse_uploaded_workbook(file_bytes: bytes) -> dict:
             "description": row_dict.get("description"),
             "classification": row_dict.get("classification"),
             "n_value": row_dict.get("n_value"),
+            "fines_content_pct": row_dict.get("fines_content_pct"),
             "bulk_density_t_m3": row_dict.get("bulk_density_t_m3"),
             "specific_gravity": row_dict.get("specific_gravity"),
             "moisture_content_pct": row_dict.get("moisture_content_pct"),

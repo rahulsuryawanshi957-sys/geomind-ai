@@ -249,8 +249,14 @@ foundation combinations, in ~1 hour instead of a full day. Phases:
    settlement SBC for every combination (cross-product, up to 400 at once) and returns a
    results table with the lowest-recommended "critical combination" called out. See
    "What's built" above for implementation details.
-4. **NEXT — New calculators:** Liquefaction (IS 1893 simplified procedure, SPT-N based) and
-   Pile Capacity (IS 2911, static formula via SPT-N or C-φ).
+4. **✅ BACKEND DONE (25 Jul 2026), NO FRONTEND YET — Liquefaction.** IRC:SP:114 / IS
+   1893:2016 simplified procedure (Seed-Idriss CSR, NCEER 1997 CRR curve fit,
+   Idriss-Boulanger fines correction/Ksigma/MSF), `run_liquefaction_analysis()` in
+   `calculators.py` + `POST /api/calculators/liquefaction` -- reads the SAME borehole/
+   SoilLayer records already used for SBC batch analysis (Raahi's request: "isko bhi
+   soil sheet se connect karna"). See debugging playbook #21 for the full build/audit
+   notes and the one deliberate deviation from the source Excel (water-table-aware
+   effective stress). **Pile Capacity (IS 2911) is next, not started.**
 5. **Auto-report generation.** Combine borehole log chart + batch calculation results +
    summary into one downloadable Word/PDF report.
 
@@ -608,6 +614,66 @@ scoped).
       Dense/Medium/Loose question) is needed before implementing it -- guessing at
       drainage-condition criteria here is exactly the kind of thing "never guess
       engineering values" (Raahi's own spec doc, 24-25 Jul) warns against.
+
+21. **Liquefaction Analysis built, 25 Jul 2026** -- roadmap phase 4, per Raahi's explicit
+    "roadmap ka agla step" request. Source of truth: `LIQUEFACTION.xlsx` (ARUN SOIL LAB,
+    "Typical Computation of Liquefaction Potential as per IRC:SP:114 / IS:1893", 7 borehole
+    sheets, identical formula structure). Audited formula-by-formula, implemented as
+    `run_liquefaction_analysis()` in `calculators.py` + `POST /api/calculators/liquefaction`
+    in `routers/calculators.py`. **Connected to the existing soil sheet, not a separate
+    data-entry flow** (Raahi: "isko bhi soil sheet se connect karna") -- reads the same
+    `BoreholeProfile.layers` already used by SBC batch analysis.
+    - Full SPT correction chain: (N1)60 = N_observed x CN x CE x CH x CB x CR x CS, with CN
+      (overburden correction, capped 1.7), CR (rod length, piecewise on depth+1.5m) computed
+      per layer exactly per the workbook's formulas; CE/CH/CB/CS default to the workbook's own
+      literal values (1, 1, 1.05, 1) and are overridable.
+    - Fines correction (alpha/beta -> (N1)60cs), CRR7.5 (NCEER 1997 curve fit, "NA" i.e. None
+      above (N1)60cs=30), Ksigma (via Dr% and the f exponent), MSF = 10^2.24/Mw^2.56, CRR =
+      CRR7.5 x Ksigma x Kalpha x MSF, FOS = CRR/CSR -- all per-layer, all exact formula matches.
+    - **Real finding from the audit, replicated exactly rather than "cleaned up":** the
+      workbook computes (N1)60/(N1)60cs/CRR7.5 for EVERY layer regardless of soil type (no
+      soil-type check on those columns at all) -- only Dr% and the final FOS are skipped for
+      cohesive/plastic soils, and via TWO DIFFERENT classification lists (Dr%'s skip-list has
+      no "MH" but has "Fill"; FOS's skip-list has "MH" but no "Fill", and spells the CL/ML
+      mixed class the other way round: "ML-CL" vs "CL-ML"). Both lists kept separate and
+      literal, not merged/harmonized -- flagged in the function's own `warnings` output.
+    - Required a new field: `fines_content_pct` on `SoilLayer` (didn't exist before -- the
+      fines correction needs it for every layer, not just clay). Added to the model, the
+      lab-data Excel template (new "Fines Content (%)" column, right after SPT N), the parser,
+      and `SoilLayerOut`. **Needed a startup migration** (`main.py`, right after
+      `Base.metadata.create_all`) since `create_all` only creates missing tables, not missing
+      columns on tables that already exist -- if persistent storage is configured (see
+      `/api/health`), an old DB file wouldn't have this column without it; the migration
+      does a plain `ALTER TABLE ... ADD COLUMN`, ignoring "already exists" errors, safe either
+      way.
+    - **One deliberate deviation from the literal Excel, confirmed with Raahi (the one real
+      ambiguity found in this workbook):** the source sheet has a "Water table assumed for
+      Calculation" input cell that is NEVER actually referenced by any formula in the sheet --
+      effective stress subtracts 1 t/m3 (submerged/buoyant unit weight) from EVERY layer
+      unconditionally, which only happens to be correct in the example because that
+      borehole's water table is at 0m (ground level), so every layer legitimately is
+      submerged. Raahi chose (asked directly, didn't guess): apply full bulk density above
+      the actual water table depth (no buoyancy) and submerged density (bulk-1) below it,
+      splitting a slice that straddles the water table proportionally -- see
+      `_stress_increment()`'s docstring for the full reasoning.
+    - Validated numerically against the workbook's own cached (data_only) computed values for
+      BH-01, depths 1.5m through 22.5m: total/effective overburden stress, CSR, (N1)60,
+      (N1)60cs all match to 3-4 decimal places once a real bug was caught and fixed --
+      overburden stress increments use the PREVIOUS layer's density for the interval leading
+      up to the current point (K[i]=K[i-1]+D[i-1]*(Depth[i]-Depth[i-1]) in the workbook's own
+      terms), not the current layer's own density -- an off-by-one that would have silently
+      thrown off every downstream number if shipped uncaught.
+    - Depth convention: each layer's `from_m` is treated as the workbook's "depth below EGL"
+      point (the workbook is one-SPT-test-per-row, not a from/to range like this app's
+      SoilLayer model) -- reusing the existing range-based layer records rather than a new
+      point-based data shape.
+    - **NOT done yet:** no frontend page/UI for this at all (backend + API only, per the
+      established "backend first, confirm correctness, then UI" pattern on this project) --
+      whoever picks this up next should build a Liquefaction page (or a tab on
+      Batch Analysis) calling `POST /api/calculators/liquefaction`, same shape as the
+      Batch Analysis "Full calc" table. Also not implemented: lateral spreading / settlement-
+      from-liquefaction estimates (the workbook only goes as far as FOS + Liquefiable/Non
+      Liquefiable per layer) -- out of scope unless Raahi asks.
 
 21. **Feature added 25 Jul 2026, per Raahi's photo of IS:8009 (Part I)-1976 Table 1 +
     Fig. 10:** the λ correction override (`lambda_correction`, existing since entries

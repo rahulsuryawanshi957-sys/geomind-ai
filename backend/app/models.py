@@ -117,6 +117,7 @@ class SoilLayer(Base):
     friction_angle_deg = Column(Float, nullable=True)
     compression_index_cc = Column(Float, nullable=True)
     initial_void_ratio_e0 = Column(Float, nullable=True)
+    fines_content_pct = Column(Float, nullable=True)  # % passing 75-micron sieve -- used by the liquefaction fines correction (alpha/beta)
 
     # Rock parameters (for rock strata within a borehole -- weathering
     # grade, core-based recovery/RQD, and strength)
