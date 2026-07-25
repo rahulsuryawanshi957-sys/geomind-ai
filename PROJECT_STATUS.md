@@ -219,11 +219,9 @@ reading the same data — one looks at the ground, the other sizes a foundation.
   single Calculators.tsx page's standalone Settlement calculator still is NOT (playbook
   #11). Also: no submerged/buoyant unit weight adjustment anywhere yet when the water
   table is shallow -- open question, see playbook #10, needs Raahi's input before fixing.
-  Elastic (immediate) settlement is off by default in the multi-layer engine -- see the
-  engine's own `warnings` output for what a given run actually included. Water-table
-  correction (Aw) on granular sub-layers, manual Influence Zone override, and a fully
-  transparent per-layer report (layer boundaries, method used, SPT/Es source, stress
-  increase, running settlement) were all added 25 Jul 2026 -- see playbook #17.
+  Elastic (immediate) settlement is off by default in the multi-layer engine, water-table
+  correction isn't yet applied per sub-layer there either -- see the engine's own
+  `warnings` output for what a given run actually included.
 - `Projects`, `PDF Chat`, `Bookmarks` are still honest "Coming Soon" placeholders in the
   sidebar (see `frontend/src/pages/planned/ComingSoon.tsx` usage). Soil Profile Viewer was
   wrongly listed here in older versions of this doc — it's actually fully built (see
@@ -471,50 +469,6 @@ scoped).
       wasn't traced to full depth. Worth a closer look if a future borehole's numbers
       don't match the workbook's, but not chased blind given the size of the workbook
       (~6,400 formulas) and the risk of guessing on something this safety-relevant.
-
-17. **Excel audit + settlement engine improvements, 25 Jul 2026, prompted by Raahi's
-    request to "rebuild the SBC Batch Analysis engine to exactly match the Excel
-    workbook."** Re-audited `SBC_Cal_Fixed.xlsm`'s `Settlement-1/2/3` sheets formula-by-
-    formula (not just the shear sheet, which entry #16 already covered) against
-    `run_settlement_multilayer()`. **Finding: the core architecture Raahi asked for
-    (settlement starts exactly at Df with the first geological layer split at Df, not at
-    its own top; every contributing layer inside the Influence Zone is summed, not just
-    the founding layer; the calculation stops exactly at the Influence Zone boundary) was
-    already correct** -- built during the entry #8/#9 rework on 23-24 Jul, before this
-    request came in. Re-rebuilding an already-correct, already-tested engine from scratch
-    would have been pure risk with no upside, so this pass **patched the two real gaps
-    the audit found** instead of a blind rewrite:
-    - Water-table correction (Aw, per the same 3-zone formula the single-layer granular
-      function already had) was computed nowhere in the multi-layer engine -- granular
-      sub-layer settlement was silently uncorrected for water table depth. Now applied to
-      every granular sub-layer.
-    - No way to manually override the Influence Zone (only the `Df + 1.5B` automatic
-      multiplier existed). Added `overrides["influence_zone_m"]` (absolute thickness
-      below Df); the result now always states `influence_zone_mode`: "Automatic" or
-      "Manual", per Raahi's report-transparency requirement.
-    - Added `layer_report`: a structured (not just a text string) per-sub-layer
-      breakdown -- effective from/to, thickness, soil type, method used (with silt
-      explicitly labelled "Cohesive (incl. Silt)"), SPT-N used + its source
-      (own layer / borrowed / override), elastic modulus used + source, stress increase,
-      per-layer settlement, and running cumulative settlement -- so Raahi can verify every
-      step without reading code, per the report-transparency requirement. Exposed on each
-      batch row as `settlement_layer_report`.
-    - `water_table_depth_m` (borehole's own, or `overrides["water_table_depth_m"]`) is now
-      actually passed from `run_batch_matrix()` into `run_settlement_multilayer()` -- it
-      was being fetched from the profile and used for shear, but never forwarded to
-      settlement at all before this fix.
-    **Confirmed by re-audit, not changed:** the reference workbook has only TWO soil
-    routing categories, COHESIVE and NON-COHESIVE -- silt (MI/MH/ML) is COHESIVE in the
-    workbook (uses the clay consolidation method), there is no separate third "silt
-    method." This app's classification logic (`classification[0] in ("C","M")` = cohesive)
-    already matched this exactly; confirmed with Raahi before proceeding rather than
-    inventing a new method that would diverge from the Excel source of truth.
-    Verified with a synthetic 4-layer profile (sand/clay/sand/clay spanning Df) that the
-    first sub-layer correctly starts at Df (not the geological layer's own top), the
-    running settlement sums exactly to the target allowable settlement at the solved SBC,
-    and both the manual Influence Zone override and the water-table Aw correction change
-    the result in the expected direction. **Not yet re-verified against BH-01's actual
-    live numbers with this change** -- do that before treating this as fully closed.
 
 ---
 
