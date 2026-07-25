@@ -542,6 +542,36 @@ scoped).
       instead of the plain-text `settlement_layers`) -- if `settlement_layers` /
       `layers_used` ever seems to have vanished again, this is why: it's superseded,
       not missing.**
+19. **CRITICAL BUG, fixed 25 Jul 2026, found by Raahi on real BH-05 data (Pirpainti):**
+    `_founding_layer()`'s gap handling was wrong. It correctly clamped to the shallowest
+    layer when depth was above everything, and to the deepest layer when depth was below
+    everything -- but for a depth landing in a GAP *between* two recorded layers (very
+    common: real borehole logs have un-sampled intervals between SPT test depths), it
+    fell through to the same "deepest layer" branch as the below-everything case. Result:
+    a footing at D=4m on a borehole with a gap between ~3.45m and 4.5m returned a
+    founding layer at 30m depth -- the deepest layer in the *entire* borehole, tens of
+    metres away, not the nearest one. Every downstream value (shear's c/phi/depth
+    factors, which soil type got used, everything) was consequently wrong. Fixed to use
+    genuine nearest-boundary logic for a mid-borehole gap (compares distance to the
+    layer above's bottom vs the layer below's top, picks whichever is closer).
+
+    **Same root cause, second symptom:** the settlement influence zone's sub-layer
+    construction only included borehole layers that actually overlapped
+    `[depth_m, depth_m+1.5B]` -- if the zone started in a gap (as above), the first
+    real sub-layer could start well after Df, silently shrinking the accounted-for
+    thickness (Raahi's report: settlement started at 4.5m instead of 4m for a 4m-deep
+    footing). Fixed: any gap inside the influence zone (start, middle, or end) is now
+    filled by borrowing the nearest layer's properties for that thickness, same
+    nearest-boundary principle as the founding_layer fix, flagged as `gap_filled: true`
+    per row so it's visibly distinguishable from a real logged layer.
+
+    **Also added, per Raahi's request for a way to manually verify settlement by
+    hand:** each `layer_report` row now includes a `working` string -- the actual
+    IS:8009 formula (NCS log formula / OCS linear / Fig-9 chart, whichever applies)
+    with every number plugged in, e.g. `Sc = (H/(1+e0))·Cc·log10((P0+Δσ)/P0)·1000 =
+    (0.45/(1+0.720))·0.2500·log10((3.19+1.878)/3.19)·1000 = 13.15 mm -> ×Fox×Rigidity
+    = 9.56 mm`. Shown as an italic sub-row under each layer in the "▸ Full calc" table
+    on the frontend. Gap-filled rows are marked with a "~" prefix on the depth range.
 
 ---
 
