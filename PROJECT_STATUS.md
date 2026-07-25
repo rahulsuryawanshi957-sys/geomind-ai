@@ -615,7 +615,27 @@ scoped).
       drainage-condition criteria here is exactly the kind of thing "never guess
       engineering values" (Raahi's own spec doc, 24-25 Jul) warns against.
 
-21. **Liquefaction Analysis built, 25 Jul 2026** -- roadmap phase 4, per Raahi's explicit
+21. **Feature added 25 Jul 2026, per Raahi's photo of IS:8009 (Part I)-1976 Table 1 +
+    Fig. 10:** the λ correction override (`lambda_correction`, existing since entries
+    #17-18/#20) required typing a raw number with no guidance on what's reasonable.
+    Added a "Clay type (IS:8009 Table 1)" dropdown right above the λ number field in
+    Batch Analysis's Manual Overrides panel (`CLAY_LAMBDA_TABLE` in
+    `frontend/src/pages/BatchAnalysis.tsx`) with the standard's 4 categories and their
+    ranges (very sensitive 1.0-1.2, normally consolidated 0.7-1.0, overconsolidated
+    0.5-0.7, heavily overconsolidated 0.2-0.5). Picking a category auto-fills the
+    midpoint of its range into the (still freely editable) λ field, with a note
+    reminding Raahi it's a range, not a fixed value, and that Fig. 10's pore-pressure-A
+    chart gives a more specific number if that data is available. **Deliberately NOT
+    implemented:** Fig. 10 itself (the actual λ-vs-pore-pressure-parameter-A curves) --
+    digitizing a hand-drawn chart into exact lookup values from a photo risks
+    misreading it, and entry #20 already flagged that the *drainage-condition* criteria
+    for picking a curve/category in the first place haven't been confirmed either.
+    Table 1's textual ranges are unambiguous to transcribe; the curves are not -- if
+    Raahi wants Fig. 10 automated later, that needs either digitized curve data he's
+    confident in, or explicit accepted-approximation sign-off before guessing at reading
+    a scanned graph.
+
+22. **Liquefaction Analysis built, 25 Jul 2026** -- roadmap phase 4, per Raahi's explicit
     "roadmap ka agla step" request. Source of truth: `LIQUEFACTION.xlsx` (ARUN SOIL LAB,
     "Typical Computation of Liquefaction Potential as per IRC:SP:114 / IS:1893", 7 borehole
     sheets, identical formula structure). Audited formula-by-formula, implemented as
@@ -667,33 +687,18 @@ scoped).
       point (the workbook is one-SPT-test-per-row, not a from/to range like this app's
       SoilLayer model) -- reusing the existing range-based layer records rather than a new
       point-based data shape.
-    - **NOT done yet:** no frontend page/UI for this at all (backend + API only, per the
-      established "backend first, confirm correctness, then UI" pattern on this project) --
-      whoever picks this up next should build a Liquefaction page (or a tab on
-      Batch Analysis) calling `POST /api/calculators/liquefaction`, same shape as the
-      Batch Analysis "Full calc" table. Also not implemented: lateral spreading / settlement-
-      from-liquefaction estimates (the workbook only goes as far as FOS + Liquefiable/Non
-      Liquefiable per layer) -- out of scope unless Raahi asks.
-
-21. **Feature added 25 Jul 2026, per Raahi's photo of IS:8009 (Part I)-1976 Table 1 +
-    Fig. 10:** the λ correction override (`lambda_correction`, existing since entries
-    #17-18/#20) required typing a raw number with no guidance on what's reasonable.
-    Added a "Clay type (IS:8009 Table 1)" dropdown right above the λ number field in
-    Batch Analysis's Manual Overrides panel (`CLAY_LAMBDA_TABLE` in
-    `frontend/src/pages/BatchAnalysis.tsx`) with the standard's 4 categories and their
-    ranges (very sensitive 1.0-1.2, normally consolidated 0.7-1.0, overconsolidated
-    0.5-0.7, heavily overconsolidated 0.2-0.5). Picking a category auto-fills the
-    midpoint of its range into the (still freely editable) λ field, with a note
-    reminding Raahi it's a range, not a fixed value, and that Fig. 10's pore-pressure-A
-    chart gives a more specific number if that data is available. **Deliberately NOT
-    implemented:** Fig. 10 itself (the actual λ-vs-pore-pressure-parameter-A curves) --
-    digitizing a hand-drawn chart into exact lookup values from a photo risks
-    misreading it, and entry #20 already flagged that the *drainage-condition* criteria
-    for picking a curve/category in the first place haven't been confirmed either.
-    Table 1's textual ranges are unambiguous to transcribe; the curves are not -- if
-    Raahi wants Fig. 10 automated later, that needs either digitized curve data he's
-    confident in, or explicit accepted-approximation sign-off before guessing at reading
-    a scanned graph.
+    - **Frontend page added same day** (25 Jul 2026, right after Raahi confirmed the backend):
+      `/liquefaction-analysis` (`frontend/src/pages/LiquefactionAnalysis.tsx`, linked in the
+      sidebar under Engineering) -- borehole selector (reusing the same picker as Batch
+      Analysis), Mw + IS 1893 zone dropdown (or a direct PGA override), water-table override,
+      Summary card (liquefiable/non-liquefiable depth ranges, minimum FOS, overall
+      conclusion) and a full layer-wise Detailed Report table (depth, soil, N, (N1)60,
+      (N1)60cs, CSR, CRR7.5, CRR, FOS, conclusion). Not build-verified with `npm run build`
+      (no `node_modules`/network in the sandbox this was written in) -- Raahi should treat
+      the first real load after deploying this as the actual verification step, same as any
+      other change. Not implemented: lateral spreading / settlement-from-liquefaction
+      estimates (the workbook only goes as far as FOS + Liquefiable/Non Liquefiable per
+      layer) -- out of scope unless Raahi asks.
 
 ---
 

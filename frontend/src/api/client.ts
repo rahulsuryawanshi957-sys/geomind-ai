@@ -56,6 +56,14 @@ export const api = {
     overrides?: Record<string, number | string>
   }) => request<any>('/api/calculators/batch', { method: 'POST', body: JSON.stringify(payload) }),
 
+  runLiquefaction: (payload: {
+    borehole_id: string
+    earthquake_magnitude_mw: number
+    earthquake_zone?: string | null
+    pga_g?: number | null
+    overrides?: Record<string, any>
+  }) => request<any>('/api/calculators/liquefaction', { method: 'POST', body: JSON.stringify(payload) }),
+
   reportSectionTypes: () => request<string[]>('/api/reports/section-types'),
 
   generateReportSection: (section_type: string, project_inputs: Record<string, any>, reference_query?: string) =>
