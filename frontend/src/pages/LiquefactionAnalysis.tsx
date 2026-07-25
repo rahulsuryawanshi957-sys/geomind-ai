@@ -7,6 +7,19 @@ import { api } from '../api/client'
 // same lookup the reference workbook (LIQUEFACTION.xlsx) uses.
 const ZONE_PGA: Record<string, number> = { II: 0.10, III: 0.16, IV: 0.24, V: 0.36 }
 
+// Advanced manual overrides -- hidden by default, matching Batch Analysis's
+// panel. hammer_energy_correction is deliberately NOT in here -- see the
+// always-visible field below the water table override instead.
+const LIQUEFACTION_OVERRIDE_FIELDS: { key: string; label: string }[] = [
+  { key: 'hammer_type_correction', label: 'Hammer type correction CH (blank = 1.0)' },
+  { key: 'borehole_diameter_correction', label: 'Borehole diameter correction CB (blank = 1.05, 150mm)' },
+  { key: 'sampler_correction', label: 'Sampler correction CS (blank = 1.0)' },
+  { key: 'static_shear_correction', label: 'Static shear correction Kα (blank = 1.0, flat ground)' },
+  { key: 'n_value', label: 'SPT N-value (all layers)' },
+  { key: 'fines_content_pct', label: 'Fines content % (all layers)' },
+  { key: 'bulk_density_t_m3', label: 'Bulk density γ (t/m³, all layers)' },
+]
+
 export default function LiquefactionAnalysis() {
   const [boreholes, setBoreholes] = useState<any[]>([])
   const [selectedBoreholeId, setSelectedBoreholeId] = useState('')
@@ -14,6 +27,9 @@ export default function LiquefactionAnalysis() {
   const [zone, setZone] = useState('IV')
   const [pgaOverride, setPgaOverride] = useState('')
   const [waterTableOverride, setWaterTableOverride] = useState('')
+  const [hammerEnergyCorrection, setHammerEnergyCorrection] = useState('')
+  const [manualOverrides, setManualOverrides] = useState<Record<string, string>>({})
+  const [showOverrides, setShowOverrides] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState<any>(null)
@@ -35,6 +51,10 @@ export default function LiquefactionAnalysis() {
     try {
       const overrides: Record<string, any> = {}
       if (waterTableOverride) overrides.water_table_depth_m = parseFloat(waterTableOverride)
+      if (hammerEnergyCorrection) overrides.hammer_energy_correction = parseFloat(hammerEnergyCorrection)
+      for (const { key } of LIQUEFACTION_OVERRIDE_FIELDS) {
+        if (manualOverrides[key]) overrides[key] = parseFloat(manualOverrides[key])
+      }
 
       const r = await api.runLiquefaction({
         borehole_id: selectedBoreholeId,
@@ -117,6 +137,34 @@ export default function LiquefactionAnalysis() {
                 <label className="text-xs text-slate-400 mb-1 block">Water table depth override (m) — blank = borehole's own ({selectedBorehole?.water_table_depth_m ?? '—'}m)</label>
                 <input type="number" step="any" className="gm-input w-full" value={waterTableOverride} onChange={(e) => setWaterTableOverride(e.target.value)} />
               </div>
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">
+                  Hammer Energy Correction CE — varies by hammer type (auto trip vs donut vs safety), fill per rig/site; blank = 1.0
+                </label>
+                <input
+                  type="number" step="any" className="gm-input w-full" value={hammerEnergyCorrection}
+                  onChange={(e) => setHammerEnergyCorrection(e.target.value)}
+                  placeholder="e.g. 0.9 (auto trip), 0.7–0.8 (donut)"
+                />
+              </div>
+
+              <button onClick={() => setShowOverrides((s) => !s)} className="text-xs text-violet-400 hover:text-violet-300">
+                {showOverrides ? '▾ Hide manual overrides' : '▸ Manual overrides (CH, CB, CS, Kα, N, fines, density...)'}
+              </button>
+              {showOverrides && (
+                <div className="space-y-3 pt-1 border-t border-white/[0.06]">
+                  {LIQUEFACTION_OVERRIDE_FIELDS.map((f) => (
+                    <div key={f.key}>
+                      <label className="text-[11px] text-slate-500 mb-0.5 block">{f.label}</label>
+                      <input
+                        type="number" step="any" className="gm-input w-full text-xs py-1.5"
+                        value={manualOverrides[f.key] || ''}
+                        onChange={(e) => setManualOverrides((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
 
               <button onClick={run} disabled={loading} className="gm-btn-primary w-full mt-2 flex items-center justify-center gap-2">
                 {loading ? <><Loader2 size={14} className="animate-spin" /> Running...</> : 'Run Liquefaction Analysis'}
@@ -167,7 +215,8 @@ export default function LiquefactionAnalysis() {
                       <th className="text-left py-2 pr-3">CRR7.5</th>
                       <th className="text-left py-2 pr-3">CRR</th>
                       <th className="text-left py-2 pr-3">FOS</th>
-                      <th className="text-left py-2">Conclusion</th>
+                      <th className="text-left py-2 pr-3">Conclusion</th>
+                      <th className="text-left py-2">Source (if not this layer)</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -183,6 +232,10 @@ export default function LiquefactionAnalysis() {
                         <td className="py-1.5 pr-3 text-slate-400 whitespace-nowrap">{r.crr ?? '—'}</td>
                         <td className={`py-1.5 pr-3 font-medium whitespace-nowrap ${r.conclusion === 'Liquefiable' ? 'text-rose-400' : 'text-slate-200'}`}>{r.fos}</td>
                         <td className={`py-1.5 whitespace-nowrap ${r.conclusion === 'Liquefiable' ? 'text-rose-400 font-medium' : 'text-slate-400'}`}>{r.conclusion}</td>
+                        <td className="py-1.5 text-[10.5px] text-amber-400/80 whitespace-nowrap">
+                          {r.n_value_source && !r.n_value_source.includes('this layer') && `N: ${r.n_value_source}`}
+                          {r.fines_content_source && !r.fines_content_source.includes('this layer') && (r.n_value_source && !r.n_value_source.includes('this layer') ? ' · ' : '') + `Fines: ${r.fines_content_source}`}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

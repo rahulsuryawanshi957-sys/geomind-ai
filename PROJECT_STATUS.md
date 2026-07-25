@@ -736,6 +736,28 @@ scoped).
     response; add that if Raahi wants to see sources on screen, not just in the raw
     result.
 
+25. **Frontend added 26 Jul 2026, per Raahi's request "pura manual bhi dikhna chahiye
+    hide mein, our hammer energy correction manual fill hona chahiye":**
+    `LiquefactionAnalysis.tsx` had NO way to set CE/CH/CB/CS/Kα or per-layer N/fines/
+    density manually at all -- only Mw, zone/PGA, and water table had inputs; the SPT
+    corrections silently used the backend's hardcoded defaults (CE=1.0, CH=1.0,
+    CB=1.05, CS=1.0, Kα=1.0) with zero UI control, even though `overrides` already
+    accepted all of them generically (no backend change needed here, same as the λ
+    dropdown in entry #21). Added:
+    - **Hammer Energy Correction (CE) as an ALWAYS-VISIBLE field** (not hidden) --
+      Raahi's specific point: CE genuinely varies by hammer type (automatic trip vs
+      donut vs safety hammer) per rig/site, so defaulting it silently is wrong far more
+      often than right; it needs to be an explicit per-job decision, not a buried
+      override.
+    - A collapsible "Manual overrides" panel (hidden by default, same UX pattern as
+      Batch Analysis's) for the less frequently changed ones: CH, CB, CS, Kα, plus
+      per-layer N-value/fines content/bulk density pins.
+    - The layer-report table also now shows a "Source (if not this layer)" column,
+      surfacing the `n_value_source`/`fines_content_source` transparency data entry #24
+      added to the API but never displayed -- blank when the value came from the
+      layer's own lab data, otherwise says which neighbouring layer (or override)
+      it was borrowed from.
+
 ---
 
 ## How to give Raahi an update (workflow reminder for whoever's helping)
