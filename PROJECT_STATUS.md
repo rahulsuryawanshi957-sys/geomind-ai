@@ -609,6 +609,26 @@ scoped).
       drainage-condition criteria here is exactly the kind of thing "never guess
       engineering values" (Raahi's own spec doc, 24-25 Jul) warns against.
 
+21. **Feature added 25 Jul 2026, per Raahi's photo of IS:8009 (Part I)-1976 Table 1 +
+    Fig. 10:** the λ correction override (`lambda_correction`, existing since entries
+    #17-18/#20) required typing a raw number with no guidance on what's reasonable.
+    Added a "Clay type (IS:8009 Table 1)" dropdown right above the λ number field in
+    Batch Analysis's Manual Overrides panel (`CLAY_LAMBDA_TABLE` in
+    `frontend/src/pages/BatchAnalysis.tsx`) with the standard's 4 categories and their
+    ranges (very sensitive 1.0-1.2, normally consolidated 0.7-1.0, overconsolidated
+    0.5-0.7, heavily overconsolidated 0.2-0.5). Picking a category auto-fills the
+    midpoint of its range into the (still freely editable) λ field, with a note
+    reminding Raahi it's a range, not a fixed value, and that Fig. 10's pore-pressure-A
+    chart gives a more specific number if that data is available. **Deliberately NOT
+    implemented:** Fig. 10 itself (the actual λ-vs-pore-pressure-parameter-A curves) --
+    digitizing a hand-drawn chart into exact lookup values from a photo risks
+    misreading it, and entry #20 already flagged that the *drainage-condition* criteria
+    for picking a curve/category in the first place haven't been confirmed either.
+    Table 1's textual ranges are unambiguous to transcribe; the curves are not -- if
+    Raahi wants Fig. 10 automated later, that needs either digitized curve data he's
+    confident in, or explicit accepted-approximation sign-off before guessing at reading
+    a scanned graph.
+
 ---
 
 ## How to give Raahi an update (workflow reminder for whoever's helping)

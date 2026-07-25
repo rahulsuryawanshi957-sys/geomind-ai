@@ -29,6 +29,18 @@ const OVERRIDE_FIELDS: { key: string; label: string }[] = [
   { key: 'lambda_correction', label: 'λ correction on consolidation settlement (IS:8009 Table 1; blank = not applied)' },
 ]
 
+// IS:8009 (Part I)-1976, Table 1 "Values of λ" -- used when the pore pressure
+// parameter A (Fig. 10) isn't available. Each category is a RANGE, not a
+// single value (the standard itself says so) -- picking a category only
+// pre-fills the midpoint into the editable λ field below; it never silently
+// decides the number for the engineer.
+const CLAY_LAMBDA_TABLE: { label: string; min: number; max: number }[] = [
+  { label: 'Very sensitive clays (soft alluvial, estuarine, marine)', min: 1.0, max: 1.2 },
+  { label: 'Normally consolidated clays', min: 0.7, max: 1.0 },
+  { label: 'Overconsolidated clays', min: 0.5, max: 0.7 },
+  { label: 'Heavily overconsolidated clays', min: 0.2, max: 0.5 },
+]
+
 export default function BatchAnalysis() {
   const [boreholes, setBoreholes] = useState<any[]>([])
   const [selectedBoreholeId, setSelectedBoreholeId] = useState('')
@@ -43,6 +55,7 @@ export default function BatchAnalysis() {
   const [rigidityFactor, setRigidityFactor] = useState('1')
   const [soilTypeForce, setSoilTypeForce] = useState('') // '' = auto per depth
   const [overrides, setOverrides] = useState<Record<string, string>>({})
+  const [clayLambdaType, setClayLambdaType] = useState('')
   const [showOverrides, setShowOverrides] = useState(false)
   const [loading, setLoading] = useState(false)
   const [progress, setProgress] = useState(0)
@@ -63,6 +76,14 @@ export default function BatchAnalysis() {
 
   function setOv(key: string, val: string) {
     setOverrides((prev) => ({ ...prev, [key]: val }))
+  }
+
+  function selectClayLambda(idxStr: string) {
+    setClayLambdaType(idxStr)
+    if (idxStr === '') return
+    const row = CLAY_LAMBDA_TABLE[parseInt(idxStr, 10)]
+    const mid = Math.round(((row.min + row.max) / 2) * 100) / 100
+    setOv('lambda_correction', String(mid))
   }
 
   function buildOverridesPayload() {
@@ -261,11 +282,30 @@ export default function BatchAnalysis() {
                   {OVERRIDE_FIELDS.map((f) => (
                     <div key={f.key}>
                       <label className="text-[11px] text-slate-500 mb-0.5 block">{f.label}</label>
+                      {f.key === 'lambda_correction' && (
+                        <select
+                          className="gm-input w-full text-xs py-1.5 mb-1"
+                          value={clayLambdaType}
+                          onChange={(e) => selectClayLambda(e.target.value)}
+                        >
+                          <option value="">IS:8009 Table 1 -- pick clay type to auto-fill λ...</option>
+                          {CLAY_LAMBDA_TABLE.map((row, idx) => (
+                            <option key={idx} value={idx}>{row.label} (λ = {row.min}–{row.max})</option>
+                          ))}
+                        </select>
+                      )}
                       <input
                         type="number" step="any" className="gm-input w-full text-xs py-1.5"
                         value={overrides[f.key] || ''}
-                        onChange={(e) => setOv(f.key, e.target.value)}
+                        onChange={(e) => { setOv(f.key, e.target.value); if (f.key === 'lambda_correction') setClayLambdaType('') }}
                       />
+                      {f.key === 'lambda_correction' && clayLambdaType !== '' && (
+                        <div className="text-[10px] text-slate-500 mt-0.5">
+                          Midpoint of the range shown above -- Table 1 gives a range, not one fixed value.
+                          Edit the number directly if a more specific value (from Fig. 10's pore-pressure
+                          chart, or your own judgement) applies.
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
