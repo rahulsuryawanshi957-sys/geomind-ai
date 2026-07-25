@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Fragment } from 'react'
 import { motion } from 'framer-motion'
 import { LayoutGrid, Layers3, Target, Printer, Loader2, SlidersHorizontal, ChevronDown, ChevronUp } from 'lucide-react'
 import { Link } from 'react-router-dom'
@@ -24,6 +24,7 @@ const OVERRIDE_FIELDS: { key: string; label: string }[] = [
   { key: 'n_value', label: 'SPT N-value' },
   { key: 'compression_index_cc', label: 'Compression index Cc' },
   { key: 'initial_void_ratio_e0', label: 'Initial void ratio e0' },
+  { key: 'influence_zone_m', label: 'Influence Zone override (m below founding depth; blank = auto Df+1.5B)' },
   { key: 'elastic_modulus_t_m2', label: 'Elastic modulus Es (t/m²)' },
 ]
 
@@ -46,6 +47,7 @@ export default function BatchAnalysis() {
   const [progressLabel, setProgressLabel] = useState('')
   const [error, setError] = useState('')
   const [result, setResult] = useState<any>(null)
+  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
 
   useEffect(() => {
     api.listBoreholes().then(setBoreholes).catch(() => {})
@@ -307,13 +309,24 @@ export default function BatchAnalysis() {
                         <th className="text-left py-2 pr-3">Recommended (net)</th>
                         <th className="text-left py-2 pr-3">Recommended (gross)</th>
                         <th className="text-left py-2">Governing</th>
+                        <th className="text-left py-2 pl-3 print:hidden">Full calc</th>
                       </tr>
                     </thead>
                     <tbody>
                       {result.combinations.map((c: any, i: number) => {
                         const isCritical = result.critical_combination && c.width_m === result.critical_combination.width_m && c.depth_m === result.critical_combination.depth_m && !c.error
+                        const hasDetail = !c.error && (c.settlement_layer_report?.length > 0 || c.shear_steps?.length > 0)
+                        const isExpanded = expandedRows.has(i)
+                        const toggleExpanded = () => {
+                          setExpandedRows(prev => {
+                            const next = new Set(prev)
+                            if (next.has(i)) next.delete(i); else next.add(i)
+                            return next
+                          })
+                        }
                         return (
-                          <tr key={i} className={`border-b border-white/[0.04] ${isCritical ? 'bg-violet-500/10' : ''}`}>
+                          <Fragment key={i}>
+                          <tr className={`border-b border-white/[0.04] ${isCritical ? 'bg-violet-500/10' : ''}`}>
                             <td className="py-1.5 pr-3 text-slate-300 whitespace-nowrap">{c.width_m}</td>
                             <td className="py-1.5 pr-3 text-slate-300 whitespace-nowrap">{c.length_m}</td>
                             <td className="py-1.5 pr-3 text-slate-300 whitespace-nowrap">{c.depth_m}</td>
@@ -330,7 +343,70 @@ export default function BatchAnalysis() {
                                 <td className="py-1.5 text-slate-400 whitespace-nowrap">{c.governing.includes('shear') ? 'Shear' : 'Settlement'}</td>
                               </>
                             )}
+                            <td className="py-1.5 pl-3 print:hidden">
+                              {hasDetail && (
+                                <button onClick={toggleExpanded} className="text-violet-400 hover:text-violet-300 text-[11px] whitespace-nowrap">
+                                  {isExpanded ? '▾ Hide' : '▸ Full calc'}
+                                </button>
+                              )}
+                            </td>
                           </tr>
+                          {hasDetail && (
+                            <tr className={isExpanded ? 'table-row' : 'hidden print:table-row'}>
+                              <td colSpan={11} className="py-3 pl-6 pr-3 bg-white/[0.02] print:bg-transparent text-[11px] text-slate-400 print:text-black">
+                                {c.influence_zone_note && (
+                                  <div className="mb-2"><span className="text-slate-500 print:text-black font-medium">Influence Zone ({c.influence_zone_mode}):</span> {c.influence_zone_note}</div>
+                                )}
+                                {c.water_table_correction_note && (
+                                  <div className="mb-2"><span className="text-slate-500 print:text-black font-medium">Water table correction:</span> {c.water_table_correction_note}</div>
+                                )}
+
+                                {c.shear_steps?.length > 0 && (
+                                  <div className="mb-3">
+                                    <div className="uppercase tracking-wide text-slate-500 print:text-black mb-1">Shear (IS:6403) — working</div>
+                                    <ul className="space-y-0.5">
+                                      {c.shear_steps.map((line: string, li: number) => <li key={li}>• {line}</li>)}
+                                    </ul>
+                                  </div>
+                                )}
+
+                                {c.settlement_layer_report?.length > 0 && (
+                                  <div>
+                                    <div className="uppercase tracking-wide text-slate-500 print:text-black mb-1">Settlement (IS:8009) — layer-wise working</div>
+                                    <table className="w-full text-[10.5px] border-collapse">
+                                      <thead>
+                                        <tr className="border-b border-white/10 print:border-black text-slate-500 print:text-black">
+                                          <th className="text-left py-1 pr-2">Layer (effective)</th>
+                                          <th className="text-left py-1 pr-2">Soil type</th>
+                                          <th className="text-left py-1 pr-2">Method</th>
+                                          <th className="text-left py-1 pr-2">N used (source)</th>
+                                          <th className="text-left py-1 pr-2">Es used</th>
+                                          <th className="text-left py-1 pr-2">Δσ (t/m²)</th>
+                                          <th className="text-left py-1 pr-2">Layer settlement (mm)</th>
+                                          <th className="text-left py-1">Running total (mm)</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {c.settlement_layer_report.map((lr: any, li: number) => (
+                                          <tr key={li} className="border-b border-white/[0.04] print:border-black/20">
+                                            <td className="py-1 pr-2 whitespace-nowrap">{lr.effective_from_m}-{lr.effective_to_m}m ({lr.effective_thickness_m}m)</td>
+                                            <td className="py-1 pr-2 whitespace-nowrap">{lr.soil_type}</td>
+                                            <td className="py-1 pr-2 whitespace-nowrap">{lr.settlement_method}</td>
+                                            <td className="py-1 pr-2 whitespace-nowrap">{lr.spt_n_used} ({lr.spt_n_source})</td>
+                                            <td className="py-1 pr-2 whitespace-nowrap">{lr.elastic_modulus_used}</td>
+                                            <td className="py-1 pr-2 whitespace-nowrap">{lr.stress_increase_t_m2}</td>
+                                            <td className="py-1 pr-2 whitespace-nowrap">{lr.layer_settlement_mm}</td>
+                                            <td className="py-1 whitespace-nowrap">{lr.running_settlement_mm}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          )}
+                          </Fragment>
                         )
                       })}
                     </tbody>
