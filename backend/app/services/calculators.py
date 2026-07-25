@@ -1283,6 +1283,24 @@ def run_liquefaction_analysis(
         val = getattr(layer, field, None)
         return val if val is not None else default
 
+    def _get_required(layer, field):
+        """Override/direct value if present; else the nearest recorded layer
+        above/below (same fallback `_resolve_field` already gives the SBC and
+        settlement engines) -- e.g. a "Filled up" top layer with no lab test
+        borrows from whichever tested layer is closest, instead of the whole
+        liquefaction run failing on one incomplete layer. Returns
+        (value, source_note); value is None only if truly no layer anywhere
+        on this borehole has this field and no override was given either."""
+        per_layer = overrides.get(getattr(layer, "id", None))
+        if isinstance(per_layer, dict) and field in per_layer:
+            return per_layer[field], "manual override (this layer)"
+        if field in overrides and not isinstance(overrides[field], dict):
+            return overrides[field], "manual override (all layers)"
+        direct = getattr(layer, field, None)
+        if direct is not None:
+            return direct, f"{layer.from_m}-{layer.to_m}m (this layer)"
+        return _resolve_field(ordered, layer, field)
+
     ordered = sorted(layers, key=lambda l: l.from_m)
     K = L = 0.0
     prev_depth = 0.0
@@ -1296,9 +1314,9 @@ def run_liquefaction_analysis(
 
     for l in ordered:
         depth = l.from_m
-        bulk_density = _get(l, "bulk_density_t_m3")
+        bulk_density, bulk_density_source = _get_required(l, "bulk_density_t_m3")
         if bulk_density is None:
-            raise ValueError(f"Layer at {depth}m: no bulk_density_t_m3 (needed for overburden stress) and no override given.")
+            raise ValueError(f"Layer at {depth}m: no bulk_density_t_m3 anywhere on this borehole (needed for overburden stress) and no override given.")
         density_for_increment = bulk_density if prev_density is None else prev_density
         dK, dL = _stress_increment(prev_depth, depth, density_for_increment, water_table_depth_m)
         K += dK
@@ -1314,6 +1332,7 @@ def run_liquefaction_analysis(
             "depth_m": depth, "classification": classification or "n/a",
             "total_overburden_t_m2": round(K, 3), "effective_overburden_t_m2": round(L, 3),
             "rd": round(rd, 4), "csr": round(csr, 4),
+            "bulk_density_source": bulk_density_source,
         }
 
         if getattr(l, "rock_type", None) and not classification:
@@ -1321,13 +1340,15 @@ def run_liquefaction_analysis(
             layer_report.append(row)
             continue
 
-        n_obs = _get(l, "n_value")
+        n_obs, n_source = _get_required(l, "n_value")
         if n_obs is None:
-            raise ValueError(f"Layer at {depth}m ({classification or 'unclassified'}): no n_value and no override given.")
-        fines_pct = _get(l, "fines_content_pct")
+            raise ValueError(f"Layer at {depth}m ({classification or 'unclassified'}): no n_value anywhere on this borehole and no override given.")
+        fines_pct, fines_source = _get_required(l, "fines_content_pct")
         if fines_pct is None:
-            raise ValueError(f"Layer at {depth}m: no fines_content_pct recorded and no override given -- "
+            raise ValueError(f"Layer at {depth}m: no fines_content_pct anywhere on this borehole and no override given -- "
                               f"required for the fines correction (alpha/beta), which the reference workbook applies to every layer regardless of soil type.")
+        row["n_value_source"] = n_source
+        row["fines_content_source"] = fines_source
 
         # (N1)60 / (N1)60cs / CRR7.5 are computed for EVERY layer regardless of
         # soil type -- exactly as the reference workbook's T/U/V/W/X columns

@@ -719,6 +719,23 @@ scoped).
     template can keep growing new optional columns in the future without breaking
     every external/older sheet again.
 
+24. **BUG, fixed 26 Jul 2026, found by Raahi live-testing Liquefaction Analysis:**
+    `run_liquefaction_analysis()`'s `_get()` helper only checked overrides and the
+    layer's OWN value for `bulk_density_t_m3`/`n_value`/`fines_content_pct` -- unlike
+    the SBC/settlement engines (`_resolve_field()`), it never borrowed from a
+    neighbouring layer, so a single incomplete layer (e.g. the top "Filled up" layer
+    with no lab test, or any SPT-only row missing fines content) hard-failed the WHOLE
+    borehole's liquefaction run with a 422. Fixed: added `_get_required()`, which
+    checks override -> this layer's own value -> nearest recorded layer above/below
+    (reusing the exact same `_resolve_field()` the other engines already use) -- only
+    raises if truly no layer anywhere on the borehole has the field AND no override
+    was given. Applied to all three fields. Each layer's report row now also carries
+    `bulk_density_source` / `n_value_source` / `fines_content_source` (e.g. "1.5-1.95m
+    (nearest layer below)") for transparency, same spirit as the SBC engines' source
+    notes -- **not yet surfaced in `LiquefactionAnalysis.tsx`'s UI**, only in the API
+    response; add that if Raahi wants to see sources on screen, not just in the raw
+    result.
+
 ---
 
 ## How to give Raahi an update (workflow reminder for whoever's helping)
