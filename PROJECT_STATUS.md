@@ -778,6 +778,57 @@ scoped).
       management). No route paths changed, just the grouping in
       `frontend/src/components/Sidebar.tsx`.
 
+27. **Feature built 26 Jul 2026, per Raahi's request to make Document Library
+    survive restarts without needing a credit card anywhere:** migrated persistence
+    to Supabase (Postgres + Storage, genuinely free tier, no card required -- only
+    catch is the project auto-pauses after 7 days with zero traffic, one click to
+    resume). Three independent pieces, all optional/backward-compatible via env vars:
+    - **Database:** `DATABASE_URL` already supported swapping SQLite->Postgres with
+      ZERO code changes (the whole app goes through the SQLAlchemy ORM) -- just needs
+      the env var set to Supabase's Postgres connection string. Not done yet on
+      Render as of this entry; Raahi still needs to create the project and set it.
+    - **Vector search:** NEW -- `app/rag/pgvector_store.py`, used automatically by
+      `app/rag/vectorstore.py` instead of ChromaDB whenever `DATABASE_URL` is
+      Postgres (checked at import time). Stores chunks + embeddings in a
+      `document_chunks` table in the SAME Postgres database via pgvector
+      (`CREATE EXTENSION vector`), using plain SQL through the existing
+      SQLAlchemy engine/psycopg2 -- no new Python package needed for this part.
+      Embedding dimension hardcoded to 3072 (gemini-embedding-001's default,
+      unchanged since no `output_dimensionality` is passed in
+      `services/embeddings.py`) -- deliberately NOT using an ANN index
+      (ivfflat/hnsw), since pgvector's index size limits (~2000 dims) don't cover
+      3072 and a personal document library's scale (hundreds/thousands of chunks,
+      not millions) doesn't need one -- exact `ORDER BY embedding <=> query LIMIT k`
+      is plenty fast at this scale. If usage ever grows enough that this becomes
+      slow, the fix is reducing embedding dimension (via `output_dimensionality`,
+      requires re-indexing everything) so an index becomes possible, not adding
+      one now.
+    - **File storage:** NEW -- `app/services/file_storage.py`. When
+      `SUPABASE_URL`/`SUPABASE_SERVICE_KEY` are set, uploaded PDFs go to a
+      Supabase Storage bucket named exactly `documents` (Raahi needs to create
+      this bucket manually in the Supabase dashboard -- code does NOT
+      auto-create it) instead of local disk. `routers/documents.py` updated to
+      go through this module for save/delete; `_run_indexing()` downloads a
+      temp local copy for PyMuPDF (which needs a real file path) and cleans it
+      up afterward when the source is Supabase, since indexing still needs
+      actual bytes on disk however they're stored permanently.
+    - **NOT tested against a real Postgres/pgvector instance** -- no
+      network access in this sandbox to spin one up. The SQL pattern (raw
+      `CAST(:x AS vector)`/`<=>` via SQLAlchemy `text()`) is a standard, widely
+      documented way to use pgvector without its dedicated Python package, but
+      this should be watched closely on first real use -- if `add_chunks`/
+      `query` throw anything, that's the first place to look.
+    - **Still needed from Raahi to actually go live:** (1) create a Supabase
+      project, (2) create a Storage bucket named `documents`, (3) set
+      `DATABASE_URL` (Postgres connection string), `SUPABASE_URL`, and
+      `SUPABASE_SERVICE_KEY` (the `service_role` key, not `anon`) as environment
+      variables on the Render backend service, (4) redeploy. Existing SQLite
+      data (if any) does NOT migrate automatically -- this is a fresh start for
+      the Document Library specifically; Batch Analysis/Liquefaction boreholes
+      are unaffected either way (separate tables, but same DB -- they'll also
+      move to Postgres automatically once `DATABASE_URL` is set, which is fine,
+      they don't use Chroma/pgvector at all).
+
 ---
 
 ## How to give Raahi an update (workflow reminder for whoever's helping)

@@ -26,14 +26,27 @@ class Settings(BaseSettings):
     embedding_model: str = "gemini-embedding-001"
     chat_model: str = "gemini-3.5-flash"
 
-    # --- Vector store (ChromaDB) ---
-    # Leave empty to use local-disk Chroma (fine for local dev, but WIPED on
-    # every Render free-tier restart/redeploy since there's no persistent
-    # disk on the free plan). Set these to use Chroma Cloud's free tier
-    # (https://trychroma.com) so indexed documents survive restarts.
+    # --- Vector store (ChromaDB, local dev fallback) ---
+    # Only used when DATABASE_URL is NOT Postgres. Once DATABASE_URL points at
+    # a Postgres database (e.g. Supabase), app/rag/vectorstore.py automatically
+    # switches to pgvector INSIDE that same database instead -- no separate
+    # vector store service needed. These are only relevant for local dev
+    # against plain SQLite, or if you deliberately want Chroma Cloud instead.
     chroma_api_key: str = ""
     chroma_tenant: str = ""
     chroma_database: str = "raahigeo"
+
+    # --- Supabase (Postgres DB + file Storage, free tier, no card required) ---
+    # Set DATABASE_URL to the Supabase Postgres connection string (Project
+    # Settings -> Database -> Connection string -> URI) to persist the
+    # documents table AND switch the vector store to pgvector automatically.
+    # Set these two to ALSO persist uploaded PDF files in Supabase Storage
+    # (bucket "documents") instead of local disk. Get them from Project
+    # Settings -> API: supabase_url = "Project URL", supabase_service_key =
+    # the "service_role" secret key (NOT the public "anon" key -- uploads/
+    # deletes need the service role to bypass Row Level Security).
+    supabase_url: str = ""
+    supabase_service_key: str = ""
 
     # --- Storage paths ---
     base_dir: Path = Path(__file__).resolve().parent.parent.parent
@@ -84,6 +97,22 @@ class Settings(BaseSettings):
 
         if not self.database_url:
             self.database_url = f"sqlite:///{self.sqlite_path}"
+            logger.warning(
+                "DATABASE_URL not set -- using local SQLite. On Render's free tier this "
+                "(and any locally-saved files/vectors) is WIPED on every restart/redeploy. "
+                "Set DATABASE_URL to a Supabase Postgres connection string (free, no card "
+                "required -- https://supabase.com) for the documents table, uploaded files, "
+                "and search index to all persist permanently."
+            )
+        elif self.database_url.startswith("postgres"):
+            logger.info("DATABASE_URL is Postgres -- documents table + pgvector search will persist across restarts.")
+            if not (self.supabase_url and self.supabase_service_key):
+                logger.warning(
+                    "SUPABASE_URL/SUPABASE_SERVICE_KEY not set -- uploaded PDF files will "
+                    "still be saved to local disk and WIPED on restart, even though the "
+                    "documents table and search index (Postgres/pgvector) now persist. Set "
+                    "both (Project Settings -> API) to persist the files too."
+                )
 
         if not self.gemini_api_key:
             logger.warning(

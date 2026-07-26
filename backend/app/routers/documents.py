@@ -1,4 +1,3 @@
-import shutil
 import traceback
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
@@ -7,6 +6,7 @@ from app.models import Document
 from app.schemas import DocumentOut
 from app.rag.ingest import ingest_pdf
 from app.rag.vectorstore import delete_document as vs_delete_document
+from app.services import file_storage
 from app.config import settings, logger
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
@@ -29,15 +29,20 @@ def _run_indexing(document_id: str, file_path: str, filename: str, category: str
     """
     from app.database import SessionLocal
     db = SessionLocal()
+    local_path = None
     try:
         doc = db.query(Document).filter(Document.id == document_id).first()
         doc.status = "indexing"
         db.commit()
         logger.info(f"[ingest] Starting indexing for document_id={document_id} filename={filename}")
 
+        # PyMuPDF needs a real local file -- if this document lives in Supabase
+        # Storage, download it to a temp file first (cleaned up in `finally`).
+        local_path = file_storage.get_local_copy(file_path)
+
         stats = ingest_pdf(
             document_id=document_id,
-            file_path=file_path,
+            file_path=local_path,
             filename=filename,
             category=category,
             chunk_size=settings.chunk_size_tokens,
@@ -60,6 +65,8 @@ def _run_indexing(document_id: str, file_path: str, filename: str, category: str
             doc.status = "failed"
             db.commit()
     finally:
+        if local_path and file_storage.is_temp_copy(file_path):
+            file_storage.delete_temp_copy(local_path)
         db.close()
 
 
@@ -87,21 +94,19 @@ async def upload_document(
     db.commit()
     db.refresh(doc)
 
-    dest_path = settings.uploads_dir / f"{doc.id}.pdf"
     try:
-        with open(dest_path, "wb") as f:
-            shutil.copyfileobj(file.file, f)
-    except Exception:
-        logger.error(f"[upload] Failed to save file to {dest_path}:\n{traceback.format_exc()}")
+        file_path_ref = file_storage.save_upload(doc.id, file.file)
+    except Exception as e:
+        logger.error(f"[upload] Failed to save file for document_id={doc.id}:\n{traceback.format_exc()}")
         doc.status = "failed"
         db.commit()
-        raise HTTPException(500, f"Could not save uploaded file to {dest_path}. Check disk permissions.")
+        raise HTTPException(500, f"Could not save uploaded file: {e}")
 
-    doc.file_path = str(dest_path)
+    doc.file_path = file_path_ref
     db.commit()
-    logger.info(f"[upload] Saved to {dest_path}, queuing background indexing (document_id={doc.id}).")
+    logger.info(f"[upload] Saved (ref={file_path_ref}), queuing background indexing (document_id={doc.id}).")
 
-    background_tasks.add_task(_run_indexing, doc.id, str(dest_path), file.filename, category)
+    background_tasks.add_task(_run_indexing, doc.id, file_path_ref, file.filename, category)
 
     return doc
 
@@ -120,6 +125,7 @@ def delete_document(document_id: str, db: Session = Depends(get_db)):
     if not doc:
         raise HTTPException(404, "Document not found")
     vs_delete_document(document_id)
+    file_storage.delete_file(doc.file_path)
     db.delete(doc)
     db.commit()
     return {"status": "deleted"}
