@@ -758,6 +758,26 @@ scoped).
       layer's own lab data, otherwise says which neighbouring layer (or override)
       it was borrowed from.
 
+26. **Feature added 26 Jul 2026, per Raahi's request "ek side me liquefaction ke
+    calculation bhi dikhe... our liquefaction ko engineering se hatakar analysis me
+    daal do":**
+    - `run_liquefaction_analysis()` now builds a full per-layer `steps` array (same
+      pattern as Batch Analysis's settlement `steps` from entry #17): overburden
+      stress build-up (which density/interval was used and why), rd, the CSR formula
+      with real numbers, the full (N1)60 correction chain (CN x CE x CH x CB x CR x CS),
+      the fines alpha/beta correction, CRR7.5, Dr%/Ksigma (or the exemption reason),
+      MSF, Kalpha, the final CRR formula, and the FOS formula/rule applied -- every
+      number that went into every column, not just the column values themselves.
+    - `LiquefactionAnalysis.tsx` got the same "▸ Full calc" per-row toggle as Batch
+      Analysis (entry #18): hidden on screen unless expanded, forced visible when
+      printing regardless of on-screen state.
+    - **Sidebar reorganized:** the old single "Engineering" section (7 items) is now
+      two sections -- "Analysis" (Analysis/calculators, Batch Analysis, Liquefaction
+      Analysis -- the three calculation tools) and a slimmer "Engineering" (Borehole
+      Logs, Lab Data Import, Soil Profile Viewer, Engineering Reports -- data/document
+      management). No route paths changed, just the grouping in
+      `frontend/src/components/Sidebar.tsx`.
+
 ---
 
 ## How to give Raahi an update (workflow reminder for whoever's helping)

@@ -1314,13 +1314,20 @@ def run_liquefaction_analysis(
 
     for l in ordered:
         depth = l.from_m
+        interval_top = prev_depth
         bulk_density, bulk_density_source = _get_required(l, "bulk_density_t_m3")
         if bulk_density is None:
             raise ValueError(f"Layer at {depth}m: no bulk_density_t_m3 anywhere on this borehole (needed for overburden stress) and no override given.")
         density_for_increment = bulk_density if prev_density is None else prev_density
-        dK, dL = _stress_increment(prev_depth, depth, density_for_increment, water_table_depth_m)
+        dK, dL = _stress_increment(interval_top, depth, density_for_increment, water_table_depth_m)
         K += dK
         L += dL
+        overburden_step = (
+            f"Overburden stress, interval {interval_top:.2f}m to {depth:.2f}m: using density "
+            f"{density_for_increment:.3f} t/m³ ({'this layer' if prev_density is None else 'previous layer, per workbook convention'}"
+            f"), water table at {water_table_depth_m if water_table_depth_m is not None else 'n/a'}m -> "
+            f"ΔTotal={dK:.3f} t/m² (running total={K:.3f}), ΔEffective={dL:.3f} t/m² (running total={L:.3f})"
+        )
         prev_depth = depth
         prev_density = bulk_density
 
@@ -1328,15 +1335,19 @@ def run_liquefaction_analysis(
         rd = _rd_stress_reduction(depth)
         csr = 0.65 * (K / L) * rd * pga_g if L > 0 else 0.0
 
+        csr_step = f"CSR = 0.65 x (Total/Effective overburden) x rd x amax/g = 0.65 x ({K:.3f}/{L:.3f}) x {rd:.4f} x {pga_g} = {csr:.4f}" if L > 0 else "CSR = 0 (no effective overburden yet)"
+
         row = {
             "depth_m": depth, "classification": classification or "n/a",
             "total_overburden_t_m2": round(K, 3), "effective_overburden_t_m2": round(L, 3),
             "rd": round(rd, 4), "csr": round(csr, 4),
             "bulk_density_source": bulk_density_source,
+            "steps": [overburden_step, f"rd (stress reduction factor) = {rd:.4f} at {depth}m depth", csr_step],
         }
 
         if getattr(l, "rock_type", None) and not classification:
             row.update({"note": "Rock layer -- liquefaction analysis not applicable.", "fos": "n/a", "conclusion": "n/a"})
+            row["steps"].append("Rock layer -- no SPT/CRR chain applies, analysis stops here.")
             layer_report.append(row)
             continue
 
@@ -1408,6 +1419,20 @@ def run_liquefaction_analysis(
             "fos": fos,
             "conclusion": "Liquefiable" if is_liquefiable else "Non Liquefiable",
         })
+        row["steps"] += [
+            f"(N1)60 = N x CN x CE x CH x CB x CR x CS = {n_obs} x {cn:.3f} x {ce} x {ch} x {cb} x {cr:.3f} x {cs} = {n1_60:.2f}",
+            f"Fines correction: alpha={alpha:.3f}, beta={beta:.3f} (from fines content {fines_pct}%) -> (N1)60cs = alpha + beta x (N1)60 = {n1_60cs:.2f}",
+            f"CRR7.5 (NCEER 1997 curve fit on (N1)60cs) = {row['crr_7_5']}",
+            (f"Dr% = {dr_pct:.1f}%, f-exponent = {f_exp:.4f} -> Ksigma = {k_sigma:.4f}" + (" (depth<=15m, Ksigma capped at 1.0)" if depth <= 15 else "")
+             if dr_pct is not None else f"Dr%/Ksigma: exempt classification ({classification or 'n/a'}) -> Ksigma = {k_sigma:.4f}"),
+            f"MSF = 10^2.24 / Mw^2.56 = {msf:.4f} (Mw={mw})",
+            f"Kalpha (static shear correction) = {k_alpha}",
+            (f"CRR = CRR7.5 x Ksigma x Kalpha x MSF = {crr_7_5:.4f} x {k_sigma:.4f} x {k_alpha} x {msf:.4f} = {crr:.4f}"
+             if crr is not None else "CRR = n/a (CRR7.5 not available -- (N1)60cs > 30)"),
+            (f"FOS = CRR / CSR = {crr:.4f} / {csr:.4f} = {fos}" if isinstance(fos, (int, float))
+             else f"FOS = '{fos}' ({'cohesive/plastic soil, exempt from this method' if classification in _FOS_EXEMPT_CLASSIFICATIONS else 'CRR7.5 > 1 or CSR <= 0, workbook rule applies'})"),
+            f"Conclusion: {'Liquefiable' if is_liquefiable else 'Non Liquefiable'}",
+        ]
         layer_report.append(row)
 
     liquefiable_ranges.sort()

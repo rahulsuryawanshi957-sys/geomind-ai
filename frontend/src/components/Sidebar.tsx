@@ -27,11 +27,16 @@ const NAV_SECTIONS: { label: string; items: { to: string; label: string; icon: a
     ],
   },
   {
-    label: 'Engineering',
+    label: 'Analysis',
     items: [
       { to: '/calculators', label: 'Analysis', icon: Calculator },
       { to: '/batch-analysis', label: 'Batch Analysis', icon: LayoutGrid },
       { to: '/liquefaction-analysis', label: 'Liquefaction Analysis', icon: Waves },
+    ],
+  },
+  {
+    label: 'Engineering',
+    items: [
       { to: '/borehole-logs', label: 'Borehole Logs', icon: Layers3 },
       { to: '/lab-reports', label: 'Lab Data Import', icon: FlaskConical },
       { to: '/soil-profile', label: 'Soil Profile Viewer', icon: Mountain },

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Fragment } from 'react'
 import { Waves, Layers3, Loader2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
@@ -31,6 +31,7 @@ export default function LiquefactionAnalysis() {
   const [manualOverrides, setManualOverrides] = useState<Record<string, string>>({})
   const [showOverrides, setShowOverrides] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
   const [error, setError] = useState('')
   const [result, setResult] = useState<any>(null)
 
@@ -217,11 +218,22 @@ export default function LiquefactionAnalysis() {
                       <th className="text-left py-2 pr-3">FOS</th>
                       <th className="text-left py-2 pr-3">Conclusion</th>
                       <th className="text-left py-2">Source (if not this layer)</th>
+                      <th className="text-left py-2 pl-3 print:hidden">Full calc</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {result.layer_report.map((r: any, i: number) => (
-                      <tr key={i} className="border-b border-white/[0.04]">
+                    {result.layer_report.map((r: any, i: number) => {
+                      const isExpanded = expandedRows.has(i)
+                      const toggleExpanded = () => {
+                        setExpandedRows((prev) => {
+                          const next = new Set(prev)
+                          if (next.has(i)) next.delete(i); else next.add(i)
+                          return next
+                        })
+                      }
+                      return (
+                      <Fragment key={i}>
+                      <tr className="border-b border-white/[0.04]">
                         <td className="py-1.5 pr-3 text-slate-300 whitespace-nowrap">{r.depth_m}</td>
                         <td className="py-1.5 pr-3 text-slate-400 whitespace-nowrap">{r.classification}</td>
                         <td className="py-1.5 pr-3 text-slate-400 whitespace-nowrap">{r.n_observed ?? '—'}</td>
@@ -236,8 +248,29 @@ export default function LiquefactionAnalysis() {
                           {r.n_value_source && !r.n_value_source.includes('this layer') && `N: ${r.n_value_source}`}
                           {r.fines_content_source && !r.fines_content_source.includes('this layer') && (r.n_value_source && !r.n_value_source.includes('this layer') ? ' · ' : '') + `Fines: ${r.fines_content_source}`}
                         </td>
+                        <td className="py-1.5 pl-3 print:hidden">
+                          {r.steps?.length > 0 && (
+                            <button onClick={toggleExpanded} className="text-violet-400 hover:text-violet-300 text-[11px] whitespace-nowrap">
+                              {isExpanded ? '▾ Hide' : '▸ Full calc'}
+                            </button>
+                          )}
+                        </td>
                       </tr>
-                    ))}
+                      {r.steps?.length > 0 && (
+                        <tr className={isExpanded ? 'table-row' : 'hidden print:table-row'}>
+                          <td colSpan={11} className="py-2 pl-6 pr-3 bg-white/[0.02] print:bg-transparent text-[11px] text-slate-400 print:text-black">
+                            <div className="uppercase tracking-wide text-slate-500 print:text-black mb-1">
+                              Overburden → CSR → SPT correction → CRR → FOS, step by step
+                            </div>
+                            <ul className="space-y-0.5">
+                              {r.steps.map((s: string, si: number) => <li key={si}>• {s}</li>)}
+                            </ul>
+                          </td>
+                        </tr>
+                      )}
+                      </Fragment>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
