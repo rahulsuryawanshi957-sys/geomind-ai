@@ -829,6 +829,17 @@ scoped).
       move to Postgres automatically once `DATABASE_URL` is set, which is fine,
       they don't use Chroma/pgvector at all).
 
+28. **BUG, fixed 26 Jul 2026, found immediately on the first deploy attempt of #27's
+    Supabase migration:** `requirements.txt` pinned `httpx==0.27.2` (for the new
+    `file_storage.py`'s Supabase Storage REST calls) without checking what
+    `google-genai` itself needs -- it requires `httpx>=0.28.1,<1.0.0`, so pip's
+    dependency resolver had no valid combination and the Render build failed outright
+    (`pip install -r requirements.txt` exited 1, nothing deployed). Fixed: loosened to
+    `httpx>=0.28.1,<1.0.0` to satisfy both. Lesson for next time a new pinned
+    dependency is added: check what ALREADY-pinned packages require of the SAME
+    library before hard-pinning a specific version, especially anything `google-genai`
+    touches (it's fairly strict about its own httpx floor).
+
 ---
 
 ## How to give Raahi an update (workflow reminder for whoever's helping)
