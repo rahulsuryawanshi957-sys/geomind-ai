@@ -997,6 +997,35 @@ scoped).
     one result against a hand calculation** before trusting it for a live
     project.
 
+32. **Pile Capacity: liquefaction depth + critical-depth-factor override added, 27 Jul 2026,
+    per Raahi's request** (built in a chat session, on top of entry #31's engine). Two
+    changes to `run_pile_capacity()`:
+    - New optional `liquefaction_depth_m` param, treated the same way `scour_depth_m`
+      already was (soil above it doesn't count for skin friction) -- whichever of the two is
+      DEEPER becomes the `ineffective_ground_level_m` that both the critical-depth
+      calculation and the skin-friction skip measure from (matches how IRC:78/IITK-GSDMA
+      seismic guidance combines scour+liquefaction as one effective ground level, since both
+      mean "don't rely on this depth of soil"). If both are given, the response's `warnings`
+      names which one governed.
+    - New optional `critical_depth_factor` param, overriding the code's default multiplier
+      (15D for IS 2911, 20D for IRC:78) -- Raahi wanted this adjustable rather than
+      hardcoded, in case a specific project's geotechnical report specifies a different
+      value. Reported back in the result as `critical_depth_factor_used`, and the warnings
+      note explicitly when an override was used instead of the code default.
+    - Frontend (`PileCapacity.tsx`): two new optional fields, "Liquefaction depth (m)" and
+      "Critical depth multiplier override (xD)", right after Scour depth.
+    - **NOT done -- needs Raahi's input, don't guess:** Raahi separately asked for
+      "IRC:78:2024" instead of/alongside the current "IRC:78:2014" label. Whether the 2014
+      and 2024 editions actually differ in the skin-friction/end-bearing/critical-depth
+      FORMULAS themselves (not just the year printed on the cover) is unknown -- entry #31
+      already flagged one instance (the Nq table) where blindly trusting a source document
+      over a consistent formula was the wrong call. Silently relabeling "2014" to "2024"
+      without checking whether the formulas changed would be exactly the kind of guess this
+      project's own spec docs (entries #12, #17, #22) explicitly warn against. Whoever picks
+      this up next should ask Raahi for the actual IRC:78:2024 document (or confirm it's
+      the same formulas, just a re-issued/amended edition) before touching the `code` label
+      or any formula.
+
 ---
 
 ## How to give Raahi an update (workflow reminder for whoever's helping)

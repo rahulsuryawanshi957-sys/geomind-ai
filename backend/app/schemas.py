@@ -110,6 +110,8 @@ class PileCapacityRequest(BaseModel):
     cutoff_depth_m: float = 0.0
     code: str = "IS_2911"  # "IS_2911" or "IRC_78"
     scour_depth_m: float | None = None
+    liquefaction_depth_m: float | None = None  # depth to which soil is treated as liquefied/ineffective for skin friction (max of this and scour_depth_m governs, same as a deeper scour level)
+    critical_depth_factor: float | None = None  # override for the code's default critical-depth multiplier (15D for IS 2911, 20D for IRC:78) -- xD below the ineffective (scour/liquefaction) level
     fos_compression: float = 2.5
     fos_uplift: float = 2.5
     overrides: dict = {}

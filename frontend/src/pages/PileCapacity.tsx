@@ -10,6 +10,8 @@ export default function PileCapacity() {
   const [cutoffDepth, setCutoffDepth] = useState('1')
   const [code, setCode] = useState('IS_2911')
   const [scourDepth, setScourDepth] = useState('')
+  const [liquefactionDepth, setLiquefactionDepth] = useState('')
+  const [criticalDepthFactor, setCriticalDepthFactor] = useState('')
   const [fos, setFos] = useState('2.5')
   const [command, setCommand] = useState('')
   const [parsing, setParsing] = useState(false)
@@ -52,6 +54,8 @@ export default function PileCapacity() {
         cutoff_depth_m: cutoffDepth ? parseFloat(cutoffDepth) : 0,
         code,
         scour_depth_m: scourDepth ? parseFloat(scourDepth) : null,
+        liquefaction_depth_m: liquefactionDepth ? parseFloat(liquefactionDepth) : null,
+        critical_depth_factor: criticalDepthFactor ? parseFloat(criticalDepthFactor) : null,
         fos_compression: parseFloat(fos),
         fos_uplift: parseFloat(fos),
       })
@@ -125,6 +129,19 @@ export default function PileCapacity() {
           <label className="text-xs text-slate-400 mb-1 block">Scour depth (m, optional)</label>
           <input className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100"
             value={scourDepth} onChange={(e) => setScourDepth(e.target.value)} />
+        </div>
+        <div>
+          <label className="text-xs text-slate-400 mb-1 block">Liquefaction depth (m, optional)</label>
+          <input className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100"
+            value={liquefactionDepth} onChange={(e) => setLiquefactionDepth(e.target.value)}
+            placeholder="from Liquefaction Analysis, if run" />
+          <p className="text-[11px] text-slate-500 mt-1">Whichever of scour/liquefaction depth is deeper governs the ineffective ground level.</p>
+        </div>
+        <div>
+          <label className="text-xs text-slate-400 mb-1 block">Critical depth multiplier override (xD, optional)</label>
+          <input className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100"
+            value={criticalDepthFactor} onChange={(e) => setCriticalDepthFactor(e.target.value)}
+            placeholder={code === 'IS_2911' ? 'default 15' : 'default 20'} />
         </div>
         <div>
           <label className="text-xs text-slate-400 mb-1 block">Factor of Safety</label>

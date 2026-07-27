@@ -162,6 +162,8 @@ def run_pile_capacity(
     cutoff_depth_m: float = 0.0,
     code: str = "IS_2911",
     scour_depth_m: float | None = None,
+    liquefaction_depth_m: float | None = None,
+    critical_depth_factor: float | None = None,
     fos_compression: float = 2.5,
     fos_uplift: float = 2.5,
     overrides: dict | None = None,
@@ -176,24 +178,40 @@ def run_pile_capacity(
     overrides = overrides or {}
     layers = sorted(layers, key=lambda l: l.from_m)
     toe_depth = cutoff_depth_m + pile_length_m
-    critical_depth_factor = 15.0 if code == "IS_2911" else 20.0
-    critical_depth = critical_depth_factor * diameter_m + (scour_depth_m or 0.0)
+
+    # Scour and liquefaction both mean "don't rely on this depth of soil" --
+    # whichever goes deeper is the effective ground level the critical-depth
+    # and skin-friction-skip provisions measure from (same treatment IRC:78 /
+    # IITK-GSDMA seismic guidance gives combined scour+liquefaction depth).
+    ineffective_depth_m = max(scour_depth_m or 0.0, liquefaction_depth_m or 0.0) or None
+
+    default_critical_depth_factor = 15.0 if code == "IS_2911" else 20.0
+    critical_depth_factor = critical_depth_factor if critical_depth_factor is not None else default_critical_depth_factor
+    critical_depth = critical_depth_factor * diameter_m + (ineffective_depth_m or 0.0)
     K = 1.0 if code == "IS_2911" else 1.5  # earth-pressure coefficient, per reference workbook
 
     estimated_fields = []  # transparency log: every value NOT a direct layer reading
     warnings = [
         f"Critical depth restriction: overburden stress for skin friction/end bearing is capped "
-        f"beyond {critical_depth_factor}D below scour level ({critical_depth:.2f} m here), per "
-        f"{'IS 2911' if code == 'IS_2911' else 'IRC:78'}'s critical-depth provision.",
+        f"beyond {critical_depth_factor}D below the ineffective ground level ({critical_depth:.2f} m here), per "
+        f"{'IS 2911' if code == 'IS_2911' else 'IRC:78'}'s critical-depth provision"
+        + (f" (using an overridden {critical_depth_factor}D instead of the code default {default_critical_depth_factor}D)."
+           if critical_depth_factor != default_critical_depth_factor else "."),
         "Phase 1 covers bored cast-in-situ piles only (compression + uplift). Driven piles, "
         "rock-socketed resistance, pile groups, and negative skin friction are not yet implemented.",
         "Nq/Ny use the same Vesic-type formula as this app's IS:6403 shear calculator (for internal "
         "consistency) rather than a code chart -- the reference workbook's own Nq table looked "
         "inconsistent on inspection and wasn't copied blindly.",
     ]
+    if scour_depth_m is not None and liquefaction_depth_m is not None:
+        deeper = "liquefaction" if liquefaction_depth_m > scour_depth_m else "scour"
+        warnings.append(
+            f"Both scour depth ({scour_depth_m}m) and liquefaction depth ({liquefaction_depth_m}m) were given -- "
+            f"the deeper one ({deeper}, {ineffective_depth_m:.2f}m) governs the ineffective ground level used below."
+        )
 
     # ---------- Skin friction: walk the borehole in clean sub-segments ----------
-    boundaries = _segment_boundaries(toe_depth, water_table_depth_m, critical_depth, scour_depth_m, layers)
+    boundaries = _segment_boundaries(toe_depth, water_table_depth_m, critical_depth, ineffective_depth_m, layers)
     perimeter = math.pi * diameter_m
     running_overburden = 0.0     # true cumulative effective overburden (t/m2)
     capped_overburden = None     # value frozen once critical depth is passed
@@ -234,7 +252,7 @@ def run_pile_capacity(
             sigma_start = sigma_end = capped_overburden
         sigma_avg = (sigma_start + sigma_end) / 2
 
-        if scour_depth_m is not None and bottom <= scour_depth_m:
+        if ineffective_depth_m is not None and bottom <= ineffective_depth_m:
             qs_seg = 0.0
             alpha = None
         else:
@@ -297,6 +315,10 @@ def run_pile_capacity(
         "diameter_m": diameter_m,
         "pile_length_m": pile_length_m,
         "cutoff_depth_m": cutoff_depth_m,
+        "scour_depth_m": scour_depth_m,
+        "liquefaction_depth_m": liquefaction_depth_m,
+        "ineffective_ground_level_m": ineffective_depth_m,
+        "critical_depth_factor_used": critical_depth_factor,
         "toe_depth_m": round(toe_depth, 2),
         "ultimate_skin_friction_t": round(total_qs, 2),
         "ultimate_end_bearing_t": round(Qp_ultimate, 2),

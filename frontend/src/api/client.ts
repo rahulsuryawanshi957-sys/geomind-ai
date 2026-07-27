@@ -113,6 +113,7 @@ export const api = {
     borehole_id: string
     diameter_m: number; pile_length_m: number; cutoff_depth_m?: number
     code?: string; scour_depth_m?: number | null
+    liquefaction_depth_m?: number | null; critical_depth_factor?: number | null
     fos_compression?: number; fos_uplift?: number
     overrides?: Record<string, any>
   }) => request<any>('/api/calculators/pile', { method: 'POST', body: JSON.stringify(payload) }),
