@@ -141,85 +141,12 @@ def _call_chat(history: list[dict], latest_user_message: str, temperature: float
             raise HTTPException(status_code=502, detail=f"Gemini chat API error: {e}")
 
 
-def _call_chat_stream(history: list[dict], latest_user_message: str, temperature: float):
-    """
-    Same as _call_chat but yields text chunks as they arrive instead of
-    waiting for the complete response -- this is what lets the frontend show
-    text progressively instead of one long wait then a sudden full dump.
-    Retries (quota/overload) only apply BEFORE any chunk has been yielded;
-    once streaming has started, a failure is surfaced directly rather than
-    retried, since retrying would duplicate whatever text was already sent.
-    """
-    _require_api_key()
-
-    contents = []
-    for h in history[-6:]:
-        role = "model" if h["role"] == "assistant" else "user"
-        contents.append(types.Content(role=role, parts=[types.Part.from_text(text=h["content"])]))
-    contents.append(types.Content(role="user", parts=[types.Part.from_text(text=latest_user_message)]))
-
-    logger.info(f"Calling {settings.chat_model} (streaming) with {len(contents)} content turn(s)...")
-
-    for attempt in range(1, MAX_RETRIES + 1):
-        yielded_anything = False
-        try:
-            stream = _client.models.generate_content_stream(
-                model=settings.chat_model,
-                contents=contents,
-                config=types.GenerateContentConfig(
-                    system_instruction=SYSTEM_PROMPT,
-                    temperature=temperature,
-                ),
-            )
-            for piece in stream:
-                if piece.text:
-                    yielded_anything = True
-                    yield piece.text
-            logger.info("Chat stream completed.")
-            return
-        except Exception as e:
-            if yielded_anything:
-                logger.exception("Gemini chat stream failed mid-response (after some text was already sent).")
-                raise HTTPException(status_code=502, detail=f"Gemini chat API error mid-response: {e}")
-
-            msg = str(e)
-            is_quota = "RESOURCE_EXHAUSTED" in msg or "429" in msg
-            is_overloaded = "UNAVAILABLE" in msg or "503" in msg
-
-            if is_quota and attempt < MAX_RETRIES:
-                logger.warning(f"Gemini quota hit (attempt {attempt}/{MAX_RETRIES}), waiting {QUOTA_RETRY_DELAY_SECONDS}s before retrying...")
-                time.sleep(QUOTA_RETRY_DELAY_SECONDS)
-                continue
-            if is_overloaded and attempt < MAX_RETRIES:
-                logger.warning(f"Gemini chat overloaded (attempt {attempt}/{MAX_RETRIES}), retrying in {OVERLOAD_RETRY_DELAY_SECONDS}s...")
-                time.sleep(OVERLOAD_RETRY_DELAY_SECONDS)
-                continue
-
-            logger.exception("Gemini chat stream call failed.")
-            if "API key" in msg or "API_KEY" in msg or "401" in msg or "403" in msg or "PERMISSION_DENIED" in msg:
-                raise HTTPException(status_code=503, detail="Gemini rejected the configured API key. Double-check GEMINI_API_KEY on Render is correct and active (https://aistudio.google.com/apikey).")
-            if is_quota:
-                raise HTTPException(status_code=429, detail="Gemini's free-tier quota is exhausted for now (this is Google's limit, not a bug here). If this keeps happening, it may be the daily quota -- wait a while and try again.")
-            if is_overloaded:
-                raise HTTPException(status_code=503, detail="Gemini's servers are temporarily overloaded (this is on Google's side, not a bug here) even after retrying. Please try again shortly.")
-            raise HTTPException(status_code=502, detail=f"Gemini chat API error: {e}")
-
-
 def answer_question(question: str, chunks: list[dict], engineering_mode: bool = True, history: list[dict] | None = None) -> str:
     context_block = build_context_block(chunks)
     mode_note = "Engineering Mode is ON." if engineering_mode else "Engineering Mode is OFF (still never fabricate clauses/equations)."
 
     user_message = f"{mode_note}\n\nRETRIEVED CONTEXT:\n{context_block}\n\nUSER QUESTION:\n{question}"
     return _call_chat(history or [], user_message, temperature=0.1)
-
-
-def answer_question_stream(question: str, chunks: list[dict], engineering_mode: bool = True, history: list[dict] | None = None):
-    """Streaming twin of answer_question -- same prompt construction, yields text chunks."""
-    context_block = build_context_block(chunks)
-    mode_note = "Engineering Mode is ON." if engineering_mode else "Engineering Mode is OFF (still never fabricate clauses/equations)."
-
-    user_message = f"{mode_note}\n\nRETRIEVED CONTEXT:\n{context_block}\n\nUSER QUESTION:\n{question}"
-    yield from _call_chat_stream(history or [], user_message, temperature=0.1)
 
 
 def generate_report_section(section_type: str, project_inputs: dict, chunks: list[dict]) -> str:

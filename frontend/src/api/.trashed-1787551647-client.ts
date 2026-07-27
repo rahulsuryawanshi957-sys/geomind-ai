@@ -12,44 +12,6 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return res.json()
 }
 
-export type ChatStreamEvent =
-  | { type: 'text'; content: string }
-  | { type: 'done'; conversation_id: string; citations: any[]; found_in_documents: boolean }
-  | { type: 'error'; message: string }
-
-// Reads a Server-Sent Events response chunk by chunk and yields each parsed
-// event as soon as it arrives -- this is what lets the chat UI show text
-// progressively instead of waiting for the whole answer.
-async function* streamRequest(path: string, options: RequestInit = {}): AsyncGenerator<ChatStreamEvent> {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  })
-  if (!res.ok || !res.body) {
-    const body = res.body ? await res.text() : ''
-    throw new Error(`API error ${res.status}: ${body}`)
-  }
-  const reader = res.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    const events = buffer.split('\n\n')
-    buffer = events.pop() || ''
-    for (const raw of events) {
-      const line = raw.trim()
-      if (!line.startsWith('data: ')) continue
-      try {
-        yield JSON.parse(line.slice(6)) as ChatStreamEvent
-      } catch {
-        // Malformed SSE line -- skip rather than crash the whole stream
-      }
-    }
-  }
-}
-
 export const api = {
   chat: (payload: {
     conversation_id?: string | null
@@ -57,13 +19,6 @@ export const api = {
     engineering_mode: boolean
     category_filter?: string | null
   }) => request<any>('/api/chat', { method: 'POST', body: JSON.stringify(payload) }),
-
-  chatStream: (payload: {
-    conversation_id?: string | null
-    question: string
-    engineering_mode: boolean
-    category_filter?: string | null
-  }) => streamRequest('/api/chat', { method: 'POST', body: JSON.stringify(payload) }),
 
   listDocuments: (category?: string) =>
     request<any[]>(`/api/documents${category ? `?category=${encodeURIComponent(category)}` : ''}`),
@@ -100,14 +55,6 @@ export const api = {
     consolidation_type?: string; rigidity_factor?: number
     overrides?: Record<string, number | string>
   }) => request<any>('/api/calculators/batch', { method: 'POST', body: JSON.stringify(payload) }),
-
-  runLiquefaction: (payload: {
-    borehole_id: string
-    earthquake_magnitude_mw: number
-    earthquake_zone?: string | null
-    pga_g?: number | null
-    overrides?: Record<string, any>
-  }) => request<any>('/api/calculators/liquefaction', { method: 'POST', body: JSON.stringify(payload) }),
 
   reportSectionTypes: () => request<string[]>('/api/reports/section-types'),
 

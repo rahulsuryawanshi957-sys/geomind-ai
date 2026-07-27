@@ -839,6 +839,52 @@ scoped).
     dependency is added: check what ALREADY-pinned packages require of the SAME
     library before hard-pinning a specific version, especially anything `google-genai`
     touches (it's fairly strict about its own httpx floor).
+29. **Feature added 26 Jul 2026, per Raahi's report "chat ka jawab aane mein bahut slow
+    hai" (chat response is very slow):** AI Chat now streams via Server-Sent Events
+    instead of waiting for the complete answer before showing anything. Investigation
+    first: `grep`ped for "stream" across the chat router and frontend and found zero
+    matches -- the whole request (embed question -> pgvector search -> full Gemini
+    generation -> DB write) was one blocking round trip, so even a normal total time
+    (which wasn't separately profiled -- no access to the live Render/Supabase instance
+    from this sandbox) FELT much slower than necessary, since nothing appeared on
+    screen until every step finished.
+
+    Backend: `_call_chat_stream()` / `answer_question_stream()` in `services/llm.py`
+    use the Gemini SDK's `generate_content_stream()` instead of `generate_content()`,
+    same retry-on-quota/overload logic as the non-streaming version but ONLY before any
+    chunk has been yielded (retrying after partial output would duplicate already-sent
+    text, so a mid-stream failure now surfaces directly as an error event instead).
+    `POST /api/chat` (routers/chat.py) now returns a `StreamingResponse` of
+    `text/event-stream` events (`{"type":"text","content":...}` per chunk, then one
+    `{"type":"done","conversation_id":...,"citations":[...]}` once Gemini finishes and
+    the DB write completes, or `{"type":"error","message":...}` on failure). The old
+    single-JSON-response behavior is preserved at `POST /api/chat/sync` in case
+    anything else needs a plain request/response later.
+
+    Frontend: `api.chatStream()` (client.ts) is an async generator that reads the
+    response body's `ReadableStream`, splits on SSE's blank-line delimiter, and yields
+    parsed events -- `Chat.tsx`'s `send()` now does `for await (const event of
+    api.chatStream(...))` and appends each `text` event's content to the last message
+    as it arrives, so the answer visibly builds up token-by-token instead of appearing
+    all at once. The "Retrieving from your documents..." skeleton now only shows before
+    the first token arrives (`loading && !lastMessage.content`), not for the whole
+    request -- it would otherwise show redundantly alongside text that's already
+    streaming in.
+
+    **Not yet confirmed against the live deployment** (no network access from this
+    sandbox to actually watch a real stream arrive) -- test on first real use, and if
+    text doesn't appear progressively (e.g. Render or a proxy in front of it buffers the
+    whole response before forwarding it, which some hosting setups do for streaming
+    responses), that's the next thing to check.
+
+    **Separately, still worth checking if chat continues to feel slow even with
+    streaming:** how many chunks/documents are indexed matters, because
+    `rag/pgvector_store.py` (per entry #27) deliberately does an exact
+    `ORDER BY embedding <=> query LIMIT k` search with no ANN index, on the assumption
+    that scale would stay small. If retrieval itself (before any text can start
+    streaming at all) is the slow part rather than generation, streaming won't fix
+    that -- an ANN index (ivfflat/hnsw) would be the next thing to add, but wasn't
+    added now since it wasn't confirmed to be the actual bottleneck.
 
 ---
 

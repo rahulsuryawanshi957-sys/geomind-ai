@@ -58,45 +58,20 @@ export default function Chat() {
 
   async function send(question: string) {
     if (!question.trim() || loading) return
-    setMessages((m) => [...m, { role: 'user', content: question }, { role: 'assistant', content: '' }])
+    setMessages((m) => [...m, { role: 'user', content: question }])
     setInput('')
     setLoading(true)
     try {
-      let accumulated = ''
-      for await (const event of api.chatStream({
+      const res = await api.chat({
         conversation_id: conversationId,
         question: question + ANSWER_FORMAT_HINT,
         engineering_mode: engineeringMode,
-      })) {
-        if (event.type === 'text') {
-          accumulated += event.content
-          setMessages((m) => {
-            const next = [...m]
-            next[next.length - 1] = { ...next[next.length - 1], content: accumulated }
-            return next
-          })
-        } else if (event.type === 'done') {
-          setConversationId(event.conversation_id)
-          setLastCitations(event.citations || [])
-          setMessages((m) => {
-            const next = [...m]
-            next[next.length - 1] = { ...next[next.length - 1], content: accumulated, citations: event.citations, feedback: null }
-            return next
-          })
-        } else if (event.type === 'error') {
-          setMessages((m) => {
-            const next = [...m]
-            next[next.length - 1] = { ...next[next.length - 1], content: accumulated || `Error: ${event.message}` }
-            return next
-          })
-        }
-      }
-    } catch (e: any) {
-      setMessages((m) => {
-        const next = [...m]
-        next[next.length - 1] = { role: 'assistant', content: `Couldn't reach the backend: ${e.message}` }
-        return next
       })
+      setConversationId(res.conversation_id)
+      setMessages((m) => [...m, { role: 'assistant', content: res.answer, citations: res.citations, feedback: null }])
+      setLastCitations(res.citations || [])
+    } catch (e: any) {
+      setMessages((m) => [...m, { role: 'assistant', content: `Couldn't reach the backend: ${e.message}` }])
     } finally {
       setLoading(false)
     }
@@ -231,7 +206,7 @@ export default function Chat() {
             ))}
           </AnimatePresence>
 
-          {loading && !messages[messages.length - 1]?.content && (
+          {loading && (
             <div className="max-w-2xl glass px-4 py-4 space-y-2">
               <div className="gm-skeleton h-3 w-3/4" />
               <div className="gm-skeleton h-3 w-1/2" />
