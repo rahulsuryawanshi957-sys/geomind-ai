@@ -1026,6 +1026,28 @@ scoped).
       the same formulas, just a re-issued/amended edition) before touching the `code` label
       or any formula.
 
+33. **Pile Capacity: full per-segment working exposed, 27 Jul 2026, per Raahi's "ek bhi step
+    nhi chhutna chahiye" (not a single step should be missing) request.** Both
+    `run_pile_capacity()`'s `layer_report` (skin friction) and `end_bearing_candidates`
+    entries now carry every intermediate value, not just the final per-segment number:
+    - Skin friction rows: thickness, founding-layer classification, above/below water table,
+      N used (IRC:78 only), bulk vs effective unit weight, overburden stress at the
+      segment's start/end/average, whether the critical-depth cap was already active for
+      this segment, K, tan(phi), alpha, the cohesion term and friction term computed
+      SEPARATELY (not just their sum), the segment's own Qs, and a running cumulative Qs
+      total. Segments zeroed out by scour/liquefaction are shown greyed out with "0
+      (scour/liq.)" rather than just a bare 0, so it's visually obvious why.
+    - End-bearing candidate rows (toe-2D/toe/toe+2D): effective unit weight, toe overburden
+      stress, pile base area Ap, and the three end-bearing terms (c.Nc, sigma'v.Nq,
+      0.5.gamma.D.Ny) computed separately, not just their sum.
+    - Frontend (`PileCapacity.tsx`): both tables widened to a fixed min-width with
+      horizontal scroll (mobile-friendly) to fit every new column rather than cramming or
+      dropping any.
+    No engineering values changed here -- this is purely exposing math that was already
+    being computed internally, per the same "engineer must verify every step without
+    reading code" principle already applied to the SBC settlement engine (entry #22) and
+    liquefaction (entry #22/23).
+
 ---
 
 ## How to give Raahi an update (workflow reminder for whoever's helping)

@@ -177,45 +177,102 @@ export default function PileCapacity() {
             </div>
           </div>
 
-          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-            <div className="text-sm font-medium text-slate-200 mb-2">Layer-wise skin friction</div>
-            <table className="w-full text-xs text-slate-300">
+          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 overflow-x-auto">
+            <div className="text-sm font-medium text-slate-200 mb-2">Layer-wise skin friction -- full working, every segment</div>
+            <table className="text-xs text-slate-300 min-w-[1400px]">
               <thead className="text-slate-500">
-                <tr><th className="text-left py-1">Depth (m)</th><th>c (t/m²)</th><th>φ (°)</th><th>α</th><th>σ'v avg</th><th>Skin friction (t)</th></tr>
+                <tr>
+                  <th className="text-left py-1 pr-3">Depth (m)</th>
+                  <th className="pr-3">Thickness</th>
+                  <th className="pr-3">Soil</th>
+                  <th className="pr-3">Below WT?</th>
+                  <th className="pr-3">c (t/m²)</th>
+                  <th className="pr-3">φ (°)</th>
+                  <th className="pr-3">N used</th>
+                  <th className="pr-3">γ bulk</th>
+                  <th className="pr-3">γ eff</th>
+                  <th className="pr-3">σ'v start</th>
+                  <th className="pr-3">σ'v end</th>
+                  <th className="pr-3">σ'v avg</th>
+                  <th className="pr-3">Capped?</th>
+                  <th className="pr-3">K</th>
+                  <th className="pr-3">tanφ</th>
+                  <th className="pr-3">α</th>
+                  <th className="pr-3">Cohesion term (t)</th>
+                  <th className="pr-3">Friction term (t)</th>
+                  <th className="pr-3">Segment Qs (t)</th>
+                  <th>Running Qs (t)</th>
+                </tr>
               </thead>
               <tbody>
                 {result.layer_report.map((l: any, i: number) => (
-                  <tr key={i} className="border-t border-slate-800">
-                    <td className="py-1">{l.from_m}-{l.to_m}</td>
-                    <td className="text-center">{l.cohesion_t_m2}</td>
-                    <td className="text-center">{l.phi_deg}</td>
-                    <td className="text-center">{l.alpha ?? '-'}</td>
-                    <td className="text-center">{l.sigma_v_avg_t_m2}</td>
-                    <td className="text-center">{l.skin_friction_t}</td>
+                  <tr key={i} className={`border-t border-slate-800 ${l.ignored_scour_or_liquefaction ? 'text-slate-600 italic' : ''}`}>
+                    <td className="py-1 pr-3 whitespace-nowrap">{l.from_m}-{l.to_m}</td>
+                    <td className="text-center pr-3">{l.thickness_m}</td>
+                    <td className="text-center pr-3 whitespace-nowrap">{l.founding_layer_classification}</td>
+                    <td className="text-center pr-3">{l.below_water_table ? 'Yes' : 'No'}</td>
+                    <td className="text-center pr-3">{l.cohesion_t_m2}</td>
+                    <td className="text-center pr-3">{l.phi_deg}</td>
+                    <td className="text-center pr-3">{l.n_value_used ?? '-'}</td>
+                    <td className="text-center pr-3">{l.gamma_bulk_t_m3}</td>
+                    <td className="text-center pr-3">{l.gamma_eff_t_m3}</td>
+                    <td className="text-center pr-3">{l.sigma_v_start_t_m2}</td>
+                    <td className="text-center pr-3">{l.sigma_v_end_t_m2}</td>
+                    <td className="text-center pr-3">{l.sigma_v_avg_t_m2}</td>
+                    <td className="text-center pr-3">{l.overburden_capped_here ? 'Yes' : 'No'}</td>
+                    <td className="text-center pr-3">{l.K_used}</td>
+                    <td className="text-center pr-3">{l.tan_phi}</td>
+                    <td className="text-center pr-3">{l.alpha ?? '-'}</td>
+                    <td className="text-center pr-3">{l.cohesion_term_t}</td>
+                    <td className="text-center pr-3">{l.friction_term_t}</td>
+                    <td className="text-center pr-3 font-medium">{l.ignored_scour_or_liquefaction ? '0 (scour/liq.)' : l.skin_friction_t}</td>
+                    <td className="text-center">{l.running_skin_friction_t}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
 
-          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 overflow-x-auto">
             <div className="text-sm font-medium text-slate-200 mb-2">
-              End bearing candidates (governing: {result.governing_end_bearing_zone})
+              End bearing candidates -- full working (governing: {result.governing_end_bearing_zone})
             </div>
-            <table className="w-full text-xs text-slate-300">
+            <table className="text-xs text-slate-300 min-w-[900px]">
               <thead className="text-slate-500">
-                <tr><th className="text-left py-1">Zone</th><th>Depth (m)</th><th>c</th><th>φ</th><th>Nq</th><th>Ny</th><th>Qp (t)</th></tr>
+                <tr>
+                  <th className="text-left py-1 pr-3">Zone</th>
+                  <th className="pr-3">Depth (m)</th>
+                  <th className="pr-3">c (t/m²)</th>
+                  <th className="pr-3">φ (°)</th>
+                  <th className="pr-3">γ eff</th>
+                  <th className="pr-3">σ'v toe</th>
+                  <th className="pr-3">Ap (m²)</th>
+                  <th className="pr-3">Nc</th>
+                  <th className="pr-3">Nq</th>
+                  <th className="pr-3">Ny</th>
+                  <th className="pr-3">c·Nc term (t)</th>
+                  <th className="pr-3">σ'v·Nq term (t)</th>
+                  <th className="pr-3">γ·D·Ny term (t)</th>
+                  <th>Qp (t)</th>
+                </tr>
               </thead>
               <tbody>
                 {result.end_bearing_candidates.map((c: any, i: number) => (
                   <tr key={i} className={`border-t border-slate-800 ${c.at === result.governing_end_bearing_zone ? 'text-violet-300' : ''}`}>
-                    <td className="py-1">{c.at}</td>
-                    <td className="text-center">{c.depth_m}</td>
-                    <td className="text-center">{c.cohesion_t_m2}</td>
-                    <td className="text-center">{c.phi_deg}</td>
-                    <td className="text-center">{c.Nq}</td>
-                    <td className="text-center">{c.Ny}</td>
-                    <td className="text-center">{c.end_bearing_t}</td>
+                    <td className="py-1 pr-3 whitespace-nowrap">{c.at}</td>
+                    <td className="text-center pr-3">{c.depth_m}</td>
+                    <td className="text-center pr-3">{c.cohesion_t_m2}</td>
+                    <td className="text-center pr-3">{c.phi_deg}</td>
+                    <td className="text-center pr-3">{c.gamma_eff_t_m3}</td>
+                    <td className="text-center pr-3">{c.sigma_v_toe_t_m2}</td>
+                    <td className="text-center pr-3">{c.Ap_m2}</td>
+                    <td className="text-center pr-3">{c.Nc}</td>
+                    <td className="text-center pr-3">{c.Nq}</td>
+                    <td className="text-center pr-3">{c.Ny}</td>
+                    <td className="text-center pr-3">{c.cohesion_term_t}</td>
+                    <td className="text-center pr-3">{c.surcharge_term_t}</td>
+                    <td className="text-center pr-3">{c.weight_term_t}</td>
+                    <td className="text-center font-medium">{c.end_bearing_t}</td>
                   </tr>
                 ))}
               </tbody>

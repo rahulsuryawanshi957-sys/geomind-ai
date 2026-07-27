@@ -241,7 +241,9 @@ def run_pile_capacity(
 
         gamma_eff = gamma_bulk - 1.0 if water_table_depth_m is not None and top >= water_table_depth_m else gamma_bulk
         gamma_eff = max(gamma_eff, 0.1)
+        below_water_table = water_table_depth_m is not None and top >= water_table_depth_m
 
+        was_capped = capped_overburden is not None
         if capped_overburden is None:
             sigma_start = running_overburden
             running_overburden += gamma_eff * thickness
@@ -252,21 +254,38 @@ def run_pile_capacity(
             sigma_start = sigma_end = capped_overburden
         sigma_avg = (sigma_start + sigma_end) / 2
 
-        if ineffective_depth_m is not None and bottom <= ineffective_depth_m:
+        tan_phi = math.tan(math.radians(phi))
+        ignored_for_scour_liq = ineffective_depth_m is not None and bottom <= ineffective_depth_m
+        if ignored_for_scour_liq:
             qs_seg = 0.0
             alpha = None
+            cohesion_term_t = 0.0
+            friction_term_t = 0.0
         else:
             alpha = _alpha_is2911(cohesion) if code == "IS_2911" else _alpha_irc78(n_value)
-            qs_seg = (alpha * cohesion + K * sigma_avg * math.tan(math.radians(phi))) * perimeter * thickness
-            qs_seg = max(qs_seg, 0.0)
+            cohesion_term_t = alpha * cohesion * perimeter * thickness
+            friction_term_t = K * sigma_avg * tan_phi * perimeter * thickness
+            qs_seg = max(cohesion_term_t + friction_term_t, 0.0)
             total_qs += qs_seg
 
         layer_report.append({
             "from_m": round(top, 2), "to_m": round(bottom, 2),
+            "thickness_m": round(thickness, 2),
+            "founding_layer_classification": getattr(founding, "classification", None) or "n/a",
+            "below_water_table": below_water_table,
             "cohesion_t_m2": round(cohesion, 3), "phi_deg": round(phi, 2),
-            "alpha": round(alpha, 3) if alpha is not None else None,
+            "n_value_used": round(n_value, 1) if (code == "IRC_78" and n_value is not None) else None,
+            "gamma_bulk_t_m3": round(gamma_bulk, 3), "gamma_eff_t_m3": round(gamma_eff, 3),
+            "sigma_v_start_t_m2": round(sigma_start, 3), "sigma_v_end_t_m2": round(sigma_end, 3),
             "sigma_v_avg_t_m2": round(sigma_avg, 3),
+            "overburden_capped_here": was_capped,
+            "K_used": K, "tan_phi": round(tan_phi, 4),
+            "alpha": round(alpha, 3) if alpha is not None else None,
+            "cohesion_term_t": round(cohesion_term_t, 2),
+            "friction_term_t": round(friction_term_t, 2),
             "skin_friction_t": round(qs_seg, 2),
+            "running_skin_friction_t": round(total_qs, 2),
+            "ignored_scour_or_liquefaction": ignored_for_scour_liq,
         })
 
     if capped_overburden is None:
@@ -287,9 +306,17 @@ def run_pile_capacity(
         gamma_eff = gamma_bulk - 1.0 if water_table_depth_m is not None and d >= water_table_depth_m else gamma_bulk
         gamma_eff = max(gamma_eff, 0.1)
         Nc, Nq, Ny = _nc_nq_ny(phi)
-        Qp = Ap * (c * Nc + sigma_v_toe * Nq + 0.5 * gamma_eff * diameter_m * Ny)
+        cohesion_term = Ap * c * Nc
+        surcharge_term = Ap * sigma_v_toe * Nq
+        weight_term = Ap * 0.5 * gamma_eff * diameter_m * Ny
+        Qp = cohesion_term + surcharge_term + weight_term
         candidates.append({"at": label, "depth_m": round(d, 2), "cohesion_t_m2": round(c, 3),
-                            "phi_deg": round(phi, 2), "Nc": Nc, "Nq": round(Nq, 2), "Ny": round(Ny, 2),
+                            "phi_deg": round(phi, 2), "gamma_eff_t_m3": round(gamma_eff, 3),
+                            "sigma_v_toe_t_m2": round(sigma_v_toe, 3), "Ap_m2": round(Ap, 4),
+                            "Nc": Nc, "Nq": round(Nq, 2), "Ny": round(Ny, 2),
+                            "cohesion_term_t": round(cohesion_term, 2),
+                            "surcharge_term_t": round(surcharge_term, 2),
+                            "weight_term_t": round(weight_term, 2),
                             "end_bearing_t": round(Qp, 2)})
         for field, note in (("cohesion_t_m2", c_note), ("friction_angle_deg", phi_note), ("bulk_density_t_m3", g_note)):
             if "this layer" not in note:
