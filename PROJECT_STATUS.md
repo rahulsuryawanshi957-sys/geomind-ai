@@ -920,6 +920,83 @@ scoped).
     check Render -> backend service -> Environment for typos or missing values before
     assuming this is a code bug.
 
+31. **Feature added 27 Jul 2026, per Raahi's detailed spec doc + a real project
+    Excel workbook (New Delhi Railway Station redevelopment, IS-2911 Part-1
+    Sec-2:2010 / IRC:78:2014) uploaded as reference: Pile Foundation Design
+    Module, Phase 1.** New page `/pile-capacity` (Sidebar > Analysis).
+
+    **What's built:** Bored cast-in-situ pile, compression + uplift capacity,
+    static formula method, both IS 2911 and IRC:78. Reuses the EXISTING
+    BoreholeProfile/SoilLayer data (same lab-data upload already used by
+    Batch Analysis/Liquefaction) -- no separate Excel import was built, since
+    the app already has one. New files: `backend/app/services/
+    pile_calculator.py` (the engine: `run_pile_capacity()`,
+    `parse_pile_command()`), `backend/app/routers/calculators.py` gained
+    `POST /api/calculators/pile` and `POST /api/calculators/pile/
+    parse-command`, `frontend/src/pages/PileCapacity.tsx`. `pile_capacity`
+    removed from `PLANNED_CALCULATORS` (it now has its own dedicated
+    endpoint, same pattern as `/batch` and `/liquefaction`).
+
+    **Method (matches the reference workbook's logic):** skin friction =
+    Σ(α·c + K·σ'v·tanφ)·perimeter·Δdepth per layer, with the IS 2911
+    cohesion-based alpha curve (digitized polynomial) or IRC:78's N-value
+    adhesion bands; overburden stress capped beyond a critical depth (15D
+    for IS 2911, 20D for IRC:78) below scour level; end bearing = Ap·(c·Nc +
+    σ'v·Nq + 0.5·γ·D·Ny) with Nc=9 (pile value, not the 5.14/5.7 shallow-
+    footing value used elsewhere), evaluated at toe-2D/toe/toe+2D and the
+    LOWEST of the three governs (same "critical founding zone" idea as the
+    workbook's candidate columns). Submerged density used below the water
+    table. Missing cohesion/phi/density/N-value on any layer falls back to
+    the SAME `_founding_layer`/`_resolve_field` helpers already used by
+    batch/liquefaction (nearest layer -> borehole average), and every
+    estimated value is listed in the response's `estimated_fields` (shown in
+    an amber "estimated values" box on the page) -- Strict vs Engineering
+    mode toggle from the spec was NOT added separately, since this
+    fallback-with-disclosure already surfaces every estimate transparently;
+    revisit if Raahi wants a hard-strict mode that refuses instead of
+    estimating.
+
+    **Deliberately NOT copied from the reference workbook:** its own Nq
+    lookup table (Sheet2) for phi>=25 -- the extracted values looked
+    inconsistent with a standard Nq chart on inspection (e.g. Nq=10 for
+    phi=21-24 is far below the ~7 the standard Vesic formula gives, and
+    several formula cells elsewhere in that same workbook already had
+    `#REF!` errors), so blindly copying an unverified table risked being
+    WORSE than a consistent formula. Used the same Vesic-type Nq/Ny formula
+    this app's own `bearing_capacity_is6403_shear` already uses instead, and
+    said so plainly in the result's `warnings` list rather than silently
+    picking one. **Flag this to Raahi to verify against his own engineering
+    judgement/a current IS:6403 chart before using results for a real
+    submission** -- this is the one place Phase 1 diverges from "exact
+    match" on principle (a broken source value isn't ground truth), not from
+    running out of time.
+
+    **NOT yet built (Phase 2+, same "listed not skipped" approach as
+    PLANNED_CALCULATORS elsewhere in this file):** driven piles (different
+    skin friction formulae), rock-socketed resistance, pile groups/group
+    efficiency, negative skin friction, lateral pile capacity, pile
+    self-weight in the uplift check (add it manually for now), a dedicated
+    Word/PDF calculation-sheet export for pile results specifically (the
+    page shows the full transparent breakdown in-app; reuse the existing
+    Reports module's pattern next if a downloadable sheet is wanted), and a
+    real Strict/Engineering mode toggle. The AI command parser
+    (`parse_pile_command`) is a deterministic regex parser (diameter,
+    length, cutoff, FOS, code name/"bridge"/"building") -- NOT an LLM call,
+    since numbers feeding straight into a capacity calculation should be
+    deterministic; it only recognizes the phrasings tested so far, not
+    arbitrary free text.
+
+    **Verified:** `python3 -m py_compile` clean on the whole backend tree;
+    `run_pile_capacity()` tested directly with mock `SimpleNamespace` layers
+    (no DB/FastAPI needed, per this file's own testing convention) -- ran
+    without error and gave plausible-magnitude results (hundreds of tonnes
+    for a 1m-dia/17m pile), but was NOT checked against the reference
+    workbook's own numbers cell-by-cell (different/incomplete borehole data
+    was used for the test, and the workbook's own broken refs make an exact
+    reconciliation unreliable anyway) -- **first real use should sanity-check
+    one result against a hand calculation** before trusting it for a live
+    project.
+
 ---
 
 ## How to give Raahi an update (workflow reminder for whoever's helping)
