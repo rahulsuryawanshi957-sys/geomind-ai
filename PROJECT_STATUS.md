@@ -1048,6 +1048,28 @@ scoped).
     reading code" principle already applied to the SBC settlement engine (entry #22) and
     liquefaction (entry #22/23).
 
+34. **Pile Capacity: water table override + manual soil property overrides added to the
+    frontend, 27 Jul 2026, per Raahi's request.** Backend already supported both (the
+    `overrides` dict mechanism was already there for the batch/settlement/liquefaction
+    engines -- entry #31's pile engine reused `_resolve_field`/`_founding_layer` from
+    `calculators.py`, which already honors it), but the Pile Capacity PAGE had no UI for
+    either -- Raahi could not actually reach them without editing the borehole record
+    itself. Fixed:
+    - `PileCapacityRequest.water_table_depth_m` (new, optional) -- overrides the
+      borehole's own recorded water table for this calculation only, same "manual override
+      never touches the saved borehole" principle as everywhere else in this app. Raahi's
+      stated use case: solving fully submerged (water table at 0m) for a monsoon/flood
+      check, without editing the real borehole record.
+    - Frontend: three new "Manual soil property overrides" fields -- Bulk density (t/m3),
+      Cohesion c (t/m2), Friction angle phi (deg) -- feeding the existing `overrides` dict
+      (`bulk_density_t_m3` / `cohesion_t_m2` / `friction_angle_deg`), applied borehole-wide,
+      always winning over recorded/estimated values (same convention as every other
+      calculator's overrides).
+    **RESOLVED 27 Jul 2026:** Raahi confirmed same formulas, just relabel the year -- done
+    (the `<option>` label in `PileCapacity.tsx`, the docstring, and the `"code"` string in
+    the result dict all now say "IRC:78:2024"; zero formula changes, exactly as scoped
+    above).
+
 ---
 
 ## How to give Raahi an update (workflow reminder for whoever's helping)

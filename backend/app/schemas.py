@@ -109,6 +109,7 @@ class PileCapacityRequest(BaseModel):
     pile_length_m: float
     cutoff_depth_m: float = 0.0
     code: str = "IS_2911"  # "IS_2911" or "IRC_78"
+    water_table_depth_m: float | None = None  # override -- blank = use the borehole's own recorded value
     scour_depth_m: float | None = None
     liquefaction_depth_m: float | None = None  # depth to which soil is treated as liquefied/ineffective for skin friction (max of this and scour_depth_m governs, same as a deeper scour level)
     critical_depth_factor: float | None = None  # override for the code's default critical-depth multiplier (15D for IS 2911, 20D for IRC:78) -- xD below the ineffective (scour/liquefaction) level

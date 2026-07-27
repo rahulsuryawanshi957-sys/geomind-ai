@@ -134,7 +134,7 @@ def run_pile(req: PileCapacityRequest, db: Session = Depends(get_db)):
     try:
         result = run_pile_capacity(
             layers=list(profile.layers),
-            water_table_depth_m=profile.water_table_depth_m,
+            water_table_depth_m=req.water_table_depth_m if req.water_table_depth_m is not None else profile.water_table_depth_m,
             diameter_m=req.diameter_m,
             pile_length_m=req.pile_length_m,
             cutoff_depth_m=req.cutoff_depth_m,

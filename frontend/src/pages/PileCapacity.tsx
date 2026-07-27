@@ -12,6 +12,10 @@ export default function PileCapacity() {
   const [scourDepth, setScourDepth] = useState('')
   const [liquefactionDepth, setLiquefactionDepth] = useState('')
   const [criticalDepthFactor, setCriticalDepthFactor] = useState('')
+  const [waterTableOverride, setWaterTableOverride] = useState('')
+  const [densityOverride, setDensityOverride] = useState('')
+  const [cohesionOverride, setCohesionOverride] = useState('')
+  const [phiOverride, setPhiOverride] = useState('')
   const [fos, setFos] = useState('2.5')
   const [command, setCommand] = useState('')
   const [parsing, setParsing] = useState(false)
@@ -47,17 +51,24 @@ export default function PileCapacity() {
 
     setLoading(true)
     try {
+      const overrides: Record<string, number> = {}
+      if (densityOverride) overrides.bulk_density_t_m3 = parseFloat(densityOverride)
+      if (cohesionOverride) overrides.cohesion_t_m2 = parseFloat(cohesionOverride)
+      if (phiOverride) overrides.friction_angle_deg = parseFloat(phiOverride)
+
       const r = await api.runPileCapacity({
         borehole_id: selectedBoreholeId,
         diameter_m: parseFloat(diameterMm) / 1000,
         pile_length_m: parseFloat(pileLength),
         cutoff_depth_m: cutoffDepth ? parseFloat(cutoffDepth) : 0,
         code,
+        water_table_depth_m: waterTableOverride ? parseFloat(waterTableOverride) : null,
         scour_depth_m: scourDepth ? parseFloat(scourDepth) : null,
         liquefaction_depth_m: liquefactionDepth ? parseFloat(liquefactionDepth) : null,
         critical_depth_factor: criticalDepthFactor ? parseFloat(criticalDepthFactor) : null,
         fos_compression: parseFloat(fos),
         fos_uplift: parseFloat(fos),
+        overrides,
       })
       setResult(r)
     } catch (e: any) {
@@ -107,7 +118,7 @@ export default function PileCapacity() {
           <select className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100"
             value={code} onChange={(e) => setCode(e.target.value)}>
             <option value="IS_2911">IS 2911 Part-1 Sec-2:2010 (Building)</option>
-            <option value="IRC_78">IRC:78:2014 (Bridge)</option>
+            <option value="IRC_78">IRC:78:2024 (Bridge)</option>
           </select>
         </div>
         <div>
@@ -124,6 +135,13 @@ export default function PileCapacity() {
           <label className="text-xs text-slate-400 mb-1 block">Cutoff depth (m)</label>
           <input className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100"
             value={cutoffDepth} onChange={(e) => setCutoffDepth(e.target.value)} />
+        </div>
+        <div>
+          <label className="text-xs text-slate-400 mb-1 block">Water table depth override (m, optional)</label>
+          <input className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100"
+            value={waterTableOverride} onChange={(e) => setWaterTableOverride(e.target.value)}
+            placeholder="blank = use borehole's own recorded value" />
+          <p className="text-[11px] text-slate-500 mt-1">Set to 0 to solve fully submerged (e.g. monsoon/flood check), or any other depth for sensitivity.</p>
         </div>
         <div>
           <label className="text-xs text-slate-400 mb-1 block">Scour depth (m, optional)</label>
@@ -143,6 +161,28 @@ export default function PileCapacity() {
             value={criticalDepthFactor} onChange={(e) => setCriticalDepthFactor(e.target.value)}
             placeholder={code === 'IS_2911' ? 'default 15' : 'default 20'} />
         </div>
+
+        <div className="pt-2 border-t border-slate-800">
+          <div className="text-xs uppercase tracking-wide text-slate-500 mb-2">Manual soil property overrides (optional) -- applies borehole-wide, always wins over recorded/estimated values</div>
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">Bulk density (t/m³)</label>
+              <input className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100"
+                value={densityOverride} onChange={(e) => setDensityOverride(e.target.value)} />
+            </div>
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">Cohesion c (t/m²)</label>
+              <input className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100"
+                value={cohesionOverride} onChange={(e) => setCohesionOverride(e.target.value)} />
+            </div>
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">Friction angle φ (deg)</label>
+              <input className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100"
+                value={phiOverride} onChange={(e) => setPhiOverride(e.target.value)} />
+            </div>
+          </div>
+        </div>
+
         <div>
           <label className="text-xs text-slate-400 mb-1 block">Factor of Safety</label>
           <input className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100"

@@ -2,7 +2,8 @@
 Pile Foundation Design Module -- Phase 1 (bored cast-in-situ pile, compression
 + uplift capacity, static formula method), per Raahi's spec doc + a real
 project reference workbook (New Delhi Railway Station redevelopment,
-IS-2911 Part-1 Sec-2:2010 / IRC:78:2014).
+IS-2911 Part-1 Sec-2:2010 / IRC:78:2024 -- same formulas as the 2014 edition, just
+a relabeled/re-issued year per Raahi's confirmation, 27 Jul 2026).
 
 Reuses the SAME BoreholeProfile/SoilLayer data and missing-data fallback
 helpers (_founding_layer, _resolve_field) already used by the batch SBC and
@@ -15,7 +16,7 @@ kg/cm2 -- converted where the formula is quoted (1 kg/cm2 = 10 t/m2).
 
 WHAT THIS COVERS (Phase 1):
 - Bored cast-in-situ pile, single pile, compression + uplift capacity
-- IS 2911 (Part 1 / Sec 2, 2010) and IRC:78 (2014) skin friction methods
+- IS 2911 (Part 1 / Sec 2, 2010) and IRC:78 (2024, same formulas as 2014) skin friction methods
 - Skin friction: alpha-cohesion method (IS 2911, cohesion-based curve) or
   N-value based adhesion bands (IRC 78), PLUS a frictional (K.sigma'v.tanphi)
   term on every layer (both codes carry both terms, per the reference sheet)
@@ -337,7 +338,7 @@ def run_pile_capacity(
     )
 
     return {
-        "code": "IS 2911 Part-1 Sec-2:2010" if code == "IS_2911" else "IRC:78:2014",
+        "code": "IS 2911 Part-1 Sec-2:2010" if code == "IS_2911" else "IRC:78:2024",
         "pile_type": "Bored Cast-in-Situ",
         "diameter_m": diameter_m,
         "pile_length_m": pile_length_m,
