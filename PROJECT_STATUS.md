@@ -885,6 +885,40 @@ scoped).
     streaming at all) is the slow part rather than generation, streaming won't fix
     that -- an ANN index (ivfflat/hnsw) would be the next thing to add, but wasn't
     added now since it wasn't confirmed to be the actual bottleneck.
+30. **BUG, fixed 27 Jul 2026, found by Raahi uploading IS-1893 Part 1 (a scanned PDF):
+    document showed "FAILED", 0/44 pages indexed even though total_pages=44 was read
+    correctly.** Root cause: `extract_pages()` used PyMuPDF's plain `page.get_text()`
+    only -- for a scanned/photocopied PDF with no embedded text layer (very common for
+    older IS codes, which are often distributed as scans), every page returns an empty
+    string, so every page produces zero chunks, so the whole document silently ends up
+    with `indexed_chunks=0` despite the page count being perfectly readable (page count
+    doesn't need a text layer, only chunking does). Fixed: any page with under ~20
+    extracted characters now falls back to Gemini vision OCR (`_ocr_page_via_gemini()`
+    in `rag/ingest.py`) -- renders the page as a PNG via PyMuPDF and asks Gemini to
+    transcribe it, reusing the SAME Gemini client already configured for chat/
+    embeddings rather than adding a Tesseract system dependency, which Render's
+    standard Python buildpack doesn't have and would need a custom Dockerfile for.
+    Paced 2s between OCR calls (on top of the existing embedding-batch pacing) so a
+    large fully-scanned PDF doesn't blow through Gemini's free-tier per-minute quota.
+    **Expected effect:** indexing a scanned PDF will now take noticeably longer
+    (roughly one extra Gemini call per scanned page) but should actually succeed
+    instead of silently producing zero chunks. If a document STILL fails after this,
+    the server log now says exactly why (OCR call failures are logged per-page as
+    warnings, and a final error log states plainly that even OCR found no text) --
+    check Render's logs for the specific reason rather than assuming the same bug.
+
+    **Separate, NOT fixed here, needs Raahi to verify:** he also reported uploads via
+    the website aren't showing up in Supabase Storage at all (only a manual/direct
+    Supabase upload "works"). `services/file_storage.py`'s `save_upload()` already
+    uploads to Supabase Storage synchronously, BEFORE indexing even starts, whenever
+    `SUPABASE_URL` + `SUPABASE_SERVICE_KEY` are both set -- so if website uploads
+    aren't appearing there, the most likely cause is that those two env vars aren't
+    actually set correctly on the RENDER BACKEND service specifically (setting up the
+    Supabase project itself doesn't automatically connect Render to it -- the env vars
+    have to be added on Render's side too, per entry #27's setup steps). Couldn't
+    verify this from the sandbox (no access to Raahi's actual Render dashboard) --
+    check Render -> backend service -> Environment for typos or missing values before
+    assuming this is a code bug.
 
 ---
 
