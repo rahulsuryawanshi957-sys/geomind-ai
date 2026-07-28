@@ -197,10 +197,17 @@ def parse_uploaded_workbook(file_bytes: bytes) -> dict:
 
 def parse_uploaded_workbook_auto(file_bytes: bytes) -> dict:
     """
-    Tries the flat 'Soil Data' template first; if that sheet isn't present,
-    falls back to the office-style borehole-log .xlsm format (one sheet per
-    borehole) via bh_log_parser. Either path returns the SAME dict shape:
-    {"boreholes": {borehole_id: {project_name, water_table_depth_m, layers:[...]}}, "warnings":[...]}
+    Three-tier fallback so RaahiGeo accepts soil-investigation sheets from
+    ANY source, not just its own template:
+      1. RaahiGeo's own flat "Soil Data" template (exact match, fastest).
+      2. The office-style borehole-log .xlsm format (bh_log_parser.py) --
+         RaahiGeo's own report-style template with fixed cell positions.
+      3. universal_soil_parser.py -- a THIRD PARTY consultant/lab's sheet
+         with unknown column names/order/units, matched via a synonym
+         dictionary + fuzzy matching. Only tried if 1 and 2 both fail, since
+         it's the least certain of the three.
+    All three paths return the SAME dict shape:
+    {"boreholes": {borehole_id: {project_name, water_table_depth_m, ..., layers:[...]}}, "warnings":[...]}
     """
     from openpyxl import load_workbook
     import io
@@ -211,5 +218,36 @@ def parse_uploaded_workbook_auto(file_bytes: bytes) -> dict:
         return parse_uploaded_workbook(file_bytes)
 
     logger.info("[lab_data] 'Soil Data' sheet not found -- trying office borehole-log format.")
-    parsed = parse_borehole_log_workbook(file_bytes)
-    return to_lab_data_format(parsed)
+    try:
+        parsed = parse_borehole_log_workbook(file_bytes)
+        return to_lab_data_format(parsed)
+    except Exception as e:
+        logger.info(f"[lab_data] Office borehole-log parser did not match ({e}) -- trying universal parser.")
+
+    from app.services.universal_soil_parser import parse_workbook as parse_universal
+
+    universal_result = parse_universal(file_bytes)
+    if universal_result.get("low_confidence_overall") or not universal_result.get("boreholes"):
+        raise ValueError(
+            "Could not automatically recognize this file's layout. "
+            + " ".join(universal_result.get("warnings", []))
+            or "Could not automatically recognize this file's layout -- try RaahiGeo's "
+               "downloadable template, or contact support to add manual column mapping."
+        )
+
+    logger.info(f"[lab_data] Universal parser matched {len(universal_result['boreholes'])} "
+                f"borehole(s); {len(universal_result.get('unmapped_columns', []))} column(s) unmapped.")
+
+    boreholes_out: dict = {}
+    for bh_id, bh in universal_result["boreholes"].items():
+        boreholes_out[bh_id] = {
+            "project_name": bh.get("project_name"),
+            "water_table_depth_m": bh.get("water_table_depth_m"),
+            "easting": bh.get("easting"),
+            "northing": bh.get("northing"),
+            "rl_m": bh.get("rl_m"),
+            "date_of_boring": bh.get("date_of_boring"),
+            "project_number": bh.get("project_number"),
+            "layers": bh["layers"],
+        }
+    return {"boreholes": boreholes_out, "warnings": universal_result.get("warnings", [])}
