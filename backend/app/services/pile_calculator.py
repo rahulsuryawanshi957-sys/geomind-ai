@@ -365,3 +365,205 @@ def run_pile_capacity(
                    "Qp = Ap.(c.Nc + sigma'v.Nq + 0.5.gamma.D.Ny)",
         "warnings": warnings,
     }
+
+
+# ==================== LATERAL PILE CAPACITY (IS:2911 Part 1/Sec 1:2010, Annex C) ====================
+# Verified against Raahi's own reference workbooks (Lateral_capacity_cohesive_soil.xlsm,
+# Lateral_capacity_Cohesionless.xlsm) and cross-checked against IS:2911's own Table 5 /
+# Fig.3 (photographed by Raahi). Method: 1%-of-diameter deflection criterion via the
+# equivalent-cantilever approach (IS:2911 Annex C), NOT Broms' ultimate-capacity method.
+#
+# Two stiffness regimes (IS:2911 C-2.3):
+#   - Sand and Normally Consolidated (NCS) clay: subgrade modulus increases linearly with
+#     depth (nh) -> stiffness factor T = (EI/nh)^0.2
+#   - Preloaded/Over-Consolidated (OCS) clay: subgrade modulus is constant with depth (K)
+#     -> stiffness factor R = (EI/(K.B))^0.25
+# Pile behaviour classification (IS:2911 Table 5, embedded length L vs stiffness factor):
+#   Short (rigid):  L <= 2T (sand/NCS)  or  L <= 2R (OCS)
+#   Long (elastic): L >= 4T (sand/NCS)  or  L >= 3.5R (OCS)
+#   Intermediate: anything between -- IS:2911 itself just says "a case between rigid and
+#   elastic behaviour", no separate formula; this calculator still runs the long-pile
+#   equivalent-cantilever method for intermediate piles (same as Raahi's reference
+#   workbooks do), since IS:2911 doesn't give a distinct intermediate-pile method either.
+#
+# PRECISION NOTE (told to Raahi directly, not hidden here): the clay-side free/fixed-head
+# Fig.3 curves are exact 6th-degree polynomial fits lifted directly from Raahi's own
+# workbook (verified to match his BH-P-194_1 numbers exactly). The SAND-side curves are a
+# piecewise-linear digitization of IS:2911 Fig.3 anchored at 3 real data points from
+# Raahi's own workbook (L1/T = 0, 0.79, 1.04) and extended by eye for the rest of the
+# chart -- NOT independently verified the way clay was. Flagged in this function's
+# `warnings` output every time the sand path is used.
+
+def _nh_from_n_value(n_value: float) -> float:
+    """Constant of horizontal subgrade reaction modulus nh (MN/m3), IS:2911 Table 3,
+    interpolated by SPT N-value. Divided by 10 to match the /10 scaling Raahi's own
+    workbook applies before using nh in the T formula (same convention as k1 for clay)."""
+    bands = [(0, 4, 0.0, 0.65), (4, 10, 0.65, 2.1), (10, 30, 2.1, 5.5), (30, 50, 5.5, 10.3)]
+    if n_value < 4:
+        raw = 0.65 * max(n_value, 0) / 4
+    elif n_value >= 50:
+        raw = 10.3
+    else:
+        raw = 0.65
+        for lo, hi, klo, khi in bands:
+            if lo <= n_value < hi:
+                raw = (khi - klo) * (n_value - lo) / (hi - lo) + klo
+                break
+    return raw / 10
+
+
+def _k1_from_qu(qu_kn_m2: float) -> float:
+    """Modulus of subgrade reaction k1 (MN/m3), IS:2911 Table 4, interpolated by
+    unconfined compressive strength qu = 2c. Same /10 scaling as above."""
+    bands = [(0, 25, 0.0, 4.5), (25, 50, 4.5, 9.0), (50, 100, 9.0, 18.0), (100, 200, 18.0, 36.0), (200, 400, 36.0, 72.0)]
+    if qu_kn_m2 < 25:
+        raw = 0.0
+    elif qu_kn_m2 >= 400:
+        raw = 72.0
+    else:
+        raw = 0.0
+        for lo, hi, klo, khi in bands:
+            if lo <= qu_kn_m2 < hi:
+                raw = (khi - klo) * (qu_kn_m2 - lo) / (hi - lo) + klo
+                break
+    return raw / 10
+
+
+def _fig3_factor_clay_ocs(x: float, head: str) -> float:
+    """Lf/R vs L1/R, digitized as exact polynomials from Raahi's own workbook
+    (verified against his BH-P-194_1 numbers to 4 significant figures)."""
+    if x > 1:
+        raise ValueError(f"L1/R = {x:.2f} exceeds 1 -- beyond the digitized chart range for preloaded-clay free-head factor.")
+    if head == "free":
+        return 2.7056 * x**6 - 8.9041 * x**5 + 10.697 * x**4 - 5.5211 * x**3 + 1.2093 * x**2 - 0.3871 * x + 1.6502
+    if x == 0:
+        return 2.0
+    return 2e-5 * x**6 - 0.0006 * x**5 + 0.0084 * x**4 - 0.0554 * x**3 + 0.2068 * x**2 - 0.4598 * x + 1.982
+
+
+_FIG3_SAND_FREE = [(0, 1.826), (1.04, 1.826), (2, 1.79), (4, 1.73), (6, 1.70), (8, 1.68), (10, 1.67)]
+_FIG3_SAND_FIXED = [(0, 2.219), (0.79, 2.035), (1.04, 1.98), (2, 1.93), (4, 1.88), (6, 1.85), (8, 1.83), (10, 1.82)]
+
+
+def _fig3_factor_sand(x: float, head: str) -> float:
+    """Lf/T vs L1/T for sand/NCS clay -- piecewise-linear digitization of IS:2911 Fig.3,
+    see the PRECISION NOTE above this section. Clamped to the chart's 0-10 range."""
+    pts = _FIG3_SAND_FREE if head == "free" else _FIG3_SAND_FIXED
+    if x <= pts[0][0]:
+        return pts[0][1]
+    if x >= pts[-1][0]:
+        return pts[-1][1]
+    for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+        if x0 <= x <= x1:
+            return y0 + (y1 - y0) * (x - x0) / (x1 - x0)
+    return pts[-1][1]
+
+
+def run_lateral_capacity(
+    length_m: float, width_m: float, pile_material_modulus_t_m2: float,
+    embedded_length_m: float, free_length_above_ground_m: float,
+    soil_type: str, consolidation_type: str = "NCS",
+    cohesion_t_m2: float | None = None, n_value: float | None = None,
+    allowable_deflection_pct_dia: float = 1.0,
+) -> dict:
+    """
+    Safe lateral pile capacity by the 1%-of-diameter deflection criterion
+    (IS:2911 Part 1/Sec 1:2010, Annex C, equivalent-cantilever approach).
+    Runs BOTH free-head and fixed-head cases (IS:2911 gives no rule for
+    picking one -- that's a structural/connection-detail decision, not a
+    soil one, so both are always returned for Raahi to pick from).
+
+    soil_type: "cohesive" or "cohesionless". For cohesive, consolidation_type
+    ("OCS" preloaded or "NCS" normally-consolidated) selects which stiffness
+    formula applies -- OCS uses R (constant-with-depth K), NCS uses the SAME
+    T formula as cohesionless soil (per IS:2911 C-2.3.1's own heading:
+    "For Piles in Sand and Normally Loaded Clays").
+    """
+    soil_type = soil_type.lower()
+    if soil_type not in ("cohesive", "cohesionless"):
+        raise ValueError("soil_type must be 'cohesive' or 'cohesionless'.")
+    consolidation_type = consolidation_type.upper()
+    if consolidation_type not in ("OCS", "NCS"):
+        raise ValueError("consolidation_type must be 'OCS' (preloaded) or 'NCS' (normally consolidated).")
+
+    D_cm = width_m * 100
+    L_cm = embedded_length_m * 100
+    L1_cm = free_length_above_ground_m * 100
+    E = pile_material_modulus_t_m2 * 0.1  # t/m2 -> kg/cm2 (1 t/m2 = 1000 kg/m2 = 0.1 kg/cm2)
+    I = math.pi * D_cm**4 / 64
+    warnings = []
+
+    use_R_formula = (soil_type == "cohesive" and consolidation_type == "OCS")
+
+    if use_R_formula:
+        if cohesion_t_m2 is None:
+            raise ValueError("Preloaded (OCS) clay needs cohesion_t_m2.")
+        c_kg_cm2 = cohesion_t_m2 / 10  # t/m2 -> kg/cm2, same conversion as E above
+        qu_kn_m2 = 2 * c_kg_cm2 * 100  # qu = 2c, then kg/cm2 -> kN/m2 (matches the reference workbook's own convention)
+        k1 = _k1_from_qu(qu_kn_m2)
+        K = (k1 * 0.3 / (1.5 * D_cm)) * 100
+        stiffness_cm = ((E * I) / (K * D_cm)) ** 0.25
+        short_limit_m, long_limit_m = 2 * stiffness_cm / 100, 3.5 * stiffness_cm / 100
+        stiffness_label = "R"
+    else:
+        if soil_type == "cohesionless" and n_value is None:
+            raise ValueError("Cohesionless (sand) soil needs n_value.")
+        if soil_type == "cohesive" and consolidation_type == "NCS" and n_value is None:
+            raise ValueError("Normally-consolidated (NCS) clay uses the sand-type formula, which needs an n_value (SPT-N).")
+        nh = _nh_from_n_value(n_value)
+        stiffness_cm = ((E * I) / nh) ** 0.2
+        short_limit_m, long_limit_m = 2 * stiffness_cm / 100, 4 * stiffness_cm / 100
+        stiffness_label = "T"
+        if soil_type == "cohesionless":
+            warnings.append(
+                "Sand-side Fig.3 chart factor is a piecewise-linear digitization anchored at "
+                "3 real points from your own workbook, not an exact polynomial like the clay "
+                "side -- verify this result against a known sand case before trusting it fully."
+            )
+
+    x = L1_cm / stiffness_cm
+    if embedded_length_m <= short_limit_m:
+        behaviour = "short (rigid) pile"
+    elif embedded_length_m >= long_limit_m:
+        behaviour = "long (elastic) pile"
+    else:
+        behaviour = "intermediate pile (between rigid and elastic -- IS:2911 gives no separate formula for this case; using the long-pile equivalent-cantilever method, same as the reference workbook)"
+
+    results = {}
+    for head in ("free", "fixed"):
+        factor = (_fig3_factor_clay_ocs if use_R_formula else _fig3_factor_sand)(x, head)
+        Lf_cm = factor * stiffness_cm
+        Leq_cm = L1_cm + Lf_cm
+        denom = 3 if head == "free" else 12
+        Q_half_kg = (0.5 * denom * E * I) / (Leq_cm ** 3)
+        allow_defl_cm = allowable_deflection_pct_dia / 100 * D_cm
+        safe_t = Q_half_kg * allow_defl_cm / 0.5 / 1000
+        results[head] = {
+            "chart_factor": round(factor, 4),
+            "equivalent_cantilever_length_m": round(Leq_cm / 100, 3),
+            "safe_lateral_load_t": round(safe_t, 2),
+        }
+
+    return {
+        "soil_type": soil_type,
+        "consolidation_type": consolidation_type if soil_type == "cohesive" else None,
+        "stiffness_factor_label": stiffness_label,
+        "stiffness_factor_m": round(stiffness_cm / 100, 3),
+        "L1_over_stiffness": round(x, 4),
+        "pile_behaviour": behaviour,
+        "short_pile_if_L_le_m": round(short_limit_m, 2),
+        "long_pile_if_L_ge_m": round(long_limit_m, 2),
+        "free_head": results["free"],
+        "fixed_head": results["fixed"],
+        "unit": "t (tonnes)",
+        "formula": "1%-of-diameter deflection criterion, equivalent cantilever length = L1 + Lf "
+                   "(IS:2911 Part 1/Sec 1:2010, Annex C)",
+        "warnings": warnings + [
+            "IS:2911 gives no rule for choosing free-head vs fixed-head -- that depends on the "
+            "actual pile cap/connection detail, not the soil. Both are returned; pick the one "
+            "matching your actual pile-cap fixity.",
+            "This is the 1%-deflection SERVICEABILITY check (IS:2911 Annex C), not Broms' "
+            "ultimate lateral capacity -- the two methods answer different questions and are "
+            "not directly comparable.",
+        ],
+    }

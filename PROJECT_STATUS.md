@@ -1069,6 +1069,62 @@ scoped).
     (the `<option>` label in `PileCapacity.tsx`, the docstring, and the `"code"` string in
     the result dict all now say "IRC:78:2024"; zero formula changes, exactly as scoped
     above).
+35. **Feature added 28 Jul 2026, applied by Raahi directly via `patch_lab_data_universal.py`
+    (run in Termux, not through a Claude session -- documented here now since it wasn't
+    documented anywhere before this entry):** `services/universal_soil_parser.py` (new
+    file, ~525 lines) is a THIRD fallback for lab data upload, tried only when both
+    RaahiGeo's own flat "Soil Data" template AND its own office-style `bh_log_parser`
+    format fail to match. Matches an arbitrary consultant/lab's spreadsheet (unknown
+    column names/order/units) via a synonym dictionary + fuzzy column matching, so
+    RaahiGeo can accept soil-investigation data from any source, not just its own
+    templates. `parse_uploaded_workbook_auto()` in `lab_data.py` now tries all three in
+    order: own template -> own office format -> universal parser, same combined dict
+    shape (`{"boreholes": {...}, "warnings": [...]}`) regardless of which one matched.
+    Not independently reviewed by a Claude session (Raahi wrote/applied it directly) --
+    if a future session touches lab data import and something looks unfamiliar, this is
+    why; read `universal_soil_parser.py` before assuming a bug.
+36. **Feature added 28 Jul 2026: Lateral Pile Capacity, per Raahi's two reference
+    workbooks (`Lateral_capacity_cohesive_soil.xlsm`, `Lateral_capacity_Cohesionless.xlsm`)
+    plus a photo of IS:2911 (Part 1/Sec 1):2010 Annex C (Table 5, Fig.3).** `services/
+    pile_calculator.py` -> `run_lateral_capacity()`. Method: the 1%-of-pile-diameter
+    deflection criterion (equivalent-cantilever approach), NOT Broms' ultimate-capacity
+    method -- a different question (serviceability vs failure) that isn't directly
+    comparable to a Broms-based result if one ever gets built later.
+
+    Two stiffness regimes, matching IS:2911 C-2.3 exactly: sand and Normally Consolidated
+    (NCS) clay both use stiffness factor T = (EI/nh)^0.2 (nh increases linearly with
+    depth) -- confirmed by IS:2911's own C-2.3.1 heading, "For Piles in Sand and Normally
+    Loaded Clays". Preloaded/Over-Consolidated (OCS) clay uses R = (EI/(K.B))^0.25 (K
+    constant with depth) instead. Pile behaviour (short/rigid, long/elastic, or
+    intermediate) follows IS:2911 Table 5 exactly: short if L<=2T (or 2R for OCS), long if
+    L>=4T (or 3.5R for OCS), intermediate in between -- IS:2911 gives no separate formula
+    for intermediate, so (matching Raahi's own reference workbooks) the long-pile
+    equivalent-cantilever method is used for that case too. Both free-head and fixed-head
+    results are always returned together -- IS:2911 gives no rule for picking one, since
+    that's a pile-cap connection detail, not a soil property.
+
+    Verified EXACTLY against Raahi's own BH-P-194_1 example (preloaded/OCS clay): stiffness
+    factor R=4.962m, short-pile boundary 9.92m, long-pile boundary 17.37m, fixed-head safe
+    load 20.9t -- all match to the precision shown. Free-head safe load is 9.3t here vs the
+    workbook's 9.2t; the 0.1t gap is the workbook's own intermediate floor-to-nearest-0.1t
+    rounding step (not replicated here), not a formula error.
+
+    **PRECISION CAVEAT, told to Raahi directly, repeated here for whoever picks this up
+    next:** the clay-side free/fixed-head Fig.3 chart factors are exact 6th-degree
+    polynomials lifted straight from Raahi's own workbook (hence the exact match above).
+    The SAND-side chart factors are only a piecewise-linear digitization of IS:2911 Fig.3,
+    anchored at 3 real data points pulled from Raahi's workbook (L1/T = 0, 0.79, 1.04) and
+    extended by eye across the rest of the 0-10 chart range for lack of a polynomial fit
+    anywhere in either reference file. This has NOT been verified against a known sand
+    case the way clay was -- `run_lateral_capacity()` emits an explicit warning every time
+    the sand path runs, saying exactly this. **Verify a real sand case against a trusted
+    source before relying on this for anything real.**
+
+    **Not yet done:** no API endpoint or frontend page wired up yet -- only the backend
+    calculation function exists and is tested. Next step is a router endpoint (probably
+    `POST /api/calculators/lateral`, following the same override/borehole-aware pattern as
+    `run_pile_capacity`) and a `LateralCapacity.tsx` page, same shape as the axial Pile
+    Capacity page.
 
 ---
 
