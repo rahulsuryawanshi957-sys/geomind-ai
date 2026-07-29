@@ -4,7 +4,7 @@ import {
   LayoutDashboard, MessageSquare, FolderKanban, BookOpen, ScrollText, Sigma,
   Calculator, ScanSearch, FileSearch, Layers3, FlaskConical, Mountain,
   FileText, History, Bookmark, Settings, ChevronsLeft, ChevronsRight,
-  Sun, Moon, Sparkles, LayoutGrid, Waves, Milestone,
+  Sun, Moon, Sparkles, LayoutGrid, Waves, Milestone, ArrowLeftRight,
 } from 'lucide-react'
 
 const NAV_SECTIONS: { label: string; items: { to: string; label: string; icon: any; end?: boolean; soon?: boolean }[] }[] = [
@@ -33,6 +33,7 @@ const NAV_SECTIONS: { label: string; items: { to: string; label: string; icon: a
       { to: '/batch-analysis', label: 'Batch Analysis', icon: LayoutGrid },
       { to: '/liquefaction-analysis', label: 'Liquefaction Analysis', icon: Waves },
       { to: '/pile-capacity', label: 'Pile Capacity', icon: Milestone },
+      { to: '/lateral-capacity', label: 'Lateral Capacity', icon: ArrowLeftRight },
     ],
   },
   {

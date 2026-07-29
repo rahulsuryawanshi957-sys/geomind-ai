@@ -118,6 +118,25 @@ class PileCapacityRequest(BaseModel):
     overrides: dict = {}
 
 
+class LateralCapacityRequest(BaseModel):
+    """
+    Lateral Pile Capacity (IS:2911 Part 1/Sec 1:2010, Annex C, 1%-diameter
+    deflection criterion) request. Borehole-aware like the other calculators:
+    cohesion/N-value/classification are auto-sourced from the founding layer
+    at ground level (where free_length_above_ground_m ends) unless
+    overridden. `soil_type`/`consolidation_type` can be forced via overrides
+    ("soil_type": "cohesive"|"cohesionless", "consolidation_type": "OCS"|"NCS")
+    or left blank for auto-detection from the layer's own classification.
+    """
+    borehole_id: str
+    width_m: float
+    embedded_length_m: float
+    free_length_above_ground_m: float = 0.0
+    pile_material_modulus_t_m2: float = 3000000.0  # M25 concrete default (~3e6 t/m2 = 30000 MPa-ish per IS:456 Ec correlation)
+    allowable_deflection_pct_dia: float = 1.0
+    overrides: dict = {}
+
+
 class PileCommandRequest(BaseModel):
     """Free-text AI command (e.g. 'Design a 1000mm pile using IRC:78') to be
     parsed into structured PileCapacityRequest fields -- Step 6 of the spec.

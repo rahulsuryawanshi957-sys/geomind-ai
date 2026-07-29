@@ -10,6 +10,7 @@ import Calculators from './pages/Calculators'
 import BatchAnalysis from './pages/BatchAnalysis'
 import LiquefactionAnalysis from './pages/LiquefactionAnalysis'
 import PileCapacity from './pages/PileCapacity'
+import LateralCapacity from './pages/LateralCapacity'
 import FormulaLibrary from './pages/FormulaLibrary'
 import ClauseFinder from './pages/ClauseFinder'
 import Reports from './pages/Reports'
@@ -45,6 +46,7 @@ export default function App() {
             <Route path="/batch-analysis" element={<BatchAnalysis />} />
             <Route path="/liquefaction-analysis" element={<LiquefactionAnalysis />} />
             <Route path="/pile-capacity" element={<PileCapacity />} />
+            <Route path="/lateral-capacity" element={<LateralCapacity />} />
             <Route path="/borehole-logs" element={<BoreholeLogs />} />
             <Route path="/lab-reports" element={<LabReports />} />
             <Route path="/soil-profile" element={<SoilProfile />} />

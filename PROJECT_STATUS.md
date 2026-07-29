@@ -1126,6 +1126,17 @@ scoped).
     `run_pile_capacity`) and a `LateralCapacity.tsx` page, same shape as the axial Pile
     Capacity page.
 
+    **RESOLVED 28 Jul 2026:** `POST /api/calculators/lateral` added to
+    `routers/calculators.py` -- borehole-aware, auto-picks the founding layer at ground
+    level (`free_length_above_ground_m`), soil type auto-detected from that layer's USCS
+    classification (same C../M..=cohesive, S../G..=cohesionless rule as everywhere else in
+    this app), cohesion/N-value/soil_type/consolidation_type all override-able. Frontend
+    `LateralCapacity.tsx` (route `/lateral-capacity`, sidebar entry added) shows pile
+    behaviour classification + both free-head and fixed-head safe loads side by side, plus
+    the engine's own warnings (including the sand-precision caveat when that path is used).
+    End-to-end tested with a mock founding-layer lookup + override resolution, matching the
+    standalone function test above.
+
 ---
 
 ## How to give Raahi an update (workflow reminder for whoever's helping)

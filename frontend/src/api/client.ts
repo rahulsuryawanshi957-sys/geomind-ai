@@ -121,6 +121,13 @@ export const api = {
   parsePileCommand: (text: string, borehole_id?: string | null) =>
     request<any>('/api/calculators/pile/parse-command', { method: 'POST', body: JSON.stringify({ text, borehole_id }) }),
 
+  runLateralCapacity: (payload: {
+    borehole_id: string
+    width_m: number; embedded_length_m: number; free_length_above_ground_m?: number
+    pile_material_modulus_t_m2?: number; allowable_deflection_pct_dia?: number
+    overrides?: Record<string, any>
+  }) => request<any>('/api/calculators/lateral', { method: 'POST', body: JSON.stringify(payload) }),
+
   reportSectionTypes: () => request<string[]>('/api/reports/section-types'),
 
   generateReportSection: (section_type: string, project_inputs: Record<string, any>, reference_query?: string) =>

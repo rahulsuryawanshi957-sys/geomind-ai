@@ -3,9 +3,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import CalculationLog, BoreholeProfile
-from app.schemas import CalculatorRequest, BatchRunRequest, LiquefactionRequest, PileCapacityRequest, PileCommandRequest
+from app.schemas import CalculatorRequest, BatchRunRequest, LiquefactionRequest, PileCapacityRequest, PileCommandRequest, LateralCapacityRequest
 from app.services.calculators import CALCULATOR_REGISTRY, run_batch_matrix, run_liquefaction_analysis
-from app.services.pile_calculator import run_pile_capacity, parse_pile_command
+from app.services.pile_calculator import run_pile_capacity, parse_pile_command, run_lateral_capacity
+from app.services.calculators import _founding_layer, _resolve_field
 
 router = APIRouter(prefix="/api/calculators", tags=["calculators"])
 
@@ -161,7 +162,60 @@ def run_pile(req: PileCapacityRequest, db: Session = Depends(get_db)):
     return result
 
 
-@router.post("/pile/parse-command")
+@router.post("/lateral")
+def run_lateral(req: LateralCapacityRequest, db: Session = Depends(get_db)):
+    profile = db.query(BoreholeProfile).filter(BoreholeProfile.id == req.borehole_id).first()
+    if not profile:
+        raise HTTPException(404, "Borehole profile not found.")
+    if not profile.layers:
+        raise HTTPException(422, "This borehole has no soil layers recorded.")
+
+    layers = list(profile.layers)
+    founding = _founding_layer(layers, req.free_length_above_ground_m)
+    overrides = req.overrides or {}
+
+    classification = (getattr(founding, "classification", None) or "").strip().upper()
+    if overrides.get("soil_type"):
+        soil_type = overrides["soil_type"]
+    elif classification:
+        soil_type = "cohesive" if classification[0] in ("C", "M") else "cohesionless"
+    else:
+        soil_type = "cohesive" if founding.compression_index_cc is not None else "cohesionless"
+
+    consolidation_type = overrides.get("consolidation_type", "NCS")
+
+    cohesion_t_m2 = overrides.get("cohesion_t_m2")
+    if cohesion_t_m2 is None and soil_type == "cohesive":
+        cohesion_t_m2, _ = _resolve_field(layers, founding, "cohesion_t_m2")
+
+    n_value = overrides.get("n_value")
+    if n_value is None:
+        n_value, _ = _resolve_field(layers, founding, "n_value")
+
+    try:
+        result = run_lateral_capacity(
+            length_m=None, width_m=req.width_m,
+            pile_material_modulus_t_m2=req.pile_material_modulus_t_m2,
+            embedded_length_m=req.embedded_length_m,
+            free_length_above_ground_m=req.free_length_above_ground_m,
+            soil_type=soil_type, consolidation_type=consolidation_type,
+            cohesion_t_m2=cohesion_t_m2, n_value=n_value,
+            allowable_deflection_pct_dia=req.allowable_deflection_pct_dia,
+        )
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+
+    log = CalculationLog(
+        calculator_type="lateral_capacity",
+        inputs_json=json.dumps(req.model_dump()),
+        result_json=json.dumps(result),
+    )
+    db.add(log)
+    db.commit()
+
+    result["borehole_id"] = profile.borehole_id
+    result["founding_layer"] = f"{founding.from_m}-{founding.to_m}m" + (f" ({founding.classification})" if founding.classification else "")
+    return result
 def parse_pile_ai_command(req: PileCommandRequest):
     """Step 6 of the spec: turn a typed command ('Design a 1000mm pile',
     'Use IRC:78') into structured fields the frontend can merge into the
