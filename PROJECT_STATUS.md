@@ -1137,6 +1137,37 @@ scoped).
     End-to-end tested with a mock founding-layer lookup + override resolution, matching the
     standalone function test above.
 
+37. **BUG, fixed 28 Jul 2026, found answering Raahi's question "apni company ki sheet kaha
+    upload karu":** two separate problems, both in the same area.
+    - **Wiring gap:** entry #35's universal parser (`universal_soil_parser.py`) was built
+      and wired into `parse_uploaded_workbook_auto()`, but `routers/lab_data.py`'s actual
+      `/api/lab-data/upload` endpoint was still calling the strict, own-template-only
+      `parse_uploaded_workbook()` directly -- the universal parser existed in the codebase
+      but a real upload through the website could never reach it. Fixed: the router now
+      calls `parse_uploaded_workbook_auto()`.
+    - **Missing file, found while testing the fix:** `bh_log_parser.py` (the office-format
+      fallback, referenced by `parse_uploaded_workbook_auto()` and by
+      `universal_soil_parser.py`'s own docstring) does not exist ANYWHERE in the zip this
+      was worked from -- importing it crashed with a bare `ModuleNotFoundError` for EVERY
+      non-own-template upload, before the universal parser could ever run. Unknown from
+      this sandbox whether the file genuinely isn't on Render either, or just wasn't
+      included in whatever export Raahi zipped up -- **could not verify which** (no access
+      to the live server's actual file tree). Made the import defensive
+      (`try/except ImportError`) either way, so a missing office-format parser degrades
+      gracefully to the universal parser instead of taking down the entire upload feature
+      -- this is a good safeguard regardless of which explanation turns out to be true.
+      **Whoever picks this up next: check Render's actual repo/logs for whether
+      `app/services/bh_log_parser.py` exists.** If the "Office borehole-log parser...not
+      available in this deployment" log line ever appears, that confirms it's genuinely
+      missing in production, not just from this export.
+    - Verified end-to-end with a synthetic "foreign" sheet (different column names, title
+      rows above the header, kPa units) -- parsed correctly, including a kPa->t/m²
+      conversion, through the full auto-detect chain.
+    - **Answer to Raahi's actual question:** same place as always -- Lab Data Import page,
+      "Upload Filled Sheet" button. No separate upload location; the auto-detection
+      (own template -> office format -> universal parser) all happens behind that one
+      button now.
+
 ---
 
 ## How to give Raahi an update (workflow reminder for whoever's helping)
