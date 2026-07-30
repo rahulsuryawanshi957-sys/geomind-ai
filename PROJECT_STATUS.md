@@ -1137,36 +1137,49 @@ scoped).
     End-to-end tested with a mock founding-layer lookup + override resolution, matching the
     standalone function test above.
 
-37. **BUG, fixed 28 Jul 2026, found answering Raahi's question "apni company ki sheet kaha
-    upload karu":** two separate problems, both in the same area.
-    - **Wiring gap:** entry #35's universal parser (`universal_soil_parser.py`) was built
-      and wired into `parse_uploaded_workbook_auto()`, but `routers/lab_data.py`'s actual
-      `/api/lab-data/upload` endpoint was still calling the strict, own-template-only
-      `parse_uploaded_workbook()` directly -- the universal parser existed in the codebase
-      but a real upload through the website could never reach it. Fixed: the router now
-      calls `parse_uploaded_workbook_auto()`.
-    - **Missing file, found while testing the fix:** `bh_log_parser.py` (the office-format
-      fallback, referenced by `parse_uploaded_workbook_auto()` and by
-      `universal_soil_parser.py`'s own docstring) does not exist ANYWHERE in the zip this
-      was worked from -- importing it crashed with a bare `ModuleNotFoundError` for EVERY
-      non-own-template upload, before the universal parser could ever run. Unknown from
-      this sandbox whether the file genuinely isn't on Render either, or just wasn't
-      included in whatever export Raahi zipped up -- **could not verify which** (no access
-      to the live server's actual file tree). Made the import defensive
-      (`try/except ImportError`) either way, so a missing office-format parser degrades
-      gracefully to the universal parser instead of taking down the entire upload feature
-      -- this is a good safeguard regardless of which explanation turns out to be true.
-      **Whoever picks this up next: check Render's actual repo/logs for whether
-      `app/services/bh_log_parser.py` exists.** If the "Office borehole-log parser...not
-      available in this deployment" log line ever appears, that confirms it's genuinely
-      missing in production, not just from this export.
-    - Verified end-to-end with a synthetic "foreign" sheet (different column names, title
-      rows above the header, kPa units) -- parsed correctly, including a kPa->t/m²
-      conversion, through the full auto-detect chain.
-    - **Answer to Raahi's actual question:** same place as always -- Lab Data Import page,
-      "Upload Filled Sheet" button. No separate upload location; the auto-detection
-      (own template -> office format -> universal parser) all happens behind that one
-      button now.
+38. **`bh_log_parser.py` rebuilt from scratch, 29 Jul 2026, using 6 REAL company report
+    templates Raahi provided** (not guessed -- see entry #37 for why the old one was
+    missing). This is a genuinely different problem from `universal_soil_parser.py`'s
+    "flat table, header in the first ~40 rows" case: report-style workbooks have a
+    header that can be 1-4 rows tall, start anywhere in the sheet, span 15-250+
+    columns, and metadata (project name, BH no, water table, RL, coordinates) scattered
+    in a title block rather than clean label:value pairs.
+    - **Approach:** scans a window of rows x header-heights (1-4), concatenating each
+      column's text across the window and matching it against
+      `universal_soil_parser.py`'s `CANONICAL_FIELDS`/`match_header()` (reused, not
+      duplicated) -- picks whichever (start_row, height) scores the most matched
+      layer-level fields with plausible numeric depth data beneath it. Metadata is
+      label-scanned in the area strictly above the detected header, requiring near-
+      exact confidence (>=90) since title-block text produces far more incidental
+      fuzzy false-positives than a real column header row does.
+    - **Three real-world quirks found and handled, each from an actual file:**
+      (a) a decorative "column index numbers" row (1,2,3...) some templates insert
+      right after the real header labels, which was being misread as the first data
+      row -- now detected and skipped; (b) a "Depth" convention split across 3 columns
+      (value / literal "-" / value) under ONE shared header, instead of separate
+      From/To column headers -- now detected via a dash-separator + numeric-neighbour
+      check; (c) a blank spacer row between the header block and the real data.
+      (b) and (c) combined were why sheet "R.S. BH 1" (`bh_01.xlsx`) failed until both
+      were fixed together.
+    - **Tested against all 6 real files, every sheet, honestly (not cherry-picked):**
+      the PRIMARY soil-log sheet in all 6 files now parses with plausible real data
+      (verified cohesion/moisture/void-ratio values against what's visible in the raw
+      cells, e.g. cohesion 0.42-0.47 t/m² for CI clay in `bh_01.xlsx`). Auxiliary sheets
+      named "SPT", "Summary", "1N" (raw blow-count worksheets / index sheets, not
+      classified soil-layer tables) correctly fail to match -- that's expected, not a
+      bug, since they genuinely don't have a soil-layer table.
+    - **Known limitation, not yet solved:** when one physical borehole's data is split
+      across multiple sheets (e.g. the ROCK file's "1R"/"1S"/"1L" -- rock/soil/lab
+      sub-logs for what's likely ONE borehole), each sheet becomes a SEPARATE
+      "borehole" in the output (borehole_id = sheet title) rather than being merged
+      into one. No general way to know from sheet names alone whether sheets belong to
+      the same physical borehole or genuinely different ones -- flagging this rather
+      than guessing a merge rule. If this turns out to matter in practice, Raahi will
+      see it immediately as 3 "boreholes" with suspiciously few layers each in the Lab
+      Data Import review screen.
+    - **This has NOT been tested via the actual `/api/lab-data/upload` endpoint end-to-
+      end (only the parser functions directly, in sandbox)** -- next real upload
+      through the website is the first true end-to-end test. Watch for it.
 
 ---
 

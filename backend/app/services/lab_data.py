@@ -211,29 +211,26 @@ def parse_uploaded_workbook_auto(file_bytes: bytes) -> dict:
     """
     from openpyxl import load_workbook
     import io
+    from app.services.bh_log_parser import parse_borehole_log_workbook, to_lab_data_format
 
     wb = load_workbook(io.BytesIO(file_bytes), data_only=True)
     if "Soil Data" in wb.sheetnames:
         return parse_uploaded_workbook(file_bytes)
 
-    logger.info("[lab_data] 'Soil Data' sheet not found -- trying office borehole-log format.")
-    try:
-        from app.services.bh_log_parser import parse_borehole_log_workbook, to_lab_data_format
-        parsed = parse_borehole_log_workbook(file_bytes)
-        return to_lab_data_format(parsed)
-    except ImportError:
-        # bh_log_parser.py isn't present in this deployment -- don't let an
-        # optional fallback's absence take down the whole upload flow, just
-        # skip straight to the universal parser (checked 26 Jul 2026: this
-        # module was missing entirely from the codebase at that point, which
-        # crashed every non-own-template upload with a bare
-        # ModuleNotFoundError before it could ever reach the universal
-        # parser -- if this log line appears on Render, that confirms the
-        # file genuinely isn't deployed there either, not just missing from
-        # whatever zip/export was being worked from at the time).
-        logger.info("[lab_data] Office borehole-log parser (bh_log_parser.py) not available in this deployment -- trying universal parser.")
-    except Exception as e:
-        logger.info(f"[lab_data] Office borehole-log parser did not match ({e}) -- trying universal parser.")
+    logger.info("[lab_data] 'Soil Data' sheet not found -- trying office borehole-log format (all sheets).")
+    report_boreholes = {}
+    report_warnings = []
+    for sheet_name in wb.sheetnames:
+        try:
+            parsed = parse_borehole_log_workbook(file_bytes, sheet_name=sheet_name)
+            converted = to_lab_data_format(parsed)
+            report_boreholes.update(converted["boreholes"])
+            report_warnings.extend(converted["warnings"])
+        except Exception as e:
+            logger.info(f"[lab_data] Office borehole-log parser: sheet '{sheet_name}' did not match ({e}).")
+    if report_boreholes:
+        return {"boreholes": report_boreholes, "warnings": report_warnings}
+    logger.info("[lab_data] Office borehole-log parser matched no sheet -- trying universal parser.")
 
     from app.services.universal_soil_parser import parse_workbook as parse_universal
 
