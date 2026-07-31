@@ -94,18 +94,41 @@ def _looks_like_column_index_row(ws, row: int, mapped_cols: List[int]) -> bool:
 
 def _find_data_table(ws, max_row: int, max_col: int) -> Optional[Dict[str, Any]]:
     """
-    Scans a window of rows for the best-scoring header block, trying header
-    heights 1..MAX_HEADER_WINDOW at every candidate start row. For each
-    column, the header text used for matching is the text of every row in
-    the window CONCATENATED (top to bottom) -- this is what lets a header
-    like "SPT Value" (row A) + "N" (row B) match as one field, or a 3-row
-    "Sampling Details -> Depth -> From (m)" stack match "from_m".
-
-    Returns the winning {header_row_start, header_height, column_field_map}
-    or None if nothing scored well enough to trust.
+    Two-stage search for the best-scoring header block:
+    Stage 1 (cheap): try height=1 at every row up to MAX_SCAN_ROWS, tracking
+    which rows match ANY recognized field at all.
+    Stage 2 (expensive): only for rows near a Stage-1 hit (start_row-1 to
+    start_row+1, since a multi-row header's most-recognizable single row
+    isn't always its top row), try header heights 1..MAX_HEADER_WINDOW with
+    the full column-by-column concatenated-text matching.
+    This two-stage approach is what keeps this fast -- trying every
+    (start_row, height) combination blindly across MAX_SCAN_ROWS rows made
+    3000+ unique fuzzy-match calls on a real 40-column report sheet (40+
+    seconds, causing upload timeouts) before this was added.
     """
+    row_scores: Dict[int, int] = {}
+    for row in range(1, min(max_row, MAX_SCAN_ROWS) + 1):
+        fields_hit = set()
+        for col in range(1, min(max_col, MAX_SCAN_COLS) + 1):
+            text = _cell_text(ws, row, col)
+            if len(text) < 2:
+                continue
+            match = match_header(text)
+            if match and match["confidence"] >= 70 and CANONICAL_FIELDS[match["field"]]["scope"] == "layer":
+                fields_hit.add(match["field"])
+        if fields_hit:
+            row_scores[row] = len(fields_hit)
+
+    if not row_scores:
+        search_rows = set(range(1, min(max_row, MAX_SCAN_ROWS) + 1))  # Stage 1 found nothing -- fall back to full scan
+    else:
+        top_rows = sorted(row_scores, key=row_scores.get, reverse=True)[:5]
+        search_rows = set()
+        for r in top_rows:
+            search_rows.update(range(max(1, r - MAX_HEADER_WINDOW + 1), r + 1))
+
     best = None
-    for start_row in range(1, min(max_row, MAX_SCAN_ROWS) + 1):
+    for start_row in sorted(search_rows):
         for height in range(1, MAX_HEADER_WINDOW + 1):
             if start_row + height - 1 > max_row:
                 break

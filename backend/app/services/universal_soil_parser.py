@@ -58,6 +58,7 @@ import re
 import json
 import difflib
 import pathlib
+from functools import lru_cache
 from typing import Any, Dict, List, Optional, Union
 
 import openpyxl
@@ -239,6 +240,7 @@ def _score(header_norm: str, synonyms: List[str]) -> float:
     return best
 
 
+@lru_cache(maxsize=8192)
 def match_header(raw_header: Any) -> Optional[Dict[str, Any]]:
     """Return the best-matching canonical field for one raw header cell, or None."""
     norm = _normalize(raw_header)

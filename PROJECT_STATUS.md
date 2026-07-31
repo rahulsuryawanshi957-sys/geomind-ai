@@ -1198,6 +1198,35 @@ scoped).
     the conversation, if that fix was delivered in a LATER message than the zip's own
     upload.
 
+40. **CRITICAL BUG, fixed 31 Jul 2026, found live: real uploads through the website were
+    timing out ("ERR_CONNECTION_TIMED_OUT" on `/api/lab-data/upload`).** Root cause:
+    entry #38's `bh_log_parser.py` brute-force-tried EVERY (start_row, header_height)
+    combination across up to 80 rows x 4 heights x 260 columns, calling
+    `match_header()` (fuzzy `difflib.SequenceMatcher` scoring against ~30 fields'
+    synonym lists) for essentially every populated cell in that whole window --
+    profiling one real file showed **2.2 million SequenceMatcher calls, 68 seconds,
+    for a single sheet**. A multi-sheet real workbook could take minutes total,
+    guaranteed to time out. Fixed in two layers:
+    - `universal_soil_parser.py`'s `match_header()` is now `@lru_cache`'d (pure
+      function, safe -- nothing mutates its return value anywhere) -- cuts repeated
+      identical lookups.
+    - `bh_log_parser.py`'s header search is now two-stage instead of brute-force: a
+      cheap single pass scores every row by how many DISTINCT high-confidence
+      (>=70%) fields it contains, then the expensive multi-row-height matching only
+      runs around the top 5 highest-scoring rows -- not all 80. (An earlier attempt at
+      this used a low single-hit threshold across up to 249 columns, which matched
+      almost every row as a false-positive "candidate" and didn't help at all --
+      requiring the row's TOTAL distinct-field count, not just a single hit, is what
+      actually made the pruning effective.)
+    - **Result, re-verified against all 6 real files:** every file now parses in
+      1-8 seconds (was up to 68s for the worst one), with IDENTICAL layer counts to
+      before the optimization -- same correctness, just no longer timing out.
+    - **Lesson for next time a parser like this gets built:** always test wall-clock
+      time against a REAL, full-size file before considering a report-style/brute-
+      force-search parser done -- entry #38 was verified for correctness (right
+      answers) but never for performance, and a slow-but-correct parser is just as
+      broken in production as a wrong one once it exceeds any request timeout.
+
 ---
 
 ## How to give Raahi an update (workflow reminder for whoever's helping)
