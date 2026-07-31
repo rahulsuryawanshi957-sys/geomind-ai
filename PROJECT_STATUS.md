@@ -1181,6 +1181,23 @@ scoped).
       end (only the parser functions directly, in sandbox)** -- next real upload
       through the website is the first true end-to-end test. Watch for it.
 
+39. **REGRESSION, fixed 30 Jul 2026, self-caught -- entry #37's router fix silently
+    reverted itself.** When building entry #38's `bh_log_parser.py` rebuild, the new
+    working copy was set up from the zip Raahi had uploaded for "yaha tak kaam pahucha
+    apna" -- which predates entry #37 (the fix wiring `routers/lab_data.py` to call
+    `parse_uploaded_workbook_auto()` instead of the strict-only `parse_uploaded_workbook()`).
+    That upload's timing meant entry #37's fix wasn't in it yet, so rebasing onto it
+    silently brought back the OLD strict-only router code -- Raahi hit the exact same
+    "Expected a sheet named 'Soil Data'" error again after the #38 deploy, even though
+    the actual parser code (bh_log_parser.py) was correct. Re-applied the same one-line
+    fix. **Process lesson for next time:** when starting a new working copy from a
+    freshly uploaded zip, always grep for the last few PROJECT_STATUS.md entries'
+    specific code signatures (not just read the changelog text) to confirm they're
+    actually present in that zip before building on top of it -- a zip's upload
+    timestamp doesn't guarantee it contains every fix mentioned as "already done" in
+    the conversation, if that fix was delivered in a LATER message than the zip's own
+    upload.
+
 ---
 
 ## How to give Raahi an update (workflow reminder for whoever's helping)

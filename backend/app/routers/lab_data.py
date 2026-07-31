@@ -5,7 +5,7 @@ import io
 from app.database import get_db
 from app.models import BoreholeProfile, SoilLayer
 from app.schemas import BoreholeProfileOut
-from app.services.lab_data import build_template, parse_uploaded_workbook
+from app.services.lab_data import build_template, parse_uploaded_workbook_auto
 from app.config import logger
 
 router = APIRouter(prefix="/api/lab-data", tags=["lab-data"])
@@ -31,7 +31,7 @@ async def upload_lab_data(file: UploadFile = File(...), db: Session = Depends(ge
     logger.info(f"[lab_data] Parsing uploaded file: {file.filename}")
 
     try:
-        parsed = parse_uploaded_workbook(file_bytes)
+        parsed = parse_uploaded_workbook_auto(file_bytes)
     except ValueError as e:
         raise HTTPException(400, str(e))
     except Exception as e:
