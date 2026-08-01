@@ -1281,6 +1281,38 @@ scoped).
     reproduces this) from Raahi first, reproduce locally, then fix bh_log_parser.py's
     column detection for real.**
 
+43. **Follow-up to #42, root cause found and fixed WITHOUT the actual file -- the entry
+    #42 defensive fix's own warning messages gave enough evidence.** Once #42 stopped the
+    crash, Raahi's next upload attempt against `43+250.xlsm` produced ~85 clean "row N
+    skipped" warnings instead of a 500, and the pattern across them was completely
+    unambiguous: one detected table had `From=None` on every single row while `To` had a
+    clean, steadily-increasing sequence (0.0, 1.5, 2.5, 3.0, 4.5, ... 40.0); a second table
+    had the exact mirror image (`From` populated with a clean sequence, `To=None` every
+    row). That signature -- always exactly one of the pair, never both, never neither --
+    pointed straight at `bh_log_parser.py`'s column-matching: `from_m`'s and `to_m`'s
+    synonym lists both contain the word "depth" ("depth from" / "depth to" / "top depth" /
+    "bottom depth"), so a column header that's just plain "Depth (m)" -- a single POINT
+    depth per row (e.g. one SPT test every ~1-1.5m, same convention as the Liquefaction
+    workbook audited in entry #22) rather than a From/To range pair -- scores close enough
+    against both synonym lists that `match_header` picks one fairly arbitrarily, leaving
+    every row missing the other required column entirely.
+    **Fixed:** after a table's layers are extracted, if exactly one of `from_m`/`to_m` was
+    matched (never both), every row's single depth value is now treated as a point depth
+    and the missing boundary is synthesized from consecutive rows (row i's `to_m` = row
+    i+1's point, chaining from 0.0) -- exactly the point-log-to-range-log conversion this
+    project already uses for the Liquefaction workbook's K/L cumulative stress build.
+    Every table this applies to gets an explicit warning naming which column was
+    single-matched and that the boundaries were synthesized, so Raahi can verify against
+    the source rather than silently trust it.
+    Verified with a synthetic single-"Depth (m)"-column workbook (5 rows, 1.5m steps):
+    output layers came out as clean continuous 0.0-1.5, 1.5-3.0, 3.0-4.5m ranges with the
+    expected warning. **Not yet verified against the real `43+250.xlsm` file itself** --
+    Raahi should re-try that exact upload and confirm the layer count/depths look right
+    before treating this as fully closed; the diagnosis is strong (the warning pattern left
+    little room for another explanation) but "strong diagnosis from symptoms" is still a
+    notch below "verified against the actual file," and this project's own standard is the
+    latter.
+
 ---
 
 ## How to give Raahi an update (workflow reminder for whoever's helping)

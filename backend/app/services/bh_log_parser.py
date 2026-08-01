@@ -352,6 +352,39 @@ def parse_borehole_log_workbook(file_bytes: bytes, sheet_name: Optional[str] = N
     if not layers:
         raise ValueError(f"Sheet '{ws.title}': header row detected but no data rows found beneath it.")
 
+    # Real report templates sometimes record a SINGLE depth per row (e.g. one
+    # SPT test point every 1-1.5m) rather than a From/To range pair. Because
+    # "Depth" alone is lexically close to both "depth from" and "depth to"
+    # (from_m/to_m's synonyms), match_header picks ONE of them somewhat
+    # arbitrarily -- leaving every single layer missing the other required
+    # column, which used to mean the whole table came out unusable (entry
+    # #42). Detect that (exactly one of from_m/to_m matched in this table,
+    # never both) and synthesize the missing boundary from consecutive rows'
+    # points instead, flagging it clearly so it gets verified against the
+    # source rather than silently trusted.
+    matched_fields = {m["field"] for m in table["column_field_map"].values()}
+    has_from, has_to = "from_m" in matched_fields, "to_m" in matched_fields
+    if has_from != has_to:
+        only_field = "from_m" if has_from else "to_m"
+        other_field = "to_m" if has_from else "from_m"
+        warnings.append(
+            f"Only a single depth column was found in this table (matched as '{only_field}', "
+            f"header '{[m['header_text'] for m in table['column_field_map'].values() if m['field'] == only_field][0]}') "
+            f"-- no separate From/To pair. Treating each row as a POINT depth (e.g. an SPT test "
+            f"depth) and synthesizing '{other_field}' from consecutive rows' points. "
+            f"VERIFY these synthesized layer boundaries against the source document."
+        )
+        prev = 0.0
+        for layer in layers:
+            pt = layer.get(only_field)
+            if pt is None:
+                continue
+            if only_field == "from_m":
+                layer["to_m"], layer["from_m"] = pt, prev
+            else:
+                layer["from_m"], layer["to_m"] = prev, pt
+            prev = pt
+
     return {
         "sheet_name": ws.title,
         "metadata": metadata,
