@@ -376,7 +376,15 @@ def to_lab_data_format(parsed: Dict[str, Any]) -> Dict[str, Any]:
     borehole_id = meta.get("borehole_id") or parsed["sheet_name"]
     layers_out = []
     for l in parsed["layers"]:
-        layer_out = {k: v for k, v in l.items() if k != "row"}
+        # Only fields that are real SoilLayer database columns (CANONICAL_FIELDS[k]["db"])
+        # may reach db.add(SoilLayer(**layer_data)) -- anything else (liquid_limit,
+        # plastic_limit, elastic_modulus, cbr, etc.) is a real soil property this
+        # parser CAN recognize but the database schema has no column for, and passing
+        # it through crashes the SQLAlchemy constructor outright.
+        layer_out = {
+            k: v for k, v in l.items()
+            if k != "row" and CANONICAL_FIELDS.get(k, {}).get("db", False)
+        }
         layers_out.append(layer_out)
 
     borehole = {

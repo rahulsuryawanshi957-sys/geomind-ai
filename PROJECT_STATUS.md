@@ -1227,6 +1227,31 @@ scoped).
       answers) but never for performance, and a slow-but-correct parser is just as
       broken in production as a wrong one once it exceeds any request timeout.
 
+41. **CRITICAL BUG, fixed 1 Aug 2026, found live via Render logs (Raahi's actual
+    traceback, not a guess):** even after entry #40's speed fix, real uploads still
+    failed -- this time with a 500 error, not a timeout. Traceback showed
+    `db.add(SoilLayer(borehole_id_fk=profile.id, **layer_data))` raising a `TypeError`
+    from SQLAlchemy's declarative constructor. Root cause: `bh_log_parser.py`'s
+    `to_lab_data_format()` passed EVERY field key the parser recognized straight
+    through into the dict handed to `SoilLayer(**layer_data)` -- but
+    `universal_soil_parser.py`'s own `CANONICAL_FIELDS` dict already distinguishes real
+    soil properties that HAVE a database column (`"db": True`, e.g. `cohesion_t_m2`)
+    from ones this parser can recognize but the schema has no column for (`"db": False`,
+    e.g. `liquid_limit`, `plastic_limit`, `elastic_modulus`, `cbr`, `dry_density`,
+    `ocr`...) -- `universal_soil_parser.py` itself already filters on this flag before
+    returning layers (line ~472), but `bh_log_parser.py` never applied the same filter,
+    so any report sheet with a recognizable Atterberg-limits or similar non-DB column
+    crashed the whole upload. Fixed: `to_lab_data_format()` now filters
+    `CANONICAL_FIELDS[k]["db"]` the same way. Verified against all 6 real files --
+    every layer dict now contains only real `SoilLayer` column names.
+    **This is the second bug entries #37-#41 chased through this same code path in one
+    sitting** (missing router wiring -> missing bh_log_parser.py file -> regressed
+    router wiring -> 68-second timeout -> this db-column mismatch) -- each one only
+    surfaced after the previous one was fixed and Raahi tried a real upload again. Real
+    end-to-end testing against Raahi's actual files/actual deployment, not just sandbox
+    unit tests, is what caught every one of these; none were visible from parser-
+    function-level testing alone.
+
 ---
 
 ## How to give Raahi an update (workflow reminder for whoever's helping)
