@@ -1252,6 +1252,35 @@ scoped).
     unit tests, is what caught every one of these; none were visible from parser-
     function-level testing alone.
 
+42. **CRITICAL BUG, found 1 Aug 2026 from Raahi's live Render logs (psycopg2
+    NotNullViolation), partially fixed -- root cause still needs the actual file.**
+    Uploading a real file (`43+250.xlsm`) that doesn't match RaahiGeo's own "Soil Data"
+    template fell through to the office-borehole-log auto-detect tier (`bh_log_parser.py`,
+    entries #37-#41), which matched SOME sheet but extracted a layer with `from_m=None`
+    while `to_m=1.5` -- `from_m`/`to_m` are NOT NULL columns on `SoilLayer`, so the INSERT
+    raised a raw `IntegrityError` that crashed the ENTIRE upload with a 500, losing every
+    other (possibly correctly-parsed) layer in the same file too. Also noticed:
+    `n_value` came out as ~0.0155 for that same row -- physically impossible for a real SPT
+    N-value (these run 0-100+), strongly suggesting the column-detection heuristic in
+    `bh_log_parser.py` matched the wrong column entirely for this particular file's layout.
+    **Fixed defensively (`routers/lab_data.py`):** every parsed layer is now validated
+    (`from_m`/`to_m` both present, numeric, and `from_m < to_m`) BEFORE the DB insert --
+    a bad row is skipped with a specific warning naming the row and what was wrong,
+    instead of the raw DB error taking down the whole upload. If a borehole ends up with
+    zero usable layers, that's reported explicitly too rather than silently creating an
+    empty profile. **NOT yet fixed: the actual root cause in `bh_log_parser.py`'s column
+    detection for this file's specific layout** -- the defensive fix stops the crash and
+    protects other layers in the same upload, but this particular file will likely still
+    import with few/no usable layers (or wrong values that happen to pass validation,
+    like a plausible-looking but wrong N-value) until the real file is available to debug
+    against. Per this project's own repeated lesson (entries #37-#41 immediately above,
+    and the "never guess, get the actual reference" principle throughout this whole
+    project) -- guessing at a fix for a 400-line fuzzy-matching heuristic without the
+    actual failing file risks silently breaking one of the 6 real files it was already
+    verified against. **Whoever picks this up next: get `43+250.xlsm` (or whatever file
+    reproduces this) from Raahi first, reproduce locally, then fix bh_log_parser.py's
+    column detection for real.**
+
 ---
 
 ## How to give Raahi an update (workflow reminder for whoever's helping)

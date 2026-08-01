@@ -39,6 +39,7 @@ async def upload_lab_data(file: UploadFile = File(...), db: Session = Depends(ge
         raise HTTPException(500, f"Could not read the Excel file: {e}")
 
     created_profiles = []
+    extra_warnings = []
     for bh_id, data in parsed["boreholes"].items():
         profile = BoreholeProfile(
             borehole_id=bh_id,
@@ -54,8 +55,37 @@ async def upload_lab_data(file: UploadFile = File(...), db: Session = Depends(ge
         db.add(profile)
         db.flush()  # get profile.id before adding layers
 
-        for layer_data in data["layers"]:
+        # from_m/to_m are required (NOT NULL) columns -- any of the three
+        # parser tiers (template / office-format / universal fuzzy-match) can
+        # in principle mis-detect a sheet and hand back a layer missing one
+        # of these, which used to crash the ENTIRE upload with a raw DB
+        # IntegrityError (500) instead of failing gracefully. Skip just the
+        # bad row and tell the engineer exactly which one, rather than losing
+        # the whole borehole over one bad line.
+        good_layers = 0
+        for i, layer_data in enumerate(data["layers"]):
+            from_m, to_m = layer_data.get("from_m"), layer_data.get("to_m")
+            if not isinstance(from_m, (int, float)) or not isinstance(to_m, (int, float)):
+                extra_warnings.append(
+                    f"{bh_id}: row {i + 1} skipped -- couldn't read a valid From/To depth "
+                    f"(got From={from_m!r}, To={to_m!r}). Check this row in the source file."
+                )
+                continue
+            if from_m >= to_m:
+                extra_warnings.append(
+                    f"{bh_id}: row {i + 1} skipped -- From depth ({from_m}m) is not less than "
+                    f"To depth ({to_m}m)."
+                )
+                continue
             db.add(SoilLayer(borehole_id_fk=profile.id, **layer_data))
+            good_layers += 1
+
+        if good_layers == 0:
+            extra_warnings.append(
+                f"{bh_id}: NO usable layers found in this file -- borehole profile created empty. "
+                f"This usually means the auto-detect parser mis-read the sheet layout; try "
+                f"RaahiGeo's downloadable template for this file instead."
+            )
 
         created_profiles.append(profile)
 
@@ -66,7 +96,7 @@ async def upload_lab_data(file: UploadFile = File(...), db: Session = Depends(ge
     logger.info(f"[lab_data] Created {len(created_profiles)} borehole profile(s).")
     return {
         "created": [BoreholeProfileOut.model_validate(p).model_dump() for p in created_profiles],
-        "warnings": parsed["warnings"],
+        "warnings": parsed["warnings"] + extra_warnings,
     }
 
 
