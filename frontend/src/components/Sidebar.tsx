@@ -1,11 +1,12 @@
 import { useState } from 'react'
-import { NavLink } from 'react-router-dom'
+import { NavLink, Link } from 'react-router-dom'
 import {
   LayoutDashboard, MessageSquare, FolderKanban, BookOpen, ScrollText, Sigma,
   Calculator, ScanSearch, FileSearch, Layers3, FlaskConical, Mountain,
   FileText, History, Bookmark, Settings, ChevronsLeft, ChevronsRight,
-  Sun, Moon, Sparkles, LayoutGrid, Waves, Milestone, ArrowLeftRight,
+  Sun, Moon, LayoutGrid, Waves, Milestone, ArrowLeftRight,
 } from 'lucide-react'
+import Logo from './Logo'
 
 const NAV_SECTIONS: { label: string; items: { to: string; label: string; icon: any; end?: boolean; soon?: boolean }[] }[] = [
   {
@@ -61,14 +62,12 @@ export default function Sidebar({ dark, onToggleDark }: { dark: boolean; onToggl
   return (
     <aside className={`${collapsed ? 'w-[76px]' : 'w-64'} shrink-0 h-screen sticky top-0 flex flex-col border-r border-white/[0.06] bg-navy-900/80 backdrop-blur-xl transition-all duration-300 hidden md:flex`}>
       <div className="px-4 py-5 flex items-center gap-2.5 border-b border-white/[0.06]">
-        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-cyan-400 flex items-center justify-center shrink-0">
-          <Sparkles size={16} className="text-navy-950" />
-        </div>
+        <Logo variant="icon" size={collapsed ? 40 : 48} linkToHome />
         {!collapsed && (
-          <div className="min-w-0">
+          <Link to="/" className="min-w-0">
             <div className="font-display font-semibold text-[15px] leading-none text-slate-50 truncate">RaahiGeo</div>
-            <div className="text-[10px] text-slate-400 tracking-wider mt-1">ENGINEERING WORKSPACE</div>
-          </div>
+            <div className="text-[10px] text-slate-400 tracking-wider mt-1">GEOTECHNICAL ENGINEERING PLATFORM</div>
+          </Link>
         )}
       </div>
 

@@ -34,6 +34,11 @@ Hindi/English mix (Hinglish) — Raahi is not fluent in technical English jargon
 ## Live deployment
 
 - **Frontend:** https://geomind-ai-1.onrender.com (Render Static Site, root dir `frontend`)
+- **Custom domain:** raahigeo.in is now live (added 2 Aug 2026, per Raahi) -- **not yet confirmed**
+  whether it points at the frontend only or both services, and whether the backend's CORS
+  allowed-origins list has been updated to include it. If login or any API call from
+  raahigeo.in fails with a CORS error or "Failed to fetch", check this first (see playbook
+  #43 for a similar past dead-end with cross-checking the wrong Render service URL).
 - **Backend:** https://geomind-ai.onrender.com (Render Web Service, root dir `backend`)
 - **Backend health check:** `/api/health` — reports Gemini key status, DB type, vector store type
 - **Swagger/API docs:** https://geomind-ai.onrender.com/docs
@@ -213,8 +218,13 @@ reading the same data — one looks at the ground, the other sizes a foundation.
   specific gravity from a totally different soil type two layers away is less trustworthy
   than borrowing bulk density. Always check the `founding_layer` column and override
   anything that doesn't look right for the actual site.
-- No liquefaction calculator yet.
-- No pile capacity calculator yet.
+- ~~No liquefaction calculator yet~~ / ~~No pile capacity calculator yet~~ -- **stale, corrected
+  2 Aug 2026:** a codebase audit found `LiquefactionAnalysis.tsx`, `PileCapacity.tsx`, AND
+  `LateralCapacity.tsx` (the last one wasn't even mentioned in this doc before) all fully
+  built, routed in `App.tsx`/`Sidebar.tsx`, and backed by real endpoints
+  (`/api/calculators/liquefaction`, `/pile`, `/lateral` in `pile_calculator.py`/
+  `calculators.py`). This doc's Roadmap section below was not kept in sync with actual
+  code -- see the Roadmap correction note.
 - Batch Analysis settlement IS true multi-layer now (see debugging playbook #8) -- but the
   single Calculators.tsx page's standalone Settlement calculator still is NOT (playbook
   #11). Also: no submerged/buoyant unit weight adjustment anywhere yet when the water
@@ -249,16 +259,25 @@ foundation combinations, in ~1 hour instead of a full day. Phases:
    settlement SBC for every combination (cross-product, up to 400 at once) and returns a
    results table with the lowest-recommended "critical combination" called out. See
    "What's built" above for implementation details.
-4. **✅ BACKEND DONE (25 Jul 2026), NO FRONTEND YET — Liquefaction.** IRC:SP:114 / IS
+4. **✅ DONE — Liquefaction, Pile Capacity, AND Lateral Capacity.** IRC:SP:114 / IS
    1893:2016 simplified procedure (Seed-Idriss CSR, NCEER 1997 CRR curve fit,
    Idriss-Boulanger fines correction/Ksigma/MSF), `run_liquefaction_analysis()` in
    `calculators.py` + `POST /api/calculators/liquefaction` -- reads the SAME borehole/
    SoilLayer records already used for SBC batch analysis (Raahi's request: "isko bhi
    soil sheet se connect karna"). See debugging playbook #21 for the full build/audit
    notes and the one deliberate deviation from the source Excel (water-table-aware
-   effective stress). **Pile Capacity (IS 2911) is next, not started.**
+   effective stress). **Correction, 2 Aug 2026:** this item previously said "no frontend
+   yet" for Liquefaction and "Pile Capacity is next, not started" -- both were stale. A
+   codebase audit found `LiquefactionAnalysis.tsx`, `PileCapacity.tsx` (IS 2911, with a
+   natural-language command parser), and `LateralCapacity.tsx` all fully built, routed,
+   and backed by working endpoints (`pile_calculator.py`: `run_pile_capacity`,
+   `parse_pile_command`, `run_lateral_capacity`; routes `/api/calculators/pile` and
+   `/lateral`). All three are done. **If you're picking this up fresh, ask Raahi to
+   confirm current status rather than trusting this roadmap blindly** -- it has drifted
+   from actual code before.
 5. **Auto-report generation.** Combine borehole log chart + batch calculation results +
-   summary into one downloadable Word/PDF report.
+   summary into one downloadable Word/PDF report. **Still the next real open item**, as
+   far as this doc can tell after the 2 Aug 2026 audit above.
 
 If you're picking this up fresh: **ask Raahi which phase they're on** before assuming:
 they may have skipped ahead or asked for something adjacent (this has happened before —
@@ -1377,6 +1396,50 @@ scoped).
     back in with the password you already know, not an actual account takeover risk.
     Settings -> Account & Login has the button, separate from the regular single-device
     Logout button just above it.
+
+46. **Official logo + branding integrated across the app, 2 Aug 2026, per Raahi's uploaded
+    logo file (hexagon + "R" mark over soil layers, navy #0B2A5B / orange #F97316, wordmark
+    "RaahiGeo" + tagline "Geotechnical Engineering Platform").** What was done:
+    - Logo assets cropped from Raahi's source PNG (no recoloring/reproportioning) into
+      `frontend/public/brand/`: `logo-icon.png` (hexagon+R only, square, for header/sidebar/
+      favicon use) and `logo-full.png` (icon + wordmark + tagline, tightly cropped, for
+      Login page). Favicons generated at 16/32/48/180/512px into `brand/` plus standard-named
+      copies at the `public/` root (`favicon.ico`, `favicon-16x16.png`, `favicon-32x32.png`,
+      `apple-touch-icon.png`, `icon-512.png`) and a `manifest.json` for PWA installs.
+    - New shared `frontend/src/components/Logo.tsx` (`variant="icon"` or `"full"`, `size`,
+      `linkToHome`) -- use this everywhere instead of a raw `<img>` so the logo stays
+      consistent if it's ever swapped.
+    - `Sidebar.tsx`: real logo replaces the old gradient-sparkle placeholder box, top-left,
+      45px, linked to `/`. `MobileNav.tsx`: added a new fixed top mobile header (34px logo +
+      wordmark, was previously missing entirely -- mobile only had the bottom nav) --
+      `App.tsx`'s `<main>` got `pt-14 md:pt-0` to avoid content sitting under it.
+    - `Login.tsx`: centered full logo (110px wide) above the form, replacing the old lock-icon
+      + text lockup (wordmark/tagline are baked into the logo image itself, so no separate
+      text elements needed).
+    - `App.tsx`'s auth-check loading screen now shows the logo + "Loading RaahiGeo..." instead
+      of a bare spinner.
+    - New `Footer.tsx` ("© 2026 RaahiGeo. All Rights Reserved." / "Geotechnical Engineering
+      Platform"), rendered once at the end of `<main>` in `App.tsx` so it appears on every
+      route.
+    - `tailwind.config.js`: added `brand.navy` (#0B2A5B) / `brand.orange` (#F97316) as named
+      colors, additive alongside the existing dark navy/violet/cyan workspace palette --
+      **NOT a full re-theme.** Raahi's brief described a light navy/orange/white visual
+      theme throughout, but the app's current design is an intentional dark
+      navy/violet/cyan "engineering workspace" look (there's already a working light/dark
+      toggle -- see `html.light` rules in `index.css` -- built on that same dark-first
+      palette, not the brand colors). Converting every page's actual color scheme to
+      navy/orange/white is a much bigger, separate visual-redesign task that touches every
+      page and risks breaking the existing polish -- **not done here, flagged to Raahi to
+      confirm before attempting.**
+    - Verified with `tsc --ignoreConfig --noEmit --skipLibCheck --jsx react-jsx` on every
+      touched file -- only pre-existing `TS7026`/`TS2875` "no react/jsx-runtime" noise
+      (present on untouched files too, confirmed missing-`node_modules` artifact), zero
+      `TS1xxx` syntax errors.
+    - **Separately found while doing this (unrelated to branding):** this doc's Roadmap
+      section (item 4) was stale -- see that section's own correction note and the Known
+      Limitations correction above. `LiquefactionAnalysis.tsx`, `PileCapacity.tsx`, and
+      `LateralCapacity.tsx` are all already fully built + wired to real backend endpoints;
+      the doc previously said Liquefaction had no frontend and Pile Capacity hadn't started.
 
 ---
 

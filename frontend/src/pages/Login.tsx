@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { Lock, Mail, Loader2 } from 'lucide-react'
+import { Mail, Loader2 } from 'lucide-react'
 import { api } from '../api/client'
+import Logo from '../components/Logo'
 
 export default function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
   const [username, setUsername] = useState('')
@@ -32,9 +33,8 @@ export default function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-950 p-4">
       <div className="w-full max-w-sm">
-        <div className="flex items-center gap-2 justify-center mb-6">
-          <Lock size={22} className="text-violet-400" />
-          <h1 className="font-display text-xl font-semibold text-slate-50">RaahiGeo</h1>
+        <div className="flex flex-col items-center justify-center mb-8 gap-3">
+          <Logo variant="full" size={110} />
         </div>
 
         <form onSubmit={handleSubmit} className="glass p-6 space-y-4">

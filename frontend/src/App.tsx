@@ -3,6 +3,8 @@ import { HashRouter, Routes, Route } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
 import Sidebar from './components/Sidebar'
 import MobileNav from './components/MobileNav'
+import Footer from './components/Footer'
+import Logo from './components/Logo'
 import Login from './pages/Login'
 import { api } from './api/client'
 import Dashboard from './pages/Dashboard'
@@ -42,8 +44,12 @@ export default function App() {
 
   if (authState === 'checking') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-950">
-        <Loader2 size={20} className="animate-spin text-slate-500" />
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-navy-950">
+        <Logo variant="icon" size={64} />
+        <div className="flex items-center gap-2 text-slate-400 text-sm">
+          <Loader2 size={16} className="animate-spin" />
+          Loading RaahiGeo...
+        </div>
       </div>
     )
   }
@@ -56,7 +62,7 @@ export default function App() {
     <HashRouter>
       <div className="flex">
         <Sidebar dark={dark} onToggleDark={() => setDark((d) => !d)} />
-        <main className="flex-1 min-w-0 pb-16 md:pb-0">
+        <main className="flex-1 min-w-0 pt-14 pb-16 md:pt-0 md:pb-0">
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/chat" element={<Chat />} />
@@ -79,6 +85,7 @@ export default function App() {
             <Route path="/bookmarks" element={<Bookmarks />} />
             <Route path="/settings" element={<SettingsPage dark={dark} onToggleDark={() => setDark((d) => !d)} />} />
           </Routes>
+          <Footer />
         </main>
         <MobileNav />
       </div>

@@ -5,6 +5,13 @@ export default {
   theme: {
     extend: {
       colors: {
+        // Official RaahiGeo brand palette (logo colors) -- use `brand-navy` /
+        // `brand-orange` when building brand-consistent UI (header, buttons, links,
+        // active states) alongside the existing workspace palette below.
+        brand: {
+          navy: '#0B2A5B',
+          orange: '#F97316',
+        },
         // Premium engineering-workspace palette: deep navy base, slate surfaces,
         // purple + cyan dual accent (purple = AI/intelligence, cyan = data/precision).
         navy: {

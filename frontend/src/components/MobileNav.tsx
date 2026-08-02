@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router-dom'
 import { LayoutDashboard, BookOpen, Calculator, History, MessageSquare } from 'lucide-react'
+import Logo from './Logo'
 
 const ITEMS = [
   { to: '/', label: 'Home', icon: LayoutDashboard, end: true },
@@ -11,6 +12,12 @@ const ITEMS = [
 export default function MobileNav() {
   return (
     <>
+      {/* Mobile top header */}
+      <header className="md:hidden fixed top-0 left-0 right-0 z-30 flex items-center gap-2 px-4 py-2.5 bg-navy-900/90 backdrop-blur-xl border-b border-white/[0.06]">
+        <Logo variant="icon" size={34} linkToHome />
+        <span className="font-display font-semibold text-[14px] text-slate-50">RaahiGeo</span>
+      </header>
+
       {/* Floating AI button */}
       <NavLink
         to="/chat"
