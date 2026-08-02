@@ -3,8 +3,9 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.config import settings, logger
-from app.database import Base, engine
-from app.routers import chat, documents, search, calculators, reports, clause_finder, history, lab_data
+from app.database import Base, engine, SessionLocal
+from app.routers import chat, documents, search, calculators, reports, clause_finder, history, lab_data, auth as auth_router
+from app import auth as auth_service
 
 logger.info("Booting RaahiGeo backend...")
 
@@ -28,6 +29,14 @@ try:
                 logger.info(f"Migration: added {table}.{column}")
             except Exception:
                 conn.rollback()  # column already exists (or table is brand new from create_all) -- fine
+
+    # Seed the single shared login credential if this is a fresh database --
+    # no-op if one already exists. See app/auth.py for the default/env vars.
+    _seed_db = SessionLocal()
+    try:
+        auth_service.ensure_default_credential(_seed_db)
+    finally:
+        _seed_db.close()
 except Exception:
     logger.exception("Failed to initialize SQLite database")
     raise
@@ -48,6 +57,15 @@ app.add_middleware(
 )
 
 
+# Paths that work WITHOUT a login -- everything else under /api/ requires a
+# valid session token. Kept to the smallest possible list on purpose (Raahi
+# asked for the WHOLE site locked, not just some pages) -- login itself and
+# the health check (which Render/uptime tools may hit) are the only two
+# genuine exceptions; CORS preflight (OPTIONS) is not a real request and
+# must always pass through or the browser can't even attempt the real one.
+PUBLIC_PATHS = {"/api/auth/login", "/api/health"}
+
+
 @app.middleware("http")
 async def log_and_catch_exceptions(request: Request, call_next):
     """
@@ -57,8 +75,30 @@ async def log_and_catch_exceptions(request: Request, call_next):
     error from the client. This logs the full traceback server-side (visible
     in Render -> Logs) and returns the exception message in the JSON body so
     it's debuggable from Swagger/curl without needing log access at all.
+
+    Also enforces the single shared login for every request under /api/
+    except PUBLIC_PATHS -- see auth.py/routers/auth.py. Checking it here
+    (one place, every request already passes through this) is simpler than
+    adding a Depends() to every individual router.
     """
     logger.info(f"--> {request.method} {request.url.path}")
+
+    if (
+        request.method != "OPTIONS"
+        and request.url.path not in PUBLIC_PATHS
+        and (request.url.path.startswith("/api/") or request.url.path in ("/docs", "/redoc", "/openapi.json"))
+    ):
+        authorization = request.headers.get("authorization")
+        token = authorization[len("Bearer "):].strip() if authorization and authorization.startswith("Bearer ") else None
+        db = SessionLocal()
+        try:
+            authed = auth_service.validate_session(db, token)
+        finally:
+            db.close()
+        if not authed:
+            logger.info(f"<-- {request.method} {request.url.path} 401 (no/invalid session)")
+            return JSONResponse(status_code=401, content={"detail": "Not authenticated."})
+
     try:
         response = await call_next(request)
         logger.info(f"<-- {request.method} {request.url.path} {response.status_code}")
@@ -75,6 +115,7 @@ async def log_and_catch_exceptions(request: Request, call_next):
         )
 
 
+app.include_router(auth_router.router)
 app.include_router(chat.router)
 app.include_router(documents.router)
 app.include_router(search.router)

@@ -1306,12 +1306,67 @@ scoped).
     the source rather than silently trust it.
     Verified with a synthetic single-"Depth (m)"-column workbook (5 rows, 1.5m steps):
     output layers came out as clean continuous 0.0-1.5, 1.5-3.0, 3.0-4.5m ranges with the
-    expected warning. **Not yet verified against the real `43+250.xlsm` file itself** --
-    Raahi should re-try that exact upload and confirm the layer count/depths look right
-    before treating this as fully closed; the diagnosis is strong (the warning pattern left
-    little room for another explanation) but "strong diagnosis from symptoms" is still a
-    notch below "verified against the actual file," and this project's own standard is the
-    latter.
+    expected warning. **RESOLVED same day:** Raahi shared the actual `43+250.xlsm` file --
+    tested directly against it (not just the synthetic case): parses cleanly in ~9.3s, no
+    crash, no timeout. BH-01 came out as 21 real from/to layers (not synthesized -- this
+    sheet DOES have a proper From/To pair); GSA-BH-01 came out as 19 synthesized layers
+    (this one IS the single-"Depth"-column case the fix targets) -- confirming the earlier
+    diagnosis was correct. **New, separate (non-crashing) issue found while verifying:**
+    GSA-BH-01's matched "N Value" column reads out as ~0.015 for every row -- physically
+    impossible for a real SPT N-value (0-100+ range) -- strongly suggesting that sheet is
+    actually a Grain Size Analysis table (hence "GSA") and some %-passing/fraction column is
+    being mismatched onto n_value, not a real SPT log at all. Not fixed -- flagged to Raahi
+    to manually verify/ignore N-values from that specific sheet for now; a GSA-vs-SPT sheet
+    classifier is a separate, future fix if this recurs on other files.
+    Separately, the SAME session also chased down an unrelated red herring: an early
+    "Failed to fetch" was actually Render's free-tier cold start (first request after 15min
+    idle can take 50+ seconds) combined with checking `/api/health` on the wrong Render
+    service URL (the frontend's domain, not the backend's -- they're two separate Render
+    services, `geomind-ai-1` vs `geomind-ai`) -- not a real bug, just a diagnosis dead-end
+    worth remembering before assuming every "Failed to fetch" is a code problem.
+
+44. **Login added, 1 Aug 2026, per Raahi's explicit request -- single shared username/
+    password protecting the ENTIRE site (API + docs), not per-user accounts.** New:
+    - `AppCredential` (singleton row, pbkdf2_hmac password hash, stdlib only -- no new
+      dependency) and `AuthSession` (opaque server-side token, not a JWT, so any session can
+      be trivially revoked -- e.g. every session is revoked on a credential change) in
+      `models.py`. `app/auth.py` has the hashing/session logic; `routers/auth.py` exposes
+      `/api/auth/login`, `/logout`, `/me`, `/change-credentials`.
+    - `main.py`'s existing request-logging middleware now ALSO enforces the session token
+      (`Authorization: Bearer <token>`) on every request under `/api/` plus `/docs`/`/redoc`/
+      `/openapi.json` -- except `/api/auth/login` and `/api/health` themselves, and CORS
+      preflight (OPTIONS). One place, not a `Depends()` added to every router.
+    - **First-run default credential** (seeded automatically if the `app_credentials` table
+      is empty): username `raahi`, password `raahigeo2026` -- overridable via
+      `INITIAL_ADMIN_USERNAME`/`INITIAL_ADMIN_PASSWORD` env vars, but the default only
+      matters for the very first login. **Raahi must change this immediately after first
+      deploy** (Settings -> Account & Login).
+    - **Per Raahi's explicit follow-up ("sirf main change kar saku, koi nahi"):** changing
+      the credentials requires a SECOND secret beyond just being logged in -- `OWNER_PIN`,
+      set only in Render's Environment tab (never in git, never sent to the frontend by
+      default, default placeholder `raahi-owner-2026` that Raahi should override). This
+      means even someone who somehow obtained the shared login password still can't change
+      it (and lock Raahi out) without also knowing this separate PIN.
+    - **Per Raahi's explicit follow-up (access requests):** rather than building real email-
+      sending (SMTP credentials, deliverability risk, a new dependency, for a low-volume
+      need), the Login page has a `mailto:raahigeo@gmail.com` link with a pre-filled subject/
+      body -- opens the visitor's own mail client. Zero backend work, zero new secrets.
+    - Frontend: `pages/Login.tsx` (new), `App.tsx` gates the whole app behind a token check
+      (calls `/api/auth/me` on load; shows Login if that fails or no token exists),
+      `api/client.ts` attaches the token to every request (including the three raw
+      `fetch()` calls that bypass the shared `request()` helper -- document/lab-data
+      upload and template download) and clears the token + reloads to Login on any 401,
+      `SettingsPage.tsx` has the change-credentials form (current password + Owner PIN +
+      new username + new password) and a Logout button.
+    - **Not run through a real FastAPI/SQLAlchemy test** -- the sandbox this was built in
+      doesn't have those packages installed and there's no network to add them. The pure
+      password hash/verify logic (`hashlib.pbkdf2_hmac`, no DB needed) WAS tested in
+      isolation and is correct; every touched file passed a Python/structural compile
+      check. The actual login flow (seed -> login -> protected route -> change credentials
+      -> old session revoked) has NOT been exercised end-to-end anywhere yet -- **first
+      real login after deploying this is the real test**, same as any other change to this
+      project. If it doesn't work, check Render logs for a traceback first, same playbook
+      as every other bug in this file.
 
 ---
 

@@ -146,6 +146,18 @@ class PileCommandRequest(BaseModel):
     borehole_id: str | None = None
 
 
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class ChangeCredentialsRequest(BaseModel):
+    current_password: str
+    owner_pin: str
+    new_username: str
+    new_password: str
+
+
 class ReportSectionRequest(BaseModel):
     section_type: str
     project_inputs: dict

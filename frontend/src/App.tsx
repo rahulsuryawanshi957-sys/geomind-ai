@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react'
 import { HashRouter, Routes, Route } from 'react-router-dom'
+import { Loader2 } from 'lucide-react'
 import Sidebar from './components/Sidebar'
 import MobileNav from './components/MobileNav'
+import Login from './pages/Login'
+import { api } from './api/client'
 import Dashboard from './pages/Dashboard'
 import Chat from './pages/Chat'
 import Books from './pages/Books'
@@ -25,8 +28,29 @@ import PdfChat from './pages/planned/PdfChat'
 
 export default function App() {
   const [dark, setDark] = useState(true)
+  // 'checking' avoids a Login-screen flash while we verify a token that's
+  // already in localStorage; 'in'/'out' are the settled states.
+  const [authState, setAuthState] = useState<'checking' | 'in' | 'out'>('checking')
 
   useEffect(() => { document.documentElement.classList.toggle('light', !dark) }, [dark])
+
+  useEffect(() => {
+    const token = localStorage.getItem('raahigeo_auth_token')
+    if (!token) { setAuthState('out'); return }
+    api.me().then(() => setAuthState('in')).catch(() => setAuthState('out'))
+  }, [])
+
+  if (authState === 'checking') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-950">
+        <Loader2 size={20} className="animate-spin text-slate-500" />
+      </div>
+    )
+  }
+
+  if (authState === 'out') {
+    return <Login onLoggedIn={() => setAuthState('in')} />
+  }
 
   return (
     <HashRouter>

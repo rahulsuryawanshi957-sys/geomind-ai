@@ -1,10 +1,24 @@
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
+function authHeaders(): Record<string, string> {
+  const token = localStorage.getItem('raahigeo_auth_token')
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
+// A 401 means the session is gone (expired, or credentials were changed
+// elsewhere) -- clear the stale token and reload, which sends the user back
+// to the Login screen (App.tsx gates on token presence).
+function handleUnauthorized() {
+  localStorage.removeItem('raahigeo_auth_token')
+  window.location.reload()
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     ...options,
   })
+  if (res.status === 401) { handleUnauthorized(); throw new Error('Not authenticated.') }
   if (!res.ok) {
     const body = await res.text()
     throw new Error(`API error ${res.status}: ${body}`)
@@ -22,9 +36,10 @@ export type ChatStreamEvent =
 // progressively instead of waiting for the whole answer.
 async function* streamRequest(path: string, options: RequestInit = {}): AsyncGenerator<ChatStreamEvent> {
   const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     ...options,
   })
+  if (res.status === 401) { handleUnauthorized(); throw new Error('Not authenticated.') }
   if (!res.ok || !res.body) {
     const body = res.body ? await res.text() : ''
     throw new Error(`API error ${res.status}: ${body}`)
@@ -74,7 +89,8 @@ export const api = {
     const form = new FormData()
     form.append('file', file)
     form.append('category', category)
-    const res = await fetch(`${BASE_URL}/api/documents/upload`, { method: 'POST', body: form })
+    const res = await fetch(`${BASE_URL}/api/documents/upload`, { method: 'POST', body: form, headers: authHeaders() })
+    if (res.status === 401) { handleUnauthorized(); throw new Error('Not authenticated.') }
     if (!res.ok) throw new Error(await res.text())
     return res.json()
   },
@@ -143,7 +159,8 @@ export const api = {
   deleteConversation: (id: string) => request(`/api/history/conversations/${id}`, { method: 'DELETE' }),
 
   downloadLabDataTemplate: async () => {
-    const res = await fetch(`${BASE_URL}/api/lab-data/template`)
+    const res = await fetch(`${BASE_URL}/api/lab-data/template`, { headers: authHeaders() })
+    if (res.status === 401) { handleUnauthorized(); throw new Error('Not authenticated.') }
     if (!res.ok) throw new Error(await res.text())
     const blob = await res.blob()
     const url = URL.createObjectURL(blob)
@@ -153,7 +170,8 @@ export const api = {
   uploadLabData: async (file: File) => {
     const form = new FormData()
     form.append('file', file)
-    const res = await fetch(`${BASE_URL}/api/lab-data/upload`, { method: 'POST', body: form })
+    const res = await fetch(`${BASE_URL}/api/lab-data/upload`, { method: 'POST', body: form, headers: authHeaders() })
+    if (res.status === 401) { handleUnauthorized(); throw new Error('Not authenticated.') }
     if (!res.ok) throw new Error(await res.text())
     return res.json()
   },
@@ -161,4 +179,14 @@ export const api = {
   listBoreholes: () => request<any[]>('/api/lab-data'),
   getBorehole: (id: string) => request<any>(`/api/lab-data/${id}`),
   deleteBorehole: (id: string) => request(`/api/lab-data/${id}`, { method: 'DELETE' }),
+
+  login: (username: string, password: string) =>
+    request<{ token: string }>('/api/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
+
+  logout: () => request<{ ok: boolean }>('/api/auth/logout', { method: 'POST' }),
+
+  me: () => request<{ username: string }>('/api/auth/me'),
+
+  changeCredentials: (payload: { current_password: string; owner_pin: string; new_username: string; new_password: string }) =>
+    request<{ ok: boolean; token: string }>('/api/auth/change-credentials', { method: 'POST', body: JSON.stringify(payload) }),
 }

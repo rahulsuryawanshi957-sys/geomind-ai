@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Settings as SettingsIcon, Download, Upload, WifiOff } from 'lucide-react'
+import { Settings as SettingsIcon, Download, Upload, WifiOff, Lock, LogOut, Loader2 } from 'lucide-react'
+import { api } from '../api/client'
 
 const UNIT_SYSTEMS = ['SI (kN, kPa, m)', 'Imperial (lb, psf, ft)']
 
@@ -7,11 +8,50 @@ export default function SettingsPage({ dark, onToggleDark }: { dark: boolean; on
   const [units, setUnits] = useState(UNIT_SYSTEMS[0])
   const [engineeringModeDefault, setEngineeringModeDefault] = useState(true)
 
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [ownerPin, setOwnerPin] = useState('')
+  const [newUsername, setNewUsername] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [credSaving, setCredSaving] = useState(false)
+  const [credError, setCredError] = useState('')
+  const [credSuccess, setCredSuccess] = useState(false)
+
   function exportLocalData() {
     const saved = localStorage.getItem('raahigeo_saved_calculations') || '[]'
     const blob = new Blob([saved], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a'); a.href = url; a.download = 'raahigeo-saved-calculations.json'; a.click()
+  }
+
+  async function handleChangeCredentials(e: React.FormEvent) {
+    e.preventDefault()
+    setCredError(''); setCredSuccess(false)
+    if (!currentPassword || !ownerPin || !newUsername || !newPassword) {
+      setCredError('Fill in all fields.'); return
+    }
+    if (newPassword.length < 6) {
+      setCredError('New password must be at least 6 characters.'); return
+    }
+    setCredSaving(true)
+    try {
+      const { token } = await api.changeCredentials({
+        current_password: currentPassword, owner_pin: ownerPin,
+        new_username: newUsername, new_password: newPassword,
+      })
+      localStorage.setItem('raahigeo_auth_token', token)
+      setCredSuccess(true)
+      setCurrentPassword(''); setOwnerPin(''); setNewUsername(''); setNewPassword('')
+    } catch (err: any) {
+      setCredError(err.message?.includes('Owner PIN') ? 'Owner PIN is incorrect.' : err.message?.includes('400') ? 'Current password is incorrect.' : 'Could not change credentials.')
+    } finally {
+      setCredSaving(false)
+    }
+  }
+
+  async function handleLogout() {
+    try { await api.logout() } catch {}
+    localStorage.removeItem('raahigeo_auth_token')
+    window.location.reload()
   }
 
   return (
@@ -58,6 +98,41 @@ export default function SettingsPage({ dark, onToggleDark }: { dark: boolean; on
           <button onClick={exportLocalData} className="gm-btn-secondary flex items-center gap-2 text-xs"><Download size={13} /> Export saved calculations</button>
           <button disabled className="gm-btn-secondary flex items-center gap-2 text-xs opacity-50 cursor-not-allowed" title="Coming soon"><Upload size={13} /> Import backup</button>
           <button disabled className="gm-btn-secondary flex items-center gap-2 text-xs opacity-50 cursor-not-allowed" title="Coming soon"><WifiOff size={13} /> Offline mode</button>
+        </div>
+      </div>
+
+      <div className="glass p-5 mt-4 space-y-4">
+        <div className="flex items-center gap-2 text-sm text-slate-200 font-medium"><Lock size={15} className="text-violet-400" /> Account & Login</div>
+
+        <form onSubmit={handleChangeCredentials} className="space-y-3">
+          <div>
+            <label className="text-xs text-slate-400 mb-1 block">Current password</label>
+            <input type="password" className="gm-input w-full" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} />
+          </div>
+          <div>
+            <label className="text-xs text-slate-400 mb-1 block">Owner PIN</label>
+            <input type="password" className="gm-input w-full" value={ownerPin} onChange={(e) => setOwnerPin(e.target.value)} />
+            <div className="text-[11px] text-slate-500 mt-1">Set in Render's Environment tab (OWNER_PIN) — separate from your login password, only you should know it.</div>
+          </div>
+          <div>
+            <label className="text-xs text-slate-400 mb-1 block">New username</label>
+            <input className="gm-input w-full" value={newUsername} onChange={(e) => setNewUsername(e.target.value)} autoCapitalize="none" />
+          </div>
+          <div>
+            <label className="text-xs text-slate-400 mb-1 block">New password</label>
+            <input type="password" className="gm-input w-full" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+          </div>
+
+          {credError && <div className="text-xs text-rose-400">{credError}</div>}
+          {credSuccess && <div className="text-xs text-emerald-400">Login credentials updated. Other open sessions were logged out.</div>}
+
+          <button type="submit" disabled={credSaving} className="gm-btn-primary text-xs flex items-center gap-2">
+            {credSaving ? <><Loader2 size={13} className="animate-spin" /> Saving...</> : 'Update login credentials'}
+          </button>
+        </form>
+
+        <div className="pt-3 border-t border-white/[0.06]">
+          <button onClick={handleLogout} className="gm-btn-secondary flex items-center gap-2 text-xs text-rose-400"><LogOut size={13} /> Log out</button>
         </div>
       </div>
     </div>

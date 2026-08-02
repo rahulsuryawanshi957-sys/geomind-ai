@@ -128,3 +128,33 @@ class SoilLayer(Base):
     ucs_kg_cm2 = Column(Float, nullable=True)              # Unconfined Compressive Strength
 
     borehole = relationship("BoreholeProfile", back_populates="layers")
+
+
+class AppCredential(Base):
+    """
+    Single shared login for the whole app (not per-user accounts -- one
+    username/password Raahi uses, changeable from Settings). Singleton row
+    (id=1). Password is never stored in plain text -- see app/auth.py.
+    """
+    __tablename__ = "app_credentials"
+
+    id = Column(Integer, primary_key=True, default=1)
+    username = Column(String, nullable=False)
+    password_hash = Column(String, nullable=False)
+    password_salt = Column(String, nullable=False)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+
+class AuthSession(Base):
+    """
+    An opaque, server-side session token (not a JWT -- simpler to revoke,
+    and this app has exactly one credential to protect, so there's no need
+    for JWT's stateless-verification benefit). Frontend sends this back as
+    `Authorization: Bearer <token>` on every request; main.py's auth
+    middleware checks it against this table.
+    """
+    __tablename__ = "auth_sessions"
+
+    token = Column(String, primary_key=True, default=gen_id)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)

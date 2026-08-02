@@ -77,6 +77,15 @@ class Settings(BaseSettings):
         "https://geomind-ai-1.onrender.com,http://localhost:5173,http://localhost:3000",
     )
 
+    # A second secret, separate from the login password, required specifically
+    # to CHANGE the login credentials (see routers/auth.py change_credentials).
+    # Set this in Render's Environment tab -- never in git, never sent to the
+    # frontend by default. The point: even someone who is logged in (knows the
+    # shared password) can't change it to lock Raahi out without also knowing
+    # this. Default below is a placeholder Raahi should override immediately;
+    # it isn't a secret in this file, only the env var value is.
+    owner_pin: str = os.environ.get("OWNER_PIN", "raahi-owner-2026")
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property
