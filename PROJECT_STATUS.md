@@ -1368,6 +1368,16 @@ scoped).
       project. If it doesn't work, check Render logs for a traceback first, same playbook
       as every other bug in this file.
 
+45. **"Log out from all devices" added, 1 Aug 2026, per Raahi's follow-up question.** New
+    `POST /api/auth/logout-all` -- revokes every open session (any device/browser), then
+    issues the CALLER a fresh one so they don't lock themselves out in the process (the
+    point is removing OTHER access, e.g. if Raahi suspects someone else has the login, not
+    logging Raahi out too). Only requires being logged in already -- no Owner PIN needed
+    (unlike changing credentials), since the worst case of misuse is just having to log
+    back in with the password you already know, not an actual account takeover risk.
+    Settings -> Account & Login has the button, separate from the regular single-device
+    Logout button just above it.
+
 ---
 
 ## How to give Raahi an update (workflow reminder for whoever's helping)

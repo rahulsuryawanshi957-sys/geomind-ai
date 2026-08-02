@@ -185,6 +185,8 @@ export const api = {
 
   logout: () => request<{ ok: boolean }>('/api/auth/logout', { method: 'POST' }),
 
+  logoutAllDevices: () => request<{ ok: boolean; token: string }>('/api/auth/logout-all', { method: 'POST' }),
+
   me: () => request<{ username: string }>('/api/auth/me'),
 
   changeCredentials: (payload: { current_password: string; owner_pin: string; new_username: string; new_password: string }) =>

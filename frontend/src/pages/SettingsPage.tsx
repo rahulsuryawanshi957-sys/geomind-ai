@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Settings as SettingsIcon, Download, Upload, WifiOff, Lock, LogOut, Loader2 } from 'lucide-react'
+import { Settings as SettingsIcon, Download, Upload, WifiOff, Lock, LogOut, Loader2, ShieldAlert } from 'lucide-react'
 import { api } from '../api/client'
 
 const UNIT_SYSTEMS = ['SI (kN, kPa, m)', 'Imperial (lb, psf, ft)']
@@ -48,10 +48,27 @@ export default function SettingsPage({ dark, onToggleDark }: { dark: boolean; on
     }
   }
 
+  const [loggingOutAll, setLoggingOutAll] = useState(false)
+  const [loggedOutAllMsg, setLoggedOutAllMsg] = useState(false)
+
   async function handleLogout() {
     try { await api.logout() } catch {}
     localStorage.removeItem('raahigeo_auth_token')
     window.location.reload()
+  }
+
+  async function handleLogoutAllDevices() {
+    setLoggingOutAll(true)
+    setLoggedOutAllMsg(false)
+    try {
+      const { token } = await api.logoutAllDevices()
+      localStorage.setItem('raahigeo_auth_token', token)
+      setLoggedOutAllMsg(true)
+    } catch {
+      // ignore -- if this fails the user is still logged in as before
+    } finally {
+      setLoggingOutAll(false)
+    }
   }
 
   return (
@@ -131,8 +148,15 @@ export default function SettingsPage({ dark, onToggleDark }: { dark: boolean; on
           </button>
         </form>
 
-        <div className="pt-3 border-t border-white/[0.06]">
+        <div className="pt-3 border-t border-white/[0.06] space-y-2">
           <button onClick={handleLogout} className="gm-btn-secondary flex items-center gap-2 text-xs text-rose-400"><LogOut size={13} /> Log out</button>
+          <div>
+            <button onClick={handleLogoutAllDevices} disabled={loggingOutAll} className="gm-btn-secondary flex items-center gap-2 text-xs text-rose-400">
+              {loggingOutAll ? <><Loader2 size={13} className="animate-spin" /> Logging out everywhere...</> : <><ShieldAlert size={13} /> Log out from all devices</>}
+            </button>
+            <div className="text-[11px] text-slate-500 mt-1">Kicks out every other logged-in session everywhere. You stay logged in here.</div>
+            {loggedOutAllMsg && <div className="text-xs text-emerald-400 mt-1">Done -- every other session has been logged out.</div>}
+          </div>
         </div>
       </div>
     </div>

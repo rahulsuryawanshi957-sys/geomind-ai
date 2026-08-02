@@ -53,6 +53,20 @@ def me(authorization: str | None = Header(default=None), db: Session = Depends(g
     return {"username": cred.username if cred else None}
 
 
+@router.post("/logout-all")
+def logout_all(authorization: str | None = Header(default=None), db: Session = Depends(get_db)):
+    """Kicks out every logged-in session on every device/browser -- e.g. if
+    Raahi suspects someone else has the login. The CALLER stays logged in
+    (gets a fresh token back) since the point is removing OTHER access, not
+    also logging yourself out."""
+    token = _extract_token(authorization)
+    if not auth_service.validate_session(db, token):
+        raise HTTPException(401, "Not authenticated.")
+    auth_service.revoke_all_sessions(db)
+    new_token = auth_service.create_session(db)
+    return {"ok": True, "token": new_token}
+
+
 @router.post("/change-credentials")
 def change_credentials(
     req: ChangeCredentialsRequest,
