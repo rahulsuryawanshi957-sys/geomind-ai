@@ -14,27 +14,44 @@ export default {
         },
         // Premium engineering-workspace palette: deep navy base, slate surfaces,
         // purple + cyan dual accent (purple = AI/intelligence, cyan = data/precision).
+        // NOTE (2 Aug 2026): every shade below is now a CSS variable
+        // (`rgb(var(--x) / <alpha-value>)`), NOT a fixed hex. This is deliberate --
+        // it lets ONE CSS block (see `html.light` in index.css) re-skin every page in
+        // the app to the light navy/orange brand theme, since every page already uses
+        // these exact class names (bg-navy-900, text-slate-400, from-violet-500, etc.)
+        // without editing each page file individually. Do not change these back to
+        // plain hex strings -- that would silently break the light-theme override.
         navy: {
-          950: '#05070D',
-          900: '#0A0E1A',
-          850: '#0F1424',
-          800: '#141A2E',
-          700: '#1C2440',
-          600: '#28325A',
+          950: 'rgb(var(--navy-950) / <alpha-value>)',
+          900: 'rgb(var(--navy-900) / <alpha-value>)',
+          850: 'rgb(var(--navy-850) / <alpha-value>)',
+          800: 'rgb(var(--navy-800) / <alpha-value>)',
+          700: 'rgb(var(--navy-700) / <alpha-value>)',
+          600: 'rgb(var(--navy-600) / <alpha-value>)',
         },
         slate: {
-          400: '#8B93A8',
-          300: '#AEB4C7',
+          50: 'rgb(var(--slate-50) / <alpha-value>)',
+          100: 'rgb(var(--slate-100) / <alpha-value>)',
+          200: 'rgb(var(--slate-200) / <alpha-value>)',
+          300: 'rgb(var(--slate-300) / <alpha-value>)',
+          400: 'rgb(var(--slate-400) / <alpha-value>)',
+          500: 'rgb(var(--slate-500) / <alpha-value>)',
+          600: 'rgb(var(--slate-600) / <alpha-value>)',
+          800: 'rgb(var(--slate-800) / <alpha-value>)',
+          900: 'rgb(var(--slate-900) / <alpha-value>)',
+          950: 'rgb(var(--slate-950) / <alpha-value>)',
         },
         violet: {
-          400: '#A78BFA',
-          500: '#8B5CF6',
-          600: '#7C3AED',
+          300: 'rgb(var(--violet-300) / <alpha-value>)',
+          400: 'rgb(var(--violet-400) / <alpha-value>)',
+          500: 'rgb(var(--violet-500) / <alpha-value>)',
+          600: 'rgb(var(--violet-600) / <alpha-value>)',
+          700: 'rgb(var(--violet-700) / <alpha-value>)',
         },
         cyan: {
-          300: '#67E8F9',
-          400: '#22D3EE',
-          500: '#06B6D4',
+          300: 'rgb(var(--cyan-300) / <alpha-value>)',
+          400: 'rgb(var(--cyan-400) / <alpha-value>)',
+          500: 'rgb(var(--cyan-500) / <alpha-value>)',
         },
       },
       fontFamily: {

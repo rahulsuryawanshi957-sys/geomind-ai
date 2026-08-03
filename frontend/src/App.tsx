@@ -29,7 +29,7 @@ import Bookmarks from './pages/planned/Bookmarks'
 import PdfChat from './pages/planned/PdfChat'
 
 export default function App() {
-  const [dark, setDark] = useState(true)
+  const [dark, setDark] = useState(false)
   // 'checking' avoids a Login-screen flash while we verify a token that's
   // already in localStorage; 'in'/'out' are the settled states.
   const [authState, setAuthState] = useState<'checking' | 'in' | 'out'>('checking')

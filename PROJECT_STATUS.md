@@ -34,11 +34,14 @@ Hindi/English mix (Hinglish) — Raahi is not fluent in technical English jargon
 ## Live deployment
 
 - **Frontend:** https://geomind-ai-1.onrender.com (Render Static Site, root dir `frontend`)
-- **Custom domain:** raahigeo.in is now live (added 2 Aug 2026, per Raahi) -- **not yet confirmed**
-  whether it points at the frontend only or both services, and whether the backend's CORS
-  allowed-origins list has been updated to include it. If login or any API call from
-  raahigeo.in fails with a CORS error or "Failed to fetch", check this first (see playbook
-  #43 for a similar past dead-end with cross-checking the wrong Render service URL).
+- **Custom domain:** raahigeo.in is now live (added 2 Aug 2026, per Raahi). Raahi says it
+  points at **both frontend and backend** -- but one domain can't directly point at two
+  separate Render services without subdomains (e.g. `api.raahigeo.in` for the backend); this
+  hasn't been confirmed yet (asked Raahi for a screenshot of the Render custom-domain
+  settings, not yet received). **Still unconfirmed:** whether the backend's CORS
+  allowed-origins list includes whatever domain(s) are actually in play. If login or any API
+  call from raahigeo.in fails with a CORS error or "Failed to fetch", check this first (see
+  playbook #43 for a similar past dead-end with cross-checking the wrong Render service URL).
 - **Backend:** https://geomind-ai.onrender.com (Render Web Service, root dir `backend`)
 - **Backend health check:** `/api/health` — reports Gemini key status, DB type, vector store type
 - **Swagger/API docs:** https://geomind-ai.onrender.com/docs
@@ -1440,6 +1443,57 @@ scoped).
       Limitations correction above. `LiquefactionAnalysis.tsx`, `PileCapacity.tsx`, and
       `LateralCapacity.tsx` are all already fully built + wired to real backend endpoints;
       the doc previously said Liquefaction had no frontend and Pile Capacity hadn't started.
+
+---
+
+47. **Full app-wide light/brand theme (navy #0B2A5B / orange #F97316 / white), 2 Aug 2026,
+    per Raahi's explicit follow-up ("professional geotechnical wala lage") after entry #46's
+    logo-only pass.** The app previously had ONE fixed visual design (dark navy/violet/cyan
+    "engineering workspace"), with only a couple of components (`.glass`, `.gm-input`, body
+    bg) having a real `html.light` override wired to the existing dark/light toggle button --
+    everything else (~20 pages) used raw dark-mode Tailwind classes with no light variant.
+    Rewriting every page's JSX classes individually would've meant touching ~20 files with
+    high risk of missed spots and copy/paste-into-Termux friction. **Instead, did this the
+    low-risk way:** every `navy-*`/`slate-*`/`violet-*`/`cyan-*` shade in `tailwind.config.js`
+    was converted from a fixed hex to a CSS variable (`rgb(var(--x) / <alpha-value>)`), and
+    `index.css` now defines two full variable sets: `:root` (the original dark values,
+    unchanged) and `html.light` (new brand values -- white/near-white surfaces, brand-navy
+    text hierarchy, and violet→orange / cyan→navy-blue accent remapping). Because every page
+    already used these exact class names, this re-skins the ENTIRE app -- Dashboard,
+    Calculators, Batch Analysis, Liquefaction, Pile Capacity (including its raw
+    `bg-slate-900`/`border-slate-800` inputs, a pre-existing inconsistency in that one page --
+    `slate-800/900/950` were added to the CSS-variable conversion specifically to catch it),
+    Reports, Login, everywhere -- **without editing per-page JSX at all.**
+    - `bg-white/[x]` / `border-white/[x]` / `hover:bg-white/[x]` / `hover:text-white` /
+      `divide-white/[x]` were used everywhere as a "translucent overlay on a dark surface"
+      pattern; on a white page those are invisible, so `index.css` adds substring
+      attribute-selectors (`html.light [class*="bg-white/"]` etc.) that catch every one of
+      these across every page/component and re-tint them navy instead, again with no
+      per-file edits.
+    - `.shadow-glow`/`.shadow-glow-cyan` (hardcoded violet/cyan rgba shadows) and
+      `::selection` got explicit `html.light` overrides since they don't go through the
+      variable system.
+    - **App now defaults to the light/brand theme** (`App.tsx`: `useState(false)` for
+      `dark`, was `true`) and `index.html` sets `<html class="light">` + `<body
+      class="bg-white">` directly so there's no dark-theme flash before React mounts. The
+      existing Sun/Moon toggle (Sidebar + Settings) still fully works to switch back to the
+      original dark workspace look -- **this was additive, the dark theme was not deleted.**
+    - **Known minor cosmetic quirk, not fixed:** the generic `hover:bg-white/[x]` substring
+      override can't cleanly distinguish "always-on bg-white/[x]" from "hover-only
+      bg-white/[x]" using plain CSS attribute selectors, so a few hover-only tints may show
+      a very faint tint (~4.5% navy) at rest instead of only on hover, then a slightly
+      stronger tint on actual hover. Purely cosmetic, not a functional bug -- fix would need
+      per-element JSX changes if it turns out to matter in practice.
+    - **Not visually verified in a real browser** -- this sandbox has no way to run
+      `vite build`/`npm install` (no network, no `node_modules`). Verified instead via: (a)
+      brace-balance check on the full `index.css`, (b) `node -c` on `tailwind.config.js`,
+      (c) `tsc --noEmit` on every touched `.tsx` file (only pre-existing
+      `react/jsx-runtime`-missing noise, zero real syntax errors), and (d) manually tracing
+      through the CSS-variable/class-name mapping page by page. **First real look at this
+      in a browser after deploying is the actual test** -- if any page looks visually wrong
+      (a color that didn't remap, low contrast text, etc.), tell the next Claude session
+      exactly which page/element so the specific override can be added, rather than
+      re-deriving the whole variable-remap approach again.
 
 ---
 
