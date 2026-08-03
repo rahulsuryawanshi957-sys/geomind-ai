@@ -67,11 +67,24 @@ html.light {
    white-on-dark-navy styling (which looks correct there) is left alone. */
 
 html.light body {
+  /* Layered "engineering atmosphere" background, per Raahi's brief (2 Aug 2026):
+     1) fine 40px blueprint/survey grid (existing, from #48)
+     2) coarser 200px major grid lines -- mimics an engineering drafting sheet's
+        minor/major grid convention
+     3) two off-center repeating-radial-gradients -- read as topographic contour
+        rings / a geological map, without being a literal (heavy) illustration
+     4) the original soft orange/steel-blue depth glows from #48, unchanged
+     All of it stays at 1.5-5% opacity by design -- meant to be felt, not seen. */
   background-image:
-    repeating-linear-gradient(0deg, rgba(11,42,91,0.025) 0px, rgba(11,42,91,0.025) 1px, transparent 1px, transparent 40px),
-    repeating-linear-gradient(90deg, rgba(11,42,91,0.025) 0px, rgba(11,42,91,0.025) 1px, transparent 1px, transparent 40px),
+    repeating-linear-gradient(0deg, rgba(11,42,91,0.022) 0px, rgba(11,42,91,0.022) 1px, transparent 1px, transparent 40px),
+    repeating-linear-gradient(90deg, rgba(11,42,91,0.022) 0px, rgba(11,42,91,0.022) 1px, transparent 1px, transparent 40px),
+    repeating-linear-gradient(0deg, rgba(11,42,91,0.035) 0px, rgba(11,42,91,0.035) 1.5px, transparent 1.5px, transparent 200px),
+    repeating-linear-gradient(90deg, rgba(11,42,91,0.035) 0px, rgba(11,42,91,0.035) 1.5px, transparent 1.5px, transparent 200px),
+    repeating-radial-gradient(circle at 12% 15%, rgba(11,42,91,0.03) 0px, rgba(11,42,91,0.03) 1px, transparent 1px, transparent 70px),
+    repeating-radial-gradient(circle at 88% 80%, rgba(70,130,180,0.028) 0px, rgba(70,130,180,0.028) 1px, transparent 1px, transparent 90px),
     radial-gradient(circle at 15% 0%, rgba(249,115,22,0.045), transparent 40%),
     radial-gradient(circle at 85% 20%, rgba(70,130,180,0.05), transparent 40%);
+  background-attachment: fixed;
 }
 
 /* bg-white/[x] & border-white/[x] were used everywhere as "glass overlay on dark

@@ -1602,6 +1602,29 @@ scoped).
 
 ---
 
+51. **Richer "engineering atmosphere" background, 2 Aug 2026** (Raahi's next request after
+    entry #50's table search/sort, a more detailed brief than #48's simple grid).
+    `html.light body` in `index.css` now layers, in order: a fine 40px blueprint/survey
+    grid (from #48, kept), a coarser 200px major grid (drafting-sheet minor/major-line
+    convention), two off-center `repeating-radial-gradient` rings (read as topographic
+    contour lines / a faint geological map, at two different focal points and pitches so
+    it doesn't look like one obvious repeating stamp), and the original soft orange/
+    steel-blue depth glows from #48. All layers are 1.5-5% opacity, per the brief's
+    explicit ceiling. `background-attachment: fixed` was added so the pattern stays put
+    (not scrolling with content) for a consistent feel across pages.
+    - **Why this doesn't hurt readability (the brief's other big requirement):** it's on
+      `body`, and every card/table/form in the app sits on solid opaque white/gray surfaces
+      (`.glass`, `bg-navy-850`/`900`, etc. -- see #48) that fully cover the pattern
+      underneath. In practice the texture is only ever visible in the page margins/gutters
+      around content, never underneath text or table cells -- this was true by construction
+      (result of #48's surface-vs-page-background split), not something that needed a
+      separate check.
+    - Verified via CSS brace/paren balance check only (comments contain parens too, which
+      threw the first paren-count check off -- re-checked with comments stripped: balanced).
+      Not seen in a real browser -- same standing sandbox limitation as #47-#50.
+
+---
+
 ## How to give Raahi an update (workflow reminder for whoever's helping)
 
 1. Make code changes in your own sandbox, verify with `python3 -m py_compile` (backend,
