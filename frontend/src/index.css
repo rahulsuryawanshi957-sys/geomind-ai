@@ -113,7 +113,7 @@ html.light .shadow-glow { box-shadow: 0 0 0 1px rgba(249,115,22,0.18), 0 8px 30p
 html.light .shadow-glow-cyan { box-shadow: 0 0 0 1px rgba(70,130,180,0.18), 0 8px 30px -8px rgba(70,130,180,0.22); }
 html.light ::selection { background: rgba(249,115,22,0.25); }
 
-html.light body { @apply bg-white text-navy-950; }
+html.light body { @apply bg-white; }
 
 body {
   @apply bg-navy-950 text-slate-100 font-sans antialiased;
@@ -145,7 +145,7 @@ html.light .glass {
          focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500/40
          placeholder:text-slate-400/60 transition-all;
 }
-html.light .gm-input { @apply bg-white border-black/10 text-navy-950; }
+html.light .gm-input { @apply bg-white border-black/10 text-brand-navy; }
 
 .gm-btn-primary {
   @apply bg-gradient-to-r from-violet-600 to-violet-500 hover:from-violet-500 hover:to-violet-400

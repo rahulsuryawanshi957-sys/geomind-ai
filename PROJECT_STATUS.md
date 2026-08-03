@@ -1660,6 +1660,46 @@ scoped).
 
 ---
 
+53. **Fixed the ACTUAL cause of the "invisible input text" bug, 3 Aug 2026** -- entry #52's
+    fix (darkening violet/cyan text shades) was real but incomplete: Raahi sent screenshots
+    of Batch Analysis showing input fields completely blank/unreadable in light mode, but
+    fine in dark mode. **Root cause was different from #52, and more subtle:**
+    `navy-950` was being used for TWO unrelated things in the pre-#47 codebase: (a) the
+    page's base background color, and (b) as a fixed "guaranteed-dark" text color for
+    things sitting on bright surfaces (e.g. an icon on a bright gradient button, `.gm-input`
+    text on its white input background). #47's CSS-variable conversion made `navy-950`
+    *theme-aware* for reason (a) -- correct, that's the whole point -- but every usage under
+    reason (b) broke as a side effect: in light mode, `--navy-950` is now `238 241 246`
+    (the light page-bg color, by design), so `text-navy-950` in light mode means "very
+    light gray text," not "dark text." `html.light .gm-input { ... text-navy-950 }`
+    (written in #47 itself) was exactly this mistake -- light-gray-on-white input text,
+    i.e. invisible. Same bug existed in `html.light body { ... text-navy-950 }` (default/
+    inherited text color for anything without an explicit text-color class -- a much wider
+    blast radius than just inputs) and two component spots (`MobileNav.tsx`'s floating-
+    button icon, `SoilProfile.tsx`'s "GWL" badge).
+    **Fix:** grepped for every remaining `text-navy-950` usage (4 total, now 0) and replaced
+    each with the right tool for what it actually meant:
+    - `.gm-input` text and the two "dark text on a bright/colored surface" component spots
+      → `text-brand-navy` (the STATIC brand color from `tailwind.config.js`, `#0B2A5B`,
+      never theme-variable -- exactly "guaranteed dark regardless of theme").
+    - `html.light body`'s text override was simply removed -- body's base rule already sets
+      `text-slate-100`, and `slate-100` IS theme-variable and already flips correctly to a
+      dark slate in light mode, so no override was needed there at all; the override was
+      actively wrong.
+    - **Lesson for future edits to this theme system:** `navy-*`/`slate-*` variables mean
+      "themed surface/text, adapts with light/dark toggle." `brand-navy`/`brand-orange`
+      (already existed in `tailwind.config.js` since #46, just unused until now) mean
+      "fixed brand color, same in both themes." Don't reach for `navy-950` or `slate-950`
+      when what's actually wanted is "always dark" -- use `brand-navy` for that. Same logic
+      would apply in reverse for a hypothetical "always light" need.
+    - Verified with `tsc --noEmit` + CSS brace/paren balance (both clean) -- **this is the
+      second contrast bug Raahi has had to screenshot before it got caught**, so the next
+      session should proactively grep for any other `text-navy-950`/`text-slate-950`-style
+      "used as a fixed color, not a themed one" pattern rather than waiting for a third
+      report.
+
+---
+
 ## How to give Raahi an update (workflow reminder for whoever's helping)
 
 1. Make code changes in your own sandbox, verify with `python3 -m py_compile` (backend,

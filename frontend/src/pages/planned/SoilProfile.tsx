@@ -115,7 +115,7 @@ export default function SoilProfile() {
                     })}
                     {bh.water_table_depth_m != null && (
                       <div className="absolute left-0 right-0 border-t-2 border-dashed border-cyan-400 z-10" style={{ top: `${bh.water_table_depth_m * pxPerMeter}px` }}>
-                        <span className="text-[8px] bg-cyan-500 text-navy-950 px-1 rounded">GWL</span>
+                        <span className="text-[8px] bg-cyan-500 text-brand-navy px-1 rounded">GWL</span>
                       </div>
                     )}
                   </div>
