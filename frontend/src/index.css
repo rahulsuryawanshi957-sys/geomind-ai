@@ -40,12 +40,24 @@ html.light {
   --slate-600: 148 163 184; --slate-800: 210 218 230; --slate-900: 243 246 250;
   --slate-950: 255 255 255;
 
-  /* Primary accent: brand burnt orange in place of violet (active states, buttons, links) */
-  --violet-300: 253 186 116; --violet-400: 251 146 60; --violet-500: 249 115 22;
-  --violet-600: 234 88 12;   --violet-700: 194 65 12;
+  /* Primary accent: burnt orange, in place of violet.
+     IMPORTANT (fixed 3 Aug 2026 -- see playbook #52): violet-300/400 are used ~50 times
+     across the app as TEXT color (active nav items, badges, highlighted labels). In the
+     original dark theme, low shade numbers = light/bright, which reads fine as text on a
+     DARK background. Naively carrying that same lightness into light mode made text-
+     violet-300/400 render as pale peachy-orange text on a near-white background --
+     invisible/very low contrast (this is the bug Raahi reported: "font colour aur
+     background dono ek jaise"). Fix: 300/400 are now genuinely DARK, saturated
+     "burnt orange" tones (safe against WCAG contrast on white), not light tints. 500/600
+     stay closer to the vivid brand orange since those are mostly used for backgrounds/
+     button-gradients/badge-fills (a 10-15%-opacity fill of a vivid color still looks like
+     a soft tint either way, so no legibility issue there). */
+  --violet-300: 194 65 12;  --violet-400: 154 52 18;  --violet-500: 234 88 12;
+  --violet-600: 194 65 12;  --violet-700: 154 52 18;
 
-  /* Secondary accent: Steel Blue in place of cyan */
-  --cyan-300: 143 184 222; --cyan-400: 91 146 196; --cyan-500: 70 130 180;
+  /* Secondary accent: dark steel blue, same fix as violet above (300/400 darkened for
+     text legibility; 500 kept nearer true steel-blue for backgrounds/badges). */
+  --cyan-300: 21 52 84;  --cyan-400: 30 73 118;  --cyan-500: 39 98 145;
 }
 
 /* Sidebar (desktop) + mobile header/bottom-nav are given this class so they stay a

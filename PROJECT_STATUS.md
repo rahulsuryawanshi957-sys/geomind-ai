@@ -1625,6 +1625,41 @@ scoped).
 
 ---
 
+52. **Fixed a real, widespread text-contrast bug, 3 Aug 2026** -- Raahi reported (with a
+    screenshot of the Calculators page's active nav item, "SPT N-value Correction," barely
+    legible) that font color and background looked nearly identical, and confirmed on
+    follow-up this was happening **everywhere in the app, not just Calculators.**
+    **Root cause:** `text-violet-300` and `text-violet-400` are used ~50 times across the
+    app as accent TEXT color (active nav items, highlighted labels, badges -- e.g. the
+    exact `bg-violet-500/15 text-violet-300` pattern on the reported nav item). In
+    Tailwind's numbering, low shade numbers are light/bright -- correct for TEXT on the
+    original DARK background (#47/#48's `:root` dark theme), but #47's light-theme
+    conversion mapped violet-300/400 to light PEACHY-ORANGE tints (since it preserved the
+    same relative lightness, just swapping violet's hue for orange's). Light text on a
+    now-near-white/pale-orange background is exactly the "same color" complaint --
+    genuinely broken contrast, not a one-off.
+    **Fix:** `index.css`'s `html.light` block now sets `--violet-300`/`--violet-400` to
+    actually DARK, saturated "burnt orange" values (`rgb(194 65 12)` / `rgb(154 52 18)` --
+    both pass WCAG AA contrast against white), instead of light tints. `--violet-500`/
+    `--violet-600` were left closer to the vivid brand orange since grep confirmed those
+    are mostly used for backgrounds/button-gradients/badge-fills (11x `bg-violet-500`, 8x
+    `border-violet-500`, 6x `from-violet-500`, etc. -- a low-opacity fill of a vivid color
+    reads as a soft tint regardless of exact lightness, so no contrast issue there). Cyan
+    (`--cyan-300`/`400`) got the identical fix for the same reason, darkened toward a
+    proper dark steel-blue for its 4 text-usages; `--cyan-500` (used for backgrounds/
+    badges) kept closer to true steel blue.
+    - **This was a one-line-per-variable CSS fix, not a per-component fix** -- exactly the
+      payoff of #47's CSS-variable approach: every one of the ~50 text-violet-300/400
+      usages across every page got fixed by changing 2 variables in one file, no JSX
+      touched.
+    - **If Raahi still sees illegible text anywhere after this, it needs a screenshot of
+      that specific spot** -- there may be a second, different-colored instance of the same
+      class of bug (e.g. if some component hardcodes a light color as an inline style
+      rather than a `text-violet-*`/`text-cyan-*` class, this variable fix wouldn't reach
+      it). Don't assume this one fix caught every instance without visual confirmation.
+
+---
+
 ## How to give Raahi an update (workflow reminder for whoever's helping)
 
 1. Make code changes in your own sandbox, verify with `python3 -m py_compile` (backend,
