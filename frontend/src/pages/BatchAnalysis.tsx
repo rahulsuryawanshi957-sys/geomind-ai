@@ -62,7 +62,10 @@ export default function BatchAnalysis() {
   const [progressLabel, setProgressLabel] = useState('')
   const [error, setError] = useState('')
   const [result, setResult] = useState<any>(null)
-  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
+  const [tableSearch, setTableSearch] = useState('')
+  const [sortCol, setSortCol] = useState<string | null>(null)
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
 
   useEffect(() => {
     api.listBoreholes().then(setBoreholes).catch(() => {})
@@ -333,46 +336,100 @@ export default function BatchAnalysis() {
               )}
 
               <div className="glass p-5 print:text-black" id="batch-result">
-                <div className="flex items-center justify-between mb-3 gap-2">
+                <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
                   <div className="text-xs uppercase tracking-wide text-slate-500">
                     {result.successful}/{result.total} combinations · {result.borehole_id}
                   </div>
-                  <button onClick={() => window.print()} className="gm-btn-secondary flex items-center gap-1.5 text-xs whitespace-nowrap print:hidden">
-                    <Printer size={13} /> Print
-                  </button>
+                  <div className="flex items-center gap-2 print:hidden">
+                    <input
+                      value={tableSearch}
+                      onChange={(e) => setTableSearch(e.target.value)}
+                      placeholder="Search rows…"
+                      className="gm-input text-xs py-1.5 px-2.5 w-40"
+                    />
+                    <button onClick={() => window.print()} className="gm-btn-secondary flex items-center gap-1.5 text-xs whitespace-nowrap">
+                      <Printer size={13} /> Print
+                    </button>
+                  </div>
                 </div>
 
+                {(() => {
+                  const SORTABLE: Record<string, (c: any) => number | string> = {
+                    width_m: (c) => c.width_m, length_m: (c) => c.length_m, depth_m: (c) => c.depth_m,
+                    soil_type: (c) => c.soil_type ?? '', shear_sbc: (c) => c.shear_sbc ?? -Infinity,
+                    settlement_sbc: (c) => c.settlement_sbc ?? -Infinity, recommended_sbc: (c) => c.recommended_sbc ?? -Infinity,
+                    gross_recommended_sbc: (c) => c.gross_recommended_sbc ?? -Infinity, governing: (c) => c.governing ?? '',
+                  }
+                  const q = tableSearch.trim().toLowerCase()
+                  let rows: any[] = q
+                    ? result.combinations.filter((c: any) =>
+                        [c.width_m, c.length_m, c.depth_m, c.founding_layer, c.soil_type, c.governing, c.error]
+                          .some((v) => v != null && String(v).toLowerCase().includes(q)))
+                    : result.combinations
+                  if (sortCol && SORTABLE[sortCol]) {
+                    const accessor = SORTABLE[sortCol]
+                    rows = [...rows].sort((a, b) => {
+                      const av = accessor(a), bv = accessor(b)
+                      const cmp = typeof av === 'string' ? av.localeCompare(bv as string) : (av as number) - (bv as number)
+                      return sortDir === 'asc' ? cmp : -cmp
+                    })
+                  }
+                  const displayedCombos = rows
+
+                  function SortTh({ col, children, className = '' }: { col: string; children: any; className?: string }) {
+                    const active = sortCol === col
+                    return (
+                      <th
+                        className={`text-left py-2 pr-3 cursor-pointer select-none hover:text-slate-200 ${className}`}
+                        onClick={() => {
+                          if (active) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+                          else { setSortCol(col); setSortDir('asc') }
+                        }}
+                      >
+                        <span className="inline-flex items-center gap-1">
+                          {children}
+                          {active && (sortDir === 'asc' ? <ChevronUp size={11} /> : <ChevronDown size={11} />)}
+                        </span>
+                      </th>
+                    )
+                  }
+
+                  return (
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs border-collapse">
                     <thead>
                       <tr className="border-b border-white/[0.08] text-slate-400">
-                        <th className="text-left py-2 pr-3">B (m)</th>
-                        <th className="text-left py-2 pr-3">L (m)</th>
-                        <th className="text-left py-2 pr-3">D (m)</th>
+                        <SortTh col="width_m">B (m)</SortTh>
+                        <SortTh col="length_m">L (m)</SortTh>
+                        <SortTh col="depth_m">D (m)</SortTh>
                         <th className="text-left py-2 pr-3" title="The borehole layer containing depth D, shown with its own full boundaries -- NOT where the settlement calculation starts. Settlement always starts exactly at D; see the effective layer range in 'Full calc' below.">Founding layer (raw)</th>
-                        <th className="text-left py-2 pr-3">Soil type</th>
-                        <th className="text-left py-2 pr-3">Shear SBC</th>
-                        <th className="text-left py-2 pr-3">Settlement SBC</th>
-                        <th className="text-left py-2 pr-3">Recommended (net)</th>
-                        <th className="text-left py-2 pr-3">Recommended (gross)</th>
-                        <th className="text-left py-2">Governing</th>
+                        <SortTh col="soil_type">Soil type</SortTh>
+                        <SortTh col="shear_sbc">Shear SBC</SortTh>
+                        <SortTh col="settlement_sbc">Settlement SBC</SortTh>
+                        <SortTh col="recommended_sbc">Recommended (net)</SortTh>
+                        <SortTh col="gross_recommended_sbc">Recommended (gross)</SortTh>
+                        <SortTh col="governing">Governing</SortTh>
                         <th className="text-left py-2 pl-3 print:hidden">Full calc</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {result.combinations.map((c: any, i: number) => {
+                      {displayedCombos.length === 0 && (
+                        <tr><td colSpan={11} className="py-6 text-center text-slate-500">No rows match "{tableSearch}".</td></tr>
+                      )}
+                      {displayedCombos.map((c: any, i: number) => {
+                        const rowKey = `${c.width_m}_${c.length_m}_${c.depth_m}`
                         const isCritical = result.critical_combination && c.width_m === result.critical_combination.width_m && c.depth_m === result.critical_combination.depth_m && !c.error
                         const hasDetail = !c.error && (c.settlement_layer_report?.length > 0 || c.shear_steps?.length > 0)
-                        const isExpanded = expandedRows.has(i)
+                        const isExpanded = expandedRows.has(rowKey)
                         const toggleExpanded = () => {
                           setExpandedRows(prev => {
                             const next = new Set(prev)
-                            if (next.has(i)) next.delete(i); else next.add(i)
+                            if (next.has(rowKey)) next.delete(rowKey); else next.add(rowKey)
                             return next
                           })
                         }
                         return (
-                          <Fragment key={i}>
+                          <Fragment key={rowKey}>
                           <tr className={`border-b border-white/[0.04] ${isCritical ? 'bg-violet-500/10' : ''}`}>
                             <td className="py-1.5 pr-3 text-slate-300 whitespace-nowrap">{c.width_m}</td>
                             <td className="py-1.5 pr-3 text-slate-300 whitespace-nowrap">{c.length_m}</td>
@@ -469,6 +526,8 @@ export default function BatchAnalysis() {
                     </tbody>
                   </table>
                 </div>
+                  )
+                })()}
 
                 {result.warnings?.length > 0 && (
                   <div className="mt-4 pt-3 border-t border-white/[0.06]">

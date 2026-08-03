@@ -1575,6 +1575,33 @@ scoped).
 
 ---
 
+50. **Sortable + searchable results table on Batch Analysis, 2 Aug 2026** (Raahi's next
+    priority pick after entry #49's Dashboard redesign). `pages/BatchAnalysis.tsx`'s results
+    table -- the width×depth combination matrix, potentially the largest table in the app --
+    now has:
+    - A search box (top-right of the results card) that filters rows by substring match
+      against width/length/depth/founding-layer/soil-type/governing/error text.
+    - Click-to-sort on every numeric/text column header (B, L, D, Soil type, Shear SBC,
+      Settlement SBC, Recommended net/gross, Governing) -- click again to reverse direction;
+      a chevron icon shows the active sort column/direction.
+    - **Row-expand state (the "Full calc" detail rows) was switched from array-index keys
+      to content-based keys** (`${width_m}_${length_m}_${depth_m}`) specifically because
+      sorting/filtering changes row order/positions -- index-based keys would have caused
+      the wrong row's detail panel to stay expanded after a sort. This was a real
+      correctness fix, not just refactoring.
+    - Implemented as a plain filter+sort computed inline (not `useMemo` -- table sizes here
+      are batch-combination counts, not large enough to need memoization) inside an IIFE so
+      the derived `displayedCombos`/`SortTh` helper stay scoped to just this table.
+    - **Scope decision:** did NOT add the same treatment to Liquefaction Analysis's or Pile
+      Capacity's layer-report tables -- those are per-borehole-layer tables (typically a
+      handful of rows), not combinatorial matrices, so sort/search adds much less value
+      there. If Raahi wants it anyway for consistency, it's a quick follow-up using the same
+      pattern.
+    - Verified with `tsc --noEmit` on the touched file (only the same pre-existing
+      `node_modules`-missing noise, zero real syntax errors) -- not seen in a browser yet.
+
+---
+
 ## How to give Raahi an update (workflow reminder for whoever's helping)
 
 1. Make code changes in your own sandbox, verify with `python3 -m py_compile` (backend,
