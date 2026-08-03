@@ -2,24 +2,55 @@ import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import {
-  MessageSquare, Upload, ScrollText, Calculator, FileText,
-  BookOpen, Layers, Activity, Clock, ArrowUpRight, Layers3,
-  FlaskConical, FileSearch, Sigma, Search, LayoutGrid,
+  MessageSquare, FolderKanban, BookOpen, ScrollText, Sigma, FileSearch, ScanSearch,
+  Calculator, LayoutGrid, Waves, Milestone, ArrowLeftRight, Layers3, FlaskConical,
+  Mountain, FileText, History, Bookmark, Layers, Activity, Clock, ArrowUpRight,
+  ArrowRight,
 } from 'lucide-react'
 import { api } from '../api/client'
 
-const QUICK_ACTIONS = [
-  { to: '/chat', label: 'Ask AI', icon: MessageSquare, gradient: 'from-violet-500 to-violet-400' },
-  { to: '/books', label: 'Upload Book', icon: Upload, gradient: 'from-cyan-500 to-cyan-400' },
-  { to: '/is-codes', label: 'Upload IS Code', icon: ScrollText, gradient: 'from-violet-500 to-cyan-400' },
-  { to: '/calculators', label: 'Open Analysis', icon: Calculator, gradient: 'from-cyan-500 to-violet-400' },
-  { to: '/batch-analysis', label: 'Batch Analysis', icon: LayoutGrid, gradient: 'from-violet-500 to-cyan-500' },
-  { to: '/borehole-logs', label: 'Borehole Log', icon: Layers3, gradient: 'from-violet-400 to-cyan-500' },
-  { to: '/lab-reports', label: 'Lab Data Import', icon: FlaskConical, gradient: 'from-cyan-400 to-violet-500' },
-  { to: '/clause-finder', label: 'Clause Finder', icon: FileSearch, gradient: 'from-violet-500 to-violet-600' },
-  { to: '/formulas', label: 'Formula Library', icon: Sigma, gradient: 'from-cyan-500 to-cyan-600' },
-  { to: '/search', label: 'Universal Search', icon: Search, gradient: 'from-violet-400 to-violet-600' },
-  { to: '/reports', label: 'Generate Report', icon: FileText, gradient: 'from-cyan-400 to-cyan-600' },
+const MODULE_SECTIONS: {
+  label: string
+  items: { to: string; label: string; description: string; icon: any; soon?: boolean }[]
+}[] = [
+  {
+    label: 'AI & Knowledge Base',
+    items: [
+      { to: '/chat', label: 'AI Chat', description: 'Ask questions grounded in your own uploaded books, codes, and reports.', icon: MessageSquare },
+      { to: '/books', label: 'Document Library', description: 'All uploaded reference books and reports, organized and searchable.', icon: BookOpen },
+      { to: '/is-codes', label: 'IS / IRC Codes', description: 'Indexed Indian Standard and IRC codes for instant lookup.', icon: ScrollText },
+      { to: '/clause-finder', label: 'Clause Finder', description: 'Find the exact code clause you need, cited from the source document.', icon: FileSearch },
+      { to: '/formulas', label: 'Formula Library', description: 'Standard geotechnical formulas with variable definitions, ready to reference.', icon: Sigma },
+      { to: '/pdf-chat', label: 'PDF Chat', description: 'Chat scoped to a single document, with an inline viewer.', icon: ScanSearch, soon: true },
+    ],
+  },
+  {
+    label: 'Site Data',
+    items: [
+      { to: '/borehole-logs', label: 'Borehole Logs', description: 'Build and print IS-format borehole logs with SPT, samples, and strata.', icon: Layers3 },
+      { to: '/lab-reports', label: 'Lab Data Import', description: 'Import lab test sheets straight into borehole/soil-layer records.', icon: FlaskConical },
+      { to: '/soil-profile', label: 'Soil Profile Viewer', description: 'Visualize strata and classification/weathering across a borehole.', icon: Mountain },
+    ],
+  },
+  {
+    label: 'Engineering Analysis',
+    items: [
+      { to: '/calculators', label: 'Bearing Capacity & Settlement', description: 'IS 6403 shear SBC and IS 8009 settlement, for granular and clay soils.', icon: Calculator },
+      { to: '/batch-analysis', label: 'Batch Analysis', description: 'Run a full width x depth matrix of foundation combinations at once.', icon: LayoutGrid },
+      { to: '/liquefaction-analysis', label: 'Liquefaction Analysis', description: 'IS 1893:2016 simplified liquefaction procedure, wired to your borehole data.', icon: Waves },
+      { to: '/pile-capacity', label: 'Pile Capacity', description: 'IS 2911 pile capacity, with a natural-language command parser.', icon: Milestone },
+      { to: '/lateral-capacity', label: 'Lateral Capacity', description: 'Lateral pile capacity analysis for foundation design.', icon: ArrowLeftRight },
+    ],
+  },
+  {
+    label: 'Reporting & Projects',
+    items: [
+      { to: '/reports', label: 'Engineering Reports', description: 'Generate a report from your analysis results.', icon: FileText },
+      { to: '/history', label: 'History', description: 'Every past AI conversation, ready to pick back up.', icon: History },
+      { to: '/projects', label: 'Projects', description: 'A workspace per site, bundling boreholes, reports, and calculations together.', icon: FolderKanban, soon: true },
+      { to: '/bookmarks', label: 'Bookmarks', description: 'Saved answers, clauses, and formulas pinned for quick reference.', icon: Bookmark, soon: true },
+    ],
+  },
 ]
 
 function StatCard({ icon: Icon, label, value, accent }: { icon: any; label: string; value: string | number; accent: string }) {
@@ -51,34 +82,50 @@ export default function Dashboard() {
   const recentDocs = [...docs].sort((a, b) => +new Date(b.upload_date) - +new Date(a.upload_date)).slice(0, 5)
 
   return (
-    <div className="p-6 md:p-8 max-w-6xl">
+    <div className="p-6 md:p-8 max-w-7xl">
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
-        <h1 className="font-display text-2xl font-semibold text-slate-50">Welcome back</h1>
-        <p className="text-sm text-slate-400 mt-1">Your geotechnical engineering workspace — grounded in your own documents.</p>
+        <h1 className="font-display text-2xl font-semibold text-slate-50">RaahiGeo Workspace</h1>
+        <p className="text-sm text-slate-400 mt-1">Every module, one click away — grounded in your own boreholes, lab data, and reference documents.</p>
       </motion.div>
-
-      {/* Quick actions */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-8">
-        {QUICK_ACTIONS.map((a, i) => (
-          <motion.div key={a.to} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}>
-            <Link to={a.to} className="glass glass-hover flex flex-col items-center justify-center gap-2 p-4 text-center h-full">
-              <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${a.gradient} flex items-center justify-center`}>
-                <a.icon size={16} className="text-navy-950" />
-              </div>
-              <span className="text-xs text-slate-300 font-medium">{a.label}</span>
-            </Link>
-          </motion.div>
-        ))}
-      </div>
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-8">
-        <StatCard icon={BookOpen} label="Total Books" value={totalBooks} accent="bg-violet-500/15 text-violet-400" />
-        <StatCard icon={ScrollText} label="Total IS/IRC Codes" value={totalCodes} accent="bg-cyan-500/15 text-cyan-400" />
-        <StatCard icon={Layers} label="Indexed Pages" value={indexedPages} accent="bg-violet-500/15 text-violet-400" />
-        <StatCard icon={Layers3} label="Borehole Profiles" value={boreholes.length} accent="bg-cyan-500/15 text-cyan-400" />
-        <StatCard icon={Activity} label="AI Assistant" value="Online" accent="bg-emerald-500/15 text-emerald-400" />
+        <StatCard icon={BookOpen} label="Total Books" value={totalBooks} accent="bg-violet-500/15 text-violet-500" />
+        <StatCard icon={ScrollText} label="Total IS/IRC Codes" value={totalCodes} accent="bg-cyan-500/15 text-cyan-500" />
+        <StatCard icon={Layers} label="Indexed Pages" value={indexedPages} accent="bg-violet-500/15 text-violet-500" />
+        <StatCard icon={Layers3} label="Borehole Profiles" value={boreholes.length} accent="bg-cyan-500/15 text-cyan-500" />
+        <StatCard icon={Activity} label="AI Assistant" value="Online" accent="bg-emerald-500/15 text-emerald-500" />
       </div>
+
+      {/* Module sections — the actual control center of the app */}
+      {MODULE_SECTIONS.map((section, si) => (
+        <div key={section.label} className="mb-8">
+          <h2 className="text-xs font-semibold text-slate-400 tracking-wider uppercase mb-3">{section.label}</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {section.items.map((m, i) => (
+              <motion.div key={m.to} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: (si * 6 + i) * 0.02 }}>
+                <Link to={m.to} className="glass glass-hover flex items-start gap-3 p-4 h-full relative">
+                  {m.soon && (
+                    <span className="absolute top-3 right-3 text-[9px] font-medium tracking-wide uppercase px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-500">
+                      Coming Soon
+                    </span>
+                  )}
+                  <div className="w-10 h-10 rounded-xl bg-violet-500/15 text-violet-500 flex items-center justify-center shrink-0">
+                    <m.icon size={18} />
+                  </div>
+                  <div className="min-w-0 pr-14">
+                    <div className="text-sm font-medium text-slate-100">{m.label}</div>
+                    <p className="text-xs text-slate-400 mt-1 leading-relaxed">{m.description}</p>
+                  </div>
+                  {!m.soon && (
+                    <ArrowRight size={14} className="text-slate-500 absolute bottom-4 right-4" />
+                  )}
+                </Link>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      ))}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* Recently opened documents */}

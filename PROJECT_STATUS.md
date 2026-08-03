@@ -1544,6 +1544,37 @@ scoped).
 
 ---
 
+49. **Dashboard redesigned as a real control center, 2 Aug 2026** (the "sane next slice"
+    proposed in #48, confirmed by Raahi). `pages/Dashboard.tsx` rewritten:
+    - The old flat 11-icon "quick actions" grid is gone. Replaced with **premium module
+      cards grouped into 4 categories** (AI & Knowledge Base, Site Data, Engineering
+      Analysis, Reporting & Projects) -- mirrors `Sidebar.tsx`'s own `NAV_SECTIONS`
+      grouping and icon choices exactly, so Dashboard and Sidebar stay visually consistent.
+      Each card: icon, title, one-line description, and an arrow "open" affordance.
+    - **Only real, working pages got a plain card.** The 3 pages that are genuinely
+      `ComingSoon.tsx` stubs (Projects, Bookmarks, PDF Chat) got the same card treatment
+      but with a small "Coming Soon" badge -- no fake/fabricated modules were added, per
+      #48's note about not inventing Slope Stability/GIS/etc. cards for features that don't
+      exist.
+    - **Found and fixed a pre-existing dead link while doing this:** the old quick-actions
+      grid had a "Universal Search" card pointing at `/search`, but that route doesn't
+      exist in `App.tsx` (no `SearchPage` import/route at all, despite the file
+      `pages/SearchPage.tsx` still sitting on disk) -- it was a 404 waiting to be clicked.
+      Dropped it from the Dashboard rather than routing to a page nobody asked to keep;
+      `pages/SearchPage.tsx` is still on disk, unused, in case it's meant to come back.
+    - Stats row (Total Books/Codes/Indexed Pages/Borehole Profiles/AI status) moved above
+      the module grid instead of below it, so the page reads top-to-bottom as "workspace
+      status, then everything you can do" -- closer to a control center than a welcome
+      screen. Hero copy changed from "Welcome back" to "RaahiGeo Workspace" for the same
+      reason.
+    - The 3 "Recent" panels (Documents/Conversations/Borehole Profiles) at the bottom were
+      left as-is -- they already used the theme-variable-driven classes from #47, so they
+      needed no changes to render correctly in the new light theme.
+    - Verified with `tsc --noEmit` (zero real syntax errors) -- not yet seen in an actual
+      browser (same sandbox limitation noted in #47/#48).
+
+---
+
 ## How to give Raahi an update (workflow reminder for whoever's helping)
 
 1. Make code changes in your own sandbox, verify with `python3 -m py_compile` (backend,
