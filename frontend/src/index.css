@@ -29,9 +29,10 @@
 }
 
 html.light {
-  /* Surfaces: white page, near-white cards/panels, light borders */
-  --navy-950: 255 255 255; --navy-900: 255 255 255; --navy-850: 243 246 250;
-  --navy-800: 237 241 247; --navy-700: 222 228 238; --navy-600: 199 209 224;
+  /* Surfaces: SOFT ENGINEERING GRAY page bg, PURE WHITE cards (must contrast against
+     the page, not blend into it -- see playbook #48), light borders. */
+  --navy-950: 238 241 246; --navy-900: 255 255 255; --navy-850: 255 255 255;
+  --navy-800: 244 246 250; --navy-700: 226 231 240; --navy-600: 203 213 225;
 
   /* Text: brand navy headings down to muted slate-blue meta text */
   --slate-50: 11 42 91;    --slate-100: 30 41 59;   --slate-200: 51 65 85;
@@ -39,31 +40,52 @@ html.light {
   --slate-600: 148 163 184; --slate-800: 210 218 230; --slate-900: 243 246 250;
   --slate-950: 255 255 255;
 
-  /* Accent: brand orange in place of violet (active states, buttons, links) */
+  /* Primary accent: brand burnt orange in place of violet (active states, buttons, links) */
   --violet-300: 253 186 116; --violet-400: 251 146 60; --violet-500: 249 115 22;
   --violet-600: 234 88 12;   --violet-700: 194 65 12;
 
-  /* Secondary accent: kept in the navy-blue family instead of a 3rd hue */
-  --cyan-300: 147 197 253; --cyan-400: 59 130 246; --cyan-500: 29 78 216;
+  /* Secondary accent: Steel Blue in place of cyan */
+  --cyan-300: 143 184 222; --cyan-400: 91 146 196; --cyan-500: 70 130 180;
 }
 
-html.light body { background-image:
-    radial-gradient(circle at 15% 0%, rgba(249,115,22,0.05), transparent 40%),
-    radial-gradient(circle at 85% 20%, rgba(11,42,91,0.04), transparent 40%);
+/* Sidebar (desktop) + mobile header/bottom-nav are given this class so they stay a
+   fixed DARK NAVY regardless of the light/dark toggle -- enterprise engineering-software
+   convention (Bentley OpenGround / PLAXIS / GeoStudio style: persistent dark nav rail
+   against a light workspace), per Raahi's brief (2 Aug 2026). Only navy/slate are reset
+   here -- violet/cyan (the orange/steel-blue accents) are deliberately left alone so
+   active-state highlights stay on-brand even inside the dark chrome. */
+.force-dark-scope {
+  --navy-950: 5 7 13;     --navy-900: 10 14 26;    --navy-850: 15 20 36;
+  --navy-800: 20 26 46;   --navy-700: 28 36 64;    --navy-600: 40 50 90;
+  --slate-50: 248 250 252;  --slate-100: 241 245 249; --slate-200: 226 232 240;
+  --slate-300: 174 180 199; --slate-400: 139 147 168; --slate-500: 100 116 139;
+  --slate-600: 71 85 105;   --slate-800: 30 41 59;    --slate-900: 15 23 42;
+  --slate-950: 2 6 23;
+}
+/* the generic white/[x]-overlay re-tint (below) must not touch the forced-dark chrome
+   (Sidebar/MobileNav) -- excluded at the selector level so their original translucent-
+   white-on-dark-navy styling (which looks correct there) is left alone. */
+
+html.light body {
+  background-image:
+    repeating-linear-gradient(0deg, rgba(11,42,91,0.025) 0px, rgba(11,42,91,0.025) 1px, transparent 1px, transparent 40px),
+    repeating-linear-gradient(90deg, rgba(11,42,91,0.025) 0px, rgba(11,42,91,0.025) 1px, transparent 1px, transparent 40px),
+    radial-gradient(circle at 15% 0%, rgba(249,115,22,0.045), transparent 40%),
+    radial-gradient(circle at 85% 20%, rgba(70,130,180,0.05), transparent 40%);
 }
 
 /* bg-white/[x] & border-white/[x] were used everywhere as "glass overlay on dark
    surface" -- on a white page those are invisible, so re-tint them navy in light mode.
    Substring attribute-selectors catch every opacity variant across every page/component
    without needing to enumerate each one. */
-html.light [class*="border-white/"] { border-color: rgba(11,42,91,0.12) !important; }
-html.light [class*="bg-white/"] { background-color: rgba(11,42,91,0.045) !important; }
-html.light [class*="hover:bg-white/"]:hover { background-color: rgba(11,42,91,0.07) !important; }
-html.light [class*="hover:text-white"]:hover { color: rgb(11 42 91) !important; }
-html.light [class*="divide-white/"] { border-color: rgba(11,42,91,0.10) !important; }
+html.light [class*="border-white/"]:not(.force-dark-scope):not(.force-dark-scope *) { border-color: rgba(11,42,91,0.12) !important; }
+html.light [class*="bg-white/"]:not(.force-dark-scope):not(.force-dark-scope *) { background-color: rgba(11,42,91,0.045) !important; }
+html.light [class*="hover:bg-white/"]:not(.force-dark-scope):not(.force-dark-scope *):hover { background-color: rgba(11,42,91,0.07) !important; }
+html.light [class*="hover:text-white"]:not(.force-dark-scope):not(.force-dark-scope *):hover { color: rgb(11 42 91) !important; }
+html.light [class*="divide-white/"]:not(.force-dark-scope):not(.force-dark-scope *) { border-color: rgba(11,42,91,0.10) !important; }
 
 html.light .shadow-glow { box-shadow: 0 0 0 1px rgba(249,115,22,0.18), 0 8px 30px -8px rgba(249,115,22,0.25); }
-html.light .shadow-glow-cyan { box-shadow: 0 0 0 1px rgba(29,78,216,0.15), 0 8px 30px -8px rgba(29,78,216,0.20); }
+html.light .shadow-glow-cyan { box-shadow: 0 0 0 1px rgba(70,130,180,0.18), 0 8px 30px -8px rgba(70,130,180,0.22); }
 html.light ::selection { background: rgba(249,115,22,0.25); }
 
 html.light body { @apply bg-white text-navy-950; }

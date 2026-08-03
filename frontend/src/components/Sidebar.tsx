@@ -60,7 +60,7 @@ export default function Sidebar({ dark, onToggleDark }: { dark: boolean; onToggl
   const [collapsed, setCollapsed] = useState(false)
 
   return (
-    <aside className={`${collapsed ? 'w-[76px]' : 'w-64'} shrink-0 h-screen sticky top-0 flex flex-col border-r border-white/[0.06] bg-navy-900/80 backdrop-blur-xl transition-all duration-300 hidden md:flex`}>
+    <aside className={`force-dark-scope ${collapsed ? 'w-[76px]' : 'w-64'} shrink-0 h-screen sticky top-0 flex flex-col border-r border-white/[0.06] bg-navy-900/80 backdrop-blur-xl transition-all duration-300 hidden md:flex`}>
       <div className="px-4 py-5 flex items-center gap-2.5 border-b border-white/[0.06]">
         <Logo variant="icon" size={collapsed ? 40 : 48} linkToHome />
         {!collapsed && (

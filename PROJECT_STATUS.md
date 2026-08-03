@@ -1497,6 +1497,53 @@ scoped).
 
 ---
 
+48. **Phase 1 of the "full enterprise redesign" brief Raahi pasted 2 Aug 2026** (a large
+    spec asking for a Bentley/PLAXIS/GeoStudio-style redesign: soft-gray bg + white cards,
+    dark-navy sidebar, burnt-orange primary / steel-blue secondary, subtle engineering
+    background texture, a mega-dashboard listing 20+ calculation modules most of which
+    don't exist yet, a full reusable component library, engineering-icon system, etc.)
+    **This is a genuinely large, multi-session redesign, not a single-pass job -- said so
+    explicitly to Raahi rather than silently attempting all of it.** What Phase 1 covers
+    (small, safe, high-leverage, on top of entry #47's variable system):
+    - **Fixed a real contrast bug from #47:** page bg and card bg had both become pure
+      white (invisible card edges) -- exactly the "white cards blending into background"
+      failure this new brief calls out. Now: `--navy-950` (page bg) = soft engineering gray
+      `#EEF1F6`, `--navy-900`/`--navy-850` (topbar/cards) = pure white, `--navy-800`
+      (inputs) = a faint tint between the two, so cards visibly sit on the page.
+    - **Secondary accent retuned to Steel Blue** (`#4682B4` family) in place of the
+      generic blue used in #47, per this brief's explicit "Secondary: Steel Blue".
+    - **Subtle engineering grid texture** added to `html.light body` (2.5%-opacity
+      repeating-linear-gradient grid lines + soft orange/steel-blue radial tints) --
+      reads as a faint drafting/graph-paper grid, per the brief's "background must never be
+      plain white" requirement.
+    - **Sidebar + mobile header/bottom-nav now stay a fixed Dark Navy regardless of the
+      light/dark toggle** (new `.force-dark-scope` class in `index.css`, added to
+      `Sidebar.tsx`'s `<aside>` and both elements in `MobileNav.tsx`) -- matches this
+      brief's explicit "Sidebar: Dark Navy" against light content, the enterprise-software
+      convention it's asking for. Only the navy/slate variables are reset locally, NOT
+      violet/cyan, so the orange active-nav-item highlight still shows correctly inside the
+      dark sidebar. The generic white-overlay re-tint rules from #47 are now scoped with
+      `:not(.force-dark-scope):not(.force-dark-scope *)` so they don't fight this.
+    - **Explicitly NOT done in this phase** (flagged to Raahi, waiting on scope/priority
+      confirmation before attempting): the mega-dashboard-as-control-center redesign
+      (listing 20+ modules, most of which -- Slope Stability, Retaining Wall, Ground
+      Improvement, Stone Column, GIS, Lab Management, OCR, Batch Reporting -- don't exist
+      as real features yet, so a literal implementation of that section would mean either
+      fabricating fake modules or a large amount of genuinely new feature-building); the
+      full reusable component library (buttons/cards/forms/inputs/dropdowns/tables/
+      dialogs/badges as a formal shared system, vs. today's per-page Tailwind classes);
+      engineering-icon system per module; table sorting/filtering/search; roadmap-section
+      redesign with progress bars. **If Raahi wants to proceed, the sane next slice is
+      probably: redesign the Dashboard page itself to surface the modules that ARE real
+      (Chat, Document Library, Clause Finder, Formula Library, Batch Analysis, Liquefaction,
+      Pile Capacity, Lateral Capacity, Reports, Borehole Logs) as premium cards, and put
+      the not-yet-built ones under a clearly-labeled Roadmap section (which already exists
+      in concept -- see `pages/planned/`) rather than a first mega-dashboard pass.**
+    - Not visually verified in a browser (same sandbox limitation as #47) -- verified via
+      `tsc --noEmit` (zero real syntax errors) and CSS brace-balance check only.
+
+---
+
 ## How to give Raahi an update (workflow reminder for whoever's helping)
 
 1. Make code changes in your own sandbox, verify with `python3 -m py_compile` (backend,
