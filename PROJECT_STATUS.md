@@ -78,12 +78,16 @@ env vars make things persistent:
 ## Architecture
 
 ```
-frontend/          React + TypeScript + Vite + Tailwind, dark navy/violet/cyan theme
+frontend/          React + TypeScript + Vite + Tailwind. Enterprise geotech-platform
+                      theme (4 Aug 2026 redesign) -- light workspace by default
+                      (bg #F6F8FA, white cards, #E2E8F0 borders, #0F172A text, #0EA5A4
+                      teal accent), dark mode toggle available.
   src/pages/        One file per route (Chat, Books, Calculators, BatchAnalysis,
                       BoreholeLogs, etc.)
   src/pages/planned/  Features that started as "Coming Soon" placeholders -- some have
                       since been built out for real (BoreholeLogs.tsx, LabReports.tsx,
-                      SoilProfile.tsx). Still-placeholder: Projects, PdfChat, Bookmarks.
+                      SoilProfile.tsx). Still-placeholder: Projects, PdfChat, Bookmarks,
+                      PileGroup, RaftFoundation, GroundImprovement (added 4 Aug 2026).
   src/components/    Sidebar, MobileNav, ComingSoon, ReferenceBlock, SourcesPanel
   src/api/client.ts  All backend API calls in one place
 
@@ -1852,7 +1856,88 @@ scoped).
 
 ---
 
-## How to give Raahi an update (workflow reminder for whoever's helping)
+56. **ENTERPRISE UI REDESIGN, re-delivered 4 Aug 2026 (frontend-only, no backend/API
+    changes)** -- this is the SAME redesign work described below, just re-packaged.
+    **What happened:** this was built once already, zipped, and Termux commands were
+    given -- but Raahi's copy of the zip wasn't actually on the phone yet (still sitting
+    in the Downloads app, not synced to Termux's `~`), so `unzip` silently failed and the
+    subsequent `git add/commit/push` ran against a stale, unchanged local copy --
+    `git push` correctly reported "Everything up-to-date" because, as far as git could
+    see, nothing HAD changed. **Not a code bug** -- confirmed by re-reading the zip
+    Raahi uploaded back afterward: it was still the pre-redesign version. This entry's
+    redesign is rebased on top of #55's lab-upload-pipeline work (which WAS live on
+    GitHub) so neither set of changes overwrites the other.
+    - **Key leverage point:** this app's whole color system is already CSS variables
+      (`--navy-*`, `--slate-*`, `--violet-*`, `--cyan-*` in `index.css`, consumed via
+      `tailwind.config.js`'s `rgb(var(--x) / <alpha-value>)` pattern -- see the 2 Aug
+      note in `tailwind.config.js`). That meant re-skinning ~20 page files' worth of
+      `bg-navy-900`, `text-slate-400`, `from-violet-500` etc. required editing **one
+      file** (`index.css`), not every page individually.
+    - **New palette** (`html.light` = default theme, `:root` = dark-mode toggle): swapped
+      the `violet` variable slot (was burnt-orange brand accent) to a **teal #0EA5A4**
+      family per the brief's exact hex; `cyan` slot (secondary/informational accent, dark
+      steel-blue) left unchanged. `navy-950`/`navy-900`/`navy-700` slots (page bg / card
+      bg / borders) retuned to the brief's exact `#F6F8FA` / `#FFFFFF` / `#E2E8F0`; text
+      slots retuned to `#0F172A`/`#1E293B`. Hardcoded (non-variable) accent rgba's in
+      `.shadow-glow`, `::selection`, and `body`'s background-glow were updated to match
+      (these don't ride the variable system since they're literal rgba, not `rgb(var(--x))`
+      -- same class of gotcha as playbook #52/#53, checked for and fixed here too).
+    - **Background pattern:** fine 32px CAD grid, coarse 160px major grid, a shallow-angle
+      banding layer standing in for soil-strata/cross-section, two contour-ring layers,
+      two soft teal/steel-blue glows -- CSS-gradient-only (no image assets, per the
+      brief's performance note), capped at 1.5-4% opacity.
+    - **Cards:** `.glass` in light mode changed from translucent `bg-white/80` +
+      backdrop-blur to **opaque white**, `backdrop-filter: none`, plus a new theme-
+      independent `.shadow-card`/`.shadow-card-hover` (also in `tailwind.config.js`).
+      Border-radius already `rounded-2xl` (16px) app-wide -- in the brief's 14-16px
+      range, no change needed.
+    - **Typography:** `fontFamily.display` changed from `"Space Grotesk"` to `"Inter"`
+      (brief: Inter for headings and body); the Space Grotesk Google Fonts import
+      dropped from `index.html`.
+    - **Sidebar (`Sidebar.tsx`) regrouped:** Dashboard/Projects at top, then
+      **Investigation** (Borehole Logs, Lab Data, Soil Profiles), **Foundation Design**
+      (Bearing Capacity & Settlement, Pile Capacity, Pile Group, Raft Foundation,
+      Retaining Wall, Lateral Capacity, Liquefaction, Ground Improvement, Batch
+      Analysis), **Knowledge** (IS Codes, IRC Codes, Formula Library, Clause Finder,
+      Document Library), **AI** (AI Assistant, PDF Chat), then Reports/History/
+      Bookmarks/Settings. Rail background retinted to the brief's exact Primary
+      `#0F172A` (still `.force-dark-scope`, unchanged 3 Aug 2026 convention).
+    - **Three new placeholder modules** (`pages/planned/PileGroup.tsx`,
+      `RaftFoundation.tsx`, `GroundImprovement.tsx`, routed at `/pile-group`,
+      `/raft-foundation`, `/ground-improvement`) -- honest "Coming Soon" placeholders
+      (same `ComingSoon` component as Projects/PDF Chat/Bookmarks), **not real analysis
+      engines, no backend work done.**
+    - **IRC Codes given its own route** (`/irc-codes`, reuses `<Books
+      fixedCategory="IRC Codes" />`, same pattern as `/is-codes`) -- fully real, since
+      the `IRC Codes` document category already existed in the data model.
+    - **Dashboard (`Dashboard.tsx`) restructured:** new **Quick Actions** row (New
+      Borehole / Run Analysis / Batch Analysis / Generate Report / Ask AI, all real
+      routes), **Project Overview** stat strip (same 5 real-data stats, restyled), module
+      grids regrouped to match the new Sidebar (Investigation -> Foundation Design ->
+      Knowledge -> AI, was previously AI-section-first). **Deliberately did NOT
+      fabricate data** for "Active Projects" / "Pending Reports" / "Completed Reports"
+      -- no backend support exists for a Projects entity or a reports-history list
+      (`/api/reports` only has `generate`/`section-types`, nothing persisted/listable).
+      Built a **Reporting & Projects** section instead with an honest "Engineering
+      Reports" quick-launch card next to the existing Projects Coming Soon card. Recent-
+      activity panels: **Recent Boreholes**, **Recent Documents**, **Latest Activity**
+      (AI conversations) -- all real data, no fabrication.
+    - **If a real "Recent Calculations" section is wanted later:** `CalculationLog` rows
+      are already written on every calculator run (`calculators.py`) but there's no GET
+      endpoint to list them and no frontend client method -- needs a small backend
+      addition, out of scope here (frontend-only brief).
+    - Verified with `tsc --ignoreConfig --noEmit --skipLibCheck --jsx react-jsx` against
+      this repo's current state (i.e. re-checked AFTER merging onto #55's changes, not
+      just the original branch) -- zero new errors, only the standing missing-
+      `node_modules` noise every file in this repo already produces (see workflow note
+      at the bottom of this doc). Confirmed `client.ts`'s `listDocuments`/
+      `listConversations`/`listBoreholes` (which `Dashboard.tsx` depends on) are still
+      present after #55's edits to that file. **Not seen in a real browser** -- ask
+      Raahi to screenshot both light and dark mode after this actually deploys.
+    - **For whoever helps Raahi verify the copy-paste this time:** before running
+      `unzip`, run `ls -la <zipname>` and confirm a non-zero file size first -- the
+      failure mode above (stale zip silently reused) produces no error until `git push`
+      says "Everything up-to-date" on a commit that should have had real changes.
 
 1. Make code changes in your own sandbox, verify with `python3 -m py_compile` (backend,
    whole tree not just changed files) and `tsc --ignoreConfig --noEmit --skipLibCheck --jsx

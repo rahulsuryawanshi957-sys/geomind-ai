@@ -55,14 +55,20 @@ export default {
         },
       },
       fontFamily: {
-        display: ['"Space Grotesk"', 'system-ui', 'sans-serif'],
+        // Enterprise UI brief (4 Aug 2026): Inter throughout, for both headings and body --
+        // a single consistent typeface reads as professional engineering software rather
+        // than a stylized AI-product display face. `display` kept as its own token (used
+        // ~80 places for headings) so weight/tracking can still be tuned independently.
+        display: ['"Inter"', 'system-ui', 'sans-serif'],
         sans: ['"Inter"', 'system-ui', 'sans-serif'],
         mono: ['"JetBrains Mono"', 'monospace'],
       },
       backdropBlur: { xs: '2px' },
       boxShadow: {
-        glow: '0 0 0 1px rgba(139,92,246,0.15), 0 8px 30px -8px rgba(139,92,246,0.25)',
+        glow: '0 0 0 1px rgba(14,165,164,0.18), 0 8px 30px -8px rgba(14,165,164,0.28)',
         'glow-cyan': '0 0 0 1px rgba(34,211,238,0.15), 0 8px 30px -8px rgba(34,211,238,0.25)',
+        card: '0 1px 2px rgba(15,23,42,0.04), 0 6px 20px -6px rgba(15,23,42,0.09)',
+        'card-hover': '0 2px 4px rgba(15,23,42,0.05), 0 12px 28px -8px rgba(15,23,42,0.14)',
       },
       keyframes: {
         'fade-up': { '0%': { opacity: 0, transform: 'translateY(6px)' }, '100%': { opacity: 1, transform: 'translateY(0)' } },
