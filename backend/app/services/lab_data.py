@@ -90,12 +90,17 @@ def build_template() -> bytes:
     return buf.read()
 
 
-def parse_uploaded_workbook(file_bytes: bytes) -> dict:
+def parse_uploaded_workbook(file_bytes: bytes, _preloaded_wb=None) -> dict:
     """
     Returns {"boreholes": {borehole_id: {project_name, water_table_depth_m, layers: [...]}}, "warnings": [...]}
     Skips/warns on bad rows instead of failing the whole upload.
+
+    _preloaded_wb: an already-`load_workbook()`-ed openpyxl Workbook, if the
+    caller (parse_uploaded_workbook_auto) already parsed these same bytes --
+    avoids re-parsing the file from scratch. Internal use; external callers
+    should just pass file_bytes as before.
     """
-    wb = load_workbook(io.BytesIO(file_bytes), data_only=True)
+    wb = _preloaded_wb if _preloaded_wb is not None else load_workbook(io.BytesIO(file_bytes), data_only=True)
     if "Soil Data" not in wb.sheetnames:
         raise ValueError("Expected a sheet named 'Soil Data' -- did you use the downloaded template?")
     ws = wb["Soil Data"]
@@ -208,6 +213,17 @@ def parse_uploaded_workbook_auto(file_bytes: bytes) -> dict:
          it's the least certain of the three.
     All three paths return the SAME dict shape:
     {"boreholes": {borehole_id: {project_name, water_table_depth_m, ..., layers:[...]}}, "warnings":[...]}
+
+    PERFORMANCE (fixed 4 Aug 2026): the workbook is now loaded with
+    `openpyxl.load_workbook()` exactly ONCE here and the same Workbook object
+    is passed into every tier via `_preloaded_wb`. Before this fix, tier 2
+    called `parse_borehole_log_workbook()` once per sheet and EACH call
+    re-parsed the full file from raw bytes from scratch -- so a real-world
+    10-sheet consultant report that didn't match tiers 1/2 triggered ~12
+    redundant full openpyxl parses of the identical bytes (1 here + 10 in
+    the tier-2 loop + 1 in tier 3). This was the dominant cause of "upload is
+    slow / sometimes fails (times out)" -- see the benchmark in this
+    feature's playbook entry for measured before/after numbers.
     """
     from openpyxl import load_workbook
     import io
@@ -215,14 +231,14 @@ def parse_uploaded_workbook_auto(file_bytes: bytes) -> dict:
 
     wb = load_workbook(io.BytesIO(file_bytes), data_only=True)
     if "Soil Data" in wb.sheetnames:
-        return parse_uploaded_workbook(file_bytes)
+        return parse_uploaded_workbook(file_bytes, _preloaded_wb=wb)
 
     logger.info("[lab_data] 'Soil Data' sheet not found -- trying office borehole-log format (all sheets).")
     report_boreholes = {}
     report_warnings = []
     for sheet_name in wb.sheetnames:
         try:
-            parsed = parse_borehole_log_workbook(file_bytes, sheet_name=sheet_name)
+            parsed = parse_borehole_log_workbook(file_bytes, sheet_name=sheet_name, _preloaded_wb=wb)
             converted = to_lab_data_format(parsed)
             report_boreholes.update(converted["boreholes"])
             report_warnings.extend(converted["warnings"])
@@ -234,7 +250,7 @@ def parse_uploaded_workbook_auto(file_bytes: bytes) -> dict:
 
     from app.services.universal_soil_parser import parse_workbook as parse_universal
 
-    universal_result = parse_universal(file_bytes)
+    universal_result = parse_universal(file_bytes, _preloaded_wb=wb)
     if universal_result.get("low_confidence_overall") or not universal_result.get("boreholes"):
         raise ValueError(
             "Could not automatically recognize this file's layout. "

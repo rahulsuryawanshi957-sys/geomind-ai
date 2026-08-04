@@ -85,6 +85,7 @@ class BoreholeProfile(Base):
     project_name = Column(String, nullable=True)
     water_table_depth_m = Column(Float, nullable=True)
     source_filename = Column(String, nullable=True)
+    source_file_hash = Column(String, nullable=True, index=True)  # sha256 of the uploaded bytes -- duplicate-upload detection, added 4 Aug 2026
     easting = Column(Float, nullable=True)
     northing = Column(Float, nullable=True)
     rl_m = Column(Float, nullable=True)

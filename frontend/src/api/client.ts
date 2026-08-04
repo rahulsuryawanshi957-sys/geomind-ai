@@ -170,14 +170,49 @@ export const api = {
     const a = document.createElement('a'); a.href = url; a.download = 'raahigeo_lab_data_template.xlsx'; a.click()
   },
 
-  uploadLabData: async (file: File) => {
-    const form = new FormData()
-    form.append('file', file)
-    const res = await fetch(`${BASE_URL}/api/lab-data/upload`, { method: 'POST', body: form, headers: authHeaders() })
-    if (res.status === 401) { handleUnauthorized(); throw new Error('Not authenticated.') }
-    if (!res.ok) throw new Error(await res.text())
-    return res.json()
-  },
+  uploadLabData: (file: File, opts?: { onProgress?: (pct: number) => void; force?: boolean }) =>
+    new Promise<any>((resolve, reject) => {
+      const attempt = (retriesLeft: number) => {
+        const xhr = new XMLHttpRequest()
+        xhr.open('POST', `${BASE_URL}/api/lab-data/upload`)
+        const token = localStorage.getItem('raahigeo_auth_token')
+        if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+        // Generous timeout -- Render free tier can take 30-50s to wake from a
+        // cold start (see PROJECT_STATUS.md) on top of actual upload+parse time.
+        xhr.timeout = 120000
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) opts?.onProgress?.(Math.round((e.loaded / e.total) * 100))
+        }
+        xhr.onload = () => {
+          if (xhr.status === 401) { handleUnauthorized(); reject(new Error('Not authenticated.')); return }
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try { resolve(JSON.parse(xhr.responseText)) } catch { reject(new Error('Server returned an unreadable response.')) }
+            return
+          }
+          // 400/409/413/422/500 etc. are application-level responses (validation,
+          // duplicate file, file too large...) -- meaningful already, never retried.
+          let message = xhr.responseText || `Upload failed (${xhr.status}).`
+          try { message = JSON.parse(xhr.responseText).detail || message } catch { /* not JSON, use raw text */ }
+          const err: any = new Error(message)
+          err.status = xhr.status
+          reject(err)
+        }
+        const retryOrFail = (fallbackMessage: string) => {
+          if (retriesLeft > 0) { setTimeout(() => attempt(retriesLeft - 1), 1500) }
+          else reject(new Error(fallbackMessage))
+        }
+        // Network-level failures (connection dropped, DNS, CORS preflight
+        // failure...) and timeouts are transient -- worth one automatic retry
+        // before bothering the user.
+        xhr.onerror = () => retryOrFail('Network error — could not reach the server. Check your connection and try again.')
+        xhr.ontimeout = () => retryOrFail('Upload timed out. The server may be waking up from idle (Render free tier) — try again in a moment.')
+        const form = new FormData()
+        form.append('file', file)
+        if (opts?.force) form.append('force', 'true')
+        xhr.send(form)
+      }
+      attempt(1)
+    }),
 
   listBoreholes: () => request<any[]>('/api/lab-data'),
   getBorehole: (id: string) => request<any>(`/api/lab-data/${id}`),

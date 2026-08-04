@@ -1,7 +1,9 @@
-from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
+from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 import io
+import hashlib
 from app.database import get_db
 from app.models import BoreholeProfile, SoilLayer
 from app.schemas import BoreholeProfileOut
@@ -9,6 +11,15 @@ from app.services.lab_data import build_template, parse_uploaded_workbook_auto
 from app.config import logger
 
 router = APIRouter(prefix="/api/lab-data", tags=["lab-data"])
+
+# Lab sheets are small structured spreadsheets (a few hundred KB to a few MB
+# even for a large multi-borehole report) -- 20MB is generous headroom, not
+# a tight limit. Rejecting oversized files immediately with a clear message
+# beats a slow parse that eventually times out or exhausts memory. Genuine
+# streaming/chunked upload (resumable, progress mid-transfer on the SERVER
+# side) isn't warranted at this file size -- see this feature's playbook
+# entry for why that was scoped out.
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
 
 @router.get("/template")
@@ -23,15 +34,44 @@ def download_template():
 
 
 @router.post("/upload")
-async def upload_lab_data(file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def upload_lab_data(
+    file: UploadFile = File(...),
+    force: bool = Form(False),
+    db: Session = Depends(get_db),
+):
     if not file.filename.lower().endswith((".xlsx", ".xlsm")):
         raise HTTPException(400, "Please upload an .xlsx file (use the downloaded template).")
 
     file_bytes = await file.read()
-    logger.info(f"[lab_data] Parsing uploaded file: {file.filename}")
+
+    if len(file_bytes) == 0:
+        raise HTTPException(400, "The uploaded file is empty.")
+    if len(file_bytes) > MAX_UPLOAD_BYTES:
+        mb = len(file_bytes) / (1024 * 1024)
+        raise HTTPException(413, f"File is {mb:.1f} MB -- the limit is {MAX_UPLOAD_BYTES // (1024*1024)} MB. "
+                                  f"Split it into smaller sheets, or contact support if a genuinely larger file is needed.")
+
+    file_hash = hashlib.sha256(file_bytes).hexdigest()
+    if not force:
+        existing = db.query(BoreholeProfile).filter(BoreholeProfile.source_file_hash == file_hash).all()
+        if existing:
+            names = ", ".join(sorted({p.borehole_id for p in existing}))
+            raise HTTPException(
+                409,
+                f"This exact file was already uploaded (borehole(s): {names}, on "
+                f"{existing[0].created_at:%d %b %Y}). Re-upload with force=true if this is "
+                f"intentional (e.g. a legitimate re-import).",
+            )
+
+    logger.info(f"[lab_data] Parsing uploaded file: {file.filename} ({len(file_bytes)/1024:.0f} KB)")
 
     try:
-        parsed = parse_uploaded_workbook_auto(file_bytes)
+        # openpyxl parsing is CPU-bound and synchronous -- run it in FastAPI's
+        # threadpool so it doesn't block the single asyncio event loop (and
+        # therefore every OTHER concurrent request) for its duration. Real
+        # impact depends on file size; see the playbook entry's benchmark for
+        # how much the tier-reparse fix (below) already cut this down.
+        parsed = await run_in_threadpool(parse_uploaded_workbook_auto, file_bytes)
     except ValueError as e:
         raise HTTPException(400, str(e))
     except Exception as e:
@@ -51,6 +91,7 @@ async def upload_lab_data(file: UploadFile = File(...), db: Session = Depends(ge
             date_of_boring=data.get("date_of_boring"),
             project_number=data.get("project_number"),
             source_filename=file.filename,
+            source_file_hash=file_hash,
         )
         db.add(profile)
         db.flush()  # get profile.id before adding layers

@@ -3,71 +3,72 @@
 @tailwind utilities;
 
 /* ============================================================
-   THEME VARIABLES (redesigned 4 Aug 2026 -- enterprise geotech
-   platform brief: Bentley OpenGround / PLAXIS / Rocscience /
-   GeoStudio look).
+   THEME VARIABLES (added 2 Aug 2026)
    Every navy/slate/violet/cyan shade used across the whole app
-   resolves to one of these CSS variables (see tailwind.config.js).
-   Changing a value here re-skins EVERY page that uses that class,
-   with no per-page edits needed.
-   html.light = default app theme: light enterprise workspace
-     (bg #F6F8FA, white cards, #E2E8F0 borders, #0F172A text,
-     #0EA5A4 teal accent) -- per the 4 Aug 2026 UI brief.
-   :root = dark mode (toggle in Settings): same palette family,
-     inverted for a dark professional workspace.
-   "violet" slot = PRIMARY ACCENT (teal, #0EA5A4 family).
-   "cyan" slot   = SECONDARY ACCENT (steel-blue, unchanged family --
-     used for water-table/informational highlights, complements teal).
+   (all pages, Sidebar, MobileNav, buttons, cards...) resolves to
+   one of these CSS variables -- see tailwind.config.js. Changing
+   a value here re-skins EVERY page that uses that class, with no
+   per-page edits needed.
+   :root = dark "engineering workspace" look (default/original).
+   html.light = RaahiGeo brand theme: white bg, navy text, orange
+   accent, per Raahi's brand brief (2 Aug 2026).
    ============================================================ */
 :root {
-  /* Primary #0F172A (page bg) / Secondary #1E293B (card surface) */
-  --navy-950: 15 23 42;    --navy-900: 30 41 59;    --navy-850: 30 41 59;
-  --navy-800: 41 55 79;    --navy-700: 51 65 85;    --navy-600: 71 85 105;
+  --navy-950: 5 7 13;     --navy-900: 10 14 26;    --navy-850: 15 20 36;
+  --navy-800: 20 26 46;   --navy-700: 28 36 64;    --navy-600: 40 50 90;
 
   --slate-50: 248 250 252;  --slate-100: 241 245 249; --slate-200: 226 232 240;
   --slate-300: 174 180 199; --slate-400: 139 147 168; --slate-500: 100 116 139;
   --slate-600: 71 85 105;   --slate-800: 30 41 59;    --slate-900: 15 23 42;
   --slate-950: 2 6 23;
 
-  /* Accent: teal #0EA5A4 family (bright enough for text/icons on dark bg) */
-  --violet-300: 94 234 212; --violet-400: 45 212 191; --violet-500: 14 165 164;
-  --violet-600: 13 148 136; --violet-700: 15 118 110;
+  --violet-300: 196 181 253; --violet-400: 167 139 250; --violet-500: 139 92 246;
+  --violet-600: 124 58 237;  --violet-700: 109 40 217;
 
-  /* Secondary accent: steel-blue (informational / water-table highlights) */
   --cyan-300: 103 232 249; --cyan-400: 34 211 238; --cyan-500: 6 182 212;
 }
 
 html.light {
-  /* Surfaces: Background #F6F8FA, Cards #FFFFFF, Borders #E2E8F0 */
-  --navy-950: 246 248 250; --navy-900: 255 255 255; --navy-850: 255 255 255;
-  --navy-800: 241 245 249; --navy-700: 226 232 240; --navy-600: 203 213 225;
+  /* Surfaces: SOFT ENGINEERING GRAY page bg, PURE WHITE cards (must contrast against
+     the page, not blend into it -- see playbook #48), light borders. */
+  --navy-950: 238 241 246; --navy-900: 255 255 255; --navy-850: 255 255 255;
+  --navy-800: 244 246 250; --navy-700: 226 231 240; --navy-600: 203 213 225;
 
-  /* Text: primary #0F172A (headings) down to muted slate meta text */
-  --slate-50: 15 23 42;    --slate-100: 30 41 59;   --slate-200: 51 65 85;
+  /* Text: brand navy headings down to muted slate-blue meta text */
+  --slate-50: 11 42 91;    --slate-100: 30 41 59;   --slate-200: 51 65 85;
   --slate-300: 71 85 105;  --slate-400: 100 116 139; --slate-500: 130 142 161;
   --slate-600: 148 163 184; --slate-800: 210 218 230; --slate-900: 243 246 250;
   --slate-950: 255 255 255;
 
-  /* Primary accent: teal #0EA5A4, in place of orange.
-     IMPORTANT (kept from playbook #52): low shade numbers (300/400) must stay
-     genuinely DARK/saturated for WCAG-safe text contrast on a white/near-white
-     background -- they are NOT light tints here, unlike the dark theme above. */
-  --violet-300: 15 118 110; --violet-400: 13 148 136; --violet-500: 14 165 164;
-  --violet-600: 13 148 136; --violet-700: 15 118 110;
+  /* Primary accent: burnt orange, in place of violet.
+     IMPORTANT (fixed 3 Aug 2026 -- see playbook #52): violet-300/400 are used ~50 times
+     across the app as TEXT color (active nav items, badges, highlighted labels). In the
+     original dark theme, low shade numbers = light/bright, which reads fine as text on a
+     DARK background. Naively carrying that same lightness into light mode made text-
+     violet-300/400 render as pale peachy-orange text on a near-white background --
+     invisible/very low contrast (this is the bug Raahi reported: "font colour aur
+     background dono ek jaise"). Fix: 300/400 are now genuinely DARK, saturated
+     "burnt orange" tones (safe against WCAG contrast on white), not light tints. 500/600
+     stay closer to the vivid brand orange since those are mostly used for backgrounds/
+     button-gradients/badge-fills (a 10-15%-opacity fill of a vivid color still looks like
+     a soft tint either way, so no legibility issue there). */
+  --violet-300: 194 65 12;  --violet-400: 154 52 18;  --violet-500: 234 88 12;
+  --violet-600: 194 65 12;  --violet-700: 154 52 18;
 
-  /* Secondary accent: dark steel blue (unchanged -- informational highlights) */
+  /* Secondary accent: dark steel blue, same fix as violet above (300/400 darkened for
+     text legibility; 500 kept nearer true steel-blue for backgrounds/badges). */
   --cyan-300: 21 52 84;  --cyan-400: 30 73 118;  --cyan-500: 39 98 145;
 }
 
 /* Sidebar (desktop) + mobile header/bottom-nav are given this class so they stay a
-   fixed dark rail (Primary #0F172A / Secondary #1E293B) regardless of the light/dark
-   toggle -- enterprise engineering-software convention (Bentley OpenGround / PLAXIS /
-   GeoStudio style: persistent dark nav rail against a light workspace). Only
-   navy/slate are reset here -- violet/cyan (the teal/steel-blue accents) are
-   deliberately left alone so active-state highlights stay on-brand inside the rail. */
+   fixed DARK NAVY regardless of the light/dark toggle -- enterprise engineering-software
+   convention (Bentley OpenGround / PLAXIS / GeoStudio style: persistent dark nav rail
+   against a light workspace), per Raahi's brief (2 Aug 2026). Only navy/slate are reset
+   here -- violet/cyan (the orange/steel-blue accents) are deliberately left alone so
+   active-state highlights stay on-brand even inside the dark chrome. */
 .force-dark-scope {
-  --navy-950: 15 23 42;   --navy-900: 30 41 59;    --navy-850: 30 41 59;
-  --navy-800: 41 55 79;   --navy-700: 51 65 85;    --navy-600: 71 85 105;
+  --navy-950: 5 7 13;     --navy-900: 10 14 26;    --navy-850: 15 20 36;
+  --navy-800: 20 26 46;   --navy-700: 28 36 64;    --navy-600: 40 50 90;
   --slate-50: 248 250 252;  --slate-100: 241 245 249; --slate-200: 226 232 240;
   --slate-300: 174 180 199; --slate-400: 139 147 168; --slate-500: 100 116 139;
   --slate-600: 71 85 105;   --slate-800: 30 41 59;    --slate-900: 15 23 42;
@@ -78,24 +79,23 @@ html.light {
    white-on-dark-navy styling (which looks correct there) is left alone. */
 
 html.light body {
-  /* Layered "engineering atmosphere" background -- premium geotech platform brief
-     (4 Aug 2026). Every layer stays at 1.5-4% opacity by design -- felt, not seen:
-     1) fine 32px blueprint/CAD grid
-     2) coarser 160px major grid -- drafting-sheet minor/major grid convention
-     3) shallow-angle repeating bands -- reads as geological soil-strata / cross-section
-     4) two off-center repeating-radial-gradients -- topographic contour rings / borehole
-        log rings, without being a literal (heavy) illustration
-     5) soft teal (accent) + steel-blue depth glows */
+  /* Layered "engineering atmosphere" background, per Raahi's brief (2 Aug 2026):
+     1) fine 40px blueprint/survey grid (existing, from #48)
+     2) coarser 200px major grid lines -- mimics an engineering drafting sheet's
+        minor/major grid convention
+     3) two off-center repeating-radial-gradients -- read as topographic contour
+        rings / a geological map, without being a literal (heavy) illustration
+     4) the original soft orange/steel-blue depth glows from #48, unchanged
+     All of it stays at 1.5-5% opacity by design -- meant to be felt, not seen. */
   background-image:
-    repeating-linear-gradient(0deg, rgba(15,23,42,0.022) 0px, rgba(15,23,42,0.022) 1px, transparent 1px, transparent 32px),
-    repeating-linear-gradient(90deg, rgba(15,23,42,0.022) 0px, rgba(15,23,42,0.022) 1px, transparent 1px, transparent 32px),
-    repeating-linear-gradient(0deg, rgba(15,23,42,0.035) 0px, rgba(15,23,42,0.035) 1.5px, transparent 1.5px, transparent 160px),
-    repeating-linear-gradient(90deg, rgba(15,23,42,0.035) 0px, rgba(15,23,42,0.035) 1.5px, transparent 1.5px, transparent 160px),
-    repeating-linear-gradient(8deg, rgba(15,23,42,0.016) 0px, rgba(15,23,42,0.016) 1px, transparent 1px, transparent 140px),
-    repeating-radial-gradient(circle at 12% 15%, rgba(15,23,42,0.03) 0px, rgba(15,23,42,0.03) 1px, transparent 1px, transparent 70px),
-    repeating-radial-gradient(circle at 88% 80%, rgba(39,98,145,0.028) 0px, rgba(39,98,145,0.028) 1px, transparent 1px, transparent 90px),
-    radial-gradient(circle at 15% 0%, rgba(14,165,164,0.05), transparent 40%),
-    radial-gradient(circle at 85% 20%, rgba(39,98,145,0.045), transparent 40%);
+    repeating-linear-gradient(0deg, rgba(11,42,91,0.022) 0px, rgba(11,42,91,0.022) 1px, transparent 1px, transparent 40px),
+    repeating-linear-gradient(90deg, rgba(11,42,91,0.022) 0px, rgba(11,42,91,0.022) 1px, transparent 1px, transparent 40px),
+    repeating-linear-gradient(0deg, rgba(11,42,91,0.035) 0px, rgba(11,42,91,0.035) 1.5px, transparent 1.5px, transparent 200px),
+    repeating-linear-gradient(90deg, rgba(11,42,91,0.035) 0px, rgba(11,42,91,0.035) 1.5px, transparent 1.5px, transparent 200px),
+    repeating-radial-gradient(circle at 12% 15%, rgba(11,42,91,0.03) 0px, rgba(11,42,91,0.03) 1px, transparent 1px, transparent 70px),
+    repeating-radial-gradient(circle at 88% 80%, rgba(70,130,180,0.028) 0px, rgba(70,130,180,0.028) 1px, transparent 1px, transparent 90px),
+    radial-gradient(circle at 15% 0%, rgba(249,115,22,0.045), transparent 40%),
+    radial-gradient(circle at 85% 20%, rgba(70,130,180,0.05), transparent 40%);
   background-attachment: fixed;
 }
 
@@ -103,32 +103,22 @@ html.light body {
    surface" -- on a white page those are invisible, so re-tint them navy in light mode.
    Substring attribute-selectors catch every opacity variant across every page/component
    without needing to enumerate each one. */
-html.light [class*="border-white/"]:not(.force-dark-scope):not(.force-dark-scope *) { border-color: rgba(15,23,42,0.10) !important; }
-html.light [class*="bg-white/"]:not(.force-dark-scope):not(.force-dark-scope *) { background-color: rgba(15,23,42,0.04) !important; }
-html.light [class*="hover:bg-white/"]:not(.force-dark-scope):not(.force-dark-scope *):hover { background-color: rgba(15,23,42,0.06) !important; }
-html.light [class*="hover:text-white"]:not(.force-dark-scope):not(.force-dark-scope *):hover { color: rgb(15 23 42) !important; }
-html.light [class*="divide-white/"]:not(.force-dark-scope):not(.force-dark-scope *) { border-color: rgba(15,23,42,0.09) !important; }
+html.light [class*="border-white/"]:not(.force-dark-scope):not(.force-dark-scope *) { border-color: rgba(11,42,91,0.12) !important; }
+html.light [class*="bg-white/"]:not(.force-dark-scope):not(.force-dark-scope *) { background-color: rgba(11,42,91,0.045) !important; }
+html.light [class*="hover:bg-white/"]:not(.force-dark-scope):not(.force-dark-scope *):hover { background-color: rgba(11,42,91,0.07) !important; }
+html.light [class*="hover:text-white"]:not(.force-dark-scope):not(.force-dark-scope *):hover { color: rgb(11 42 91) !important; }
+html.light [class*="divide-white/"]:not(.force-dark-scope):not(.force-dark-scope *) { border-color: rgba(11,42,91,0.10) !important; }
 
-html.light .shadow-glow { box-shadow: 0 0 0 1px rgba(14,165,164,0.16), 0 8px 30px -8px rgba(14,165,164,0.20); }
-html.light .shadow-glow-cyan { box-shadow: 0 0 0 1px rgba(39,98,145,0.16), 0 8px 30px -8px rgba(39,98,145,0.18); }
-html.light ::selection { background: rgba(14,165,164,0.22); }
+html.light .shadow-glow { box-shadow: 0 0 0 1px rgba(249,115,22,0.18), 0 8px 30px -8px rgba(249,115,22,0.25); }
+html.light .shadow-glow-cyan { box-shadow: 0 0 0 1px rgba(70,130,180,0.18), 0 8px 30px -8px rgba(70,130,180,0.22); }
+html.light ::selection { background: rgba(249,115,22,0.25); }
 
-html.light body { @apply bg-navy-950; }
-
-/* Premium enterprise card shadow -- soft, neutral, theme-independent.
-   Applied to .glass in light mode where cards are opaque white (see below). */
-.shadow-card { box-shadow: 0 1px 2px rgba(15,23,42,0.04), 0 6px 20px -6px rgba(15,23,42,0.09); }
-.shadow-card-hover { box-shadow: 0 2px 4px rgba(15,23,42,0.05), 0 12px 28px -8px rgba(15,23,42,0.14); }
+html.light body { @apply bg-white; }
 
 body {
   @apply bg-navy-950 text-slate-100 font-sans antialiased;
   background-image:
-    repeating-linear-gradient(0deg, rgba(255,255,255,0.014) 0px, rgba(255,255,255,0.014) 1px, transparent 1px, transparent 32px),
-    repeating-linear-gradient(90deg, rgba(255,255,255,0.014) 0px, rgba(255,255,255,0.014) 1px, transparent 1px, transparent 32px),
-    repeating-linear-gradient(0deg, rgba(255,255,255,0.022) 0px, rgba(255,255,255,0.022) 1.5px, transparent 1.5px, transparent 160px),
-    repeating-linear-gradient(90deg, rgba(255,255,255,0.022) 0px, rgba(255,255,255,0.022) 1.5px, transparent 1.5px, transparent 160px),
-    repeating-radial-gradient(circle at 12% 15%, rgba(255,255,255,0.02) 0px, rgba(255,255,255,0.02) 1px, transparent 1px, transparent 70px),
-    radial-gradient(circle at 15% 0%, rgba(14,165,164,0.12), transparent 40%),
+    radial-gradient(circle at 15% 0%, rgba(139,92,246,0.10), transparent 40%),
     radial-gradient(circle at 85% 20%, rgba(34,211,238,0.08), transparent 40%);
   background-attachment: fixed;
 }
@@ -138,31 +128,27 @@ body {
 ::-webkit-scrollbar-thumb { @apply bg-navy-600 rounded-full; }
 ::-webkit-scrollbar-track { background: transparent; }
 
-/* Glass surface used across cards, sidebars, panels.
-   Dark mode: translucent secondary-surface glass (unchanged pattern).
-   Light mode: opaque white enterprise card, soft shadow, no blur -- see override below. */
+/* Glass surface used across cards, sidebars, panels */
 .glass {
   @apply bg-navy-850/70 backdrop-blur-xl border border-white/[0.06] rounded-2xl;
 }
 html.light .glass {
-  @apply bg-white border-navy-700/70 shadow-card;
-  backdrop-filter: none;
+  @apply bg-white/80 border-black/[0.06];
 }
 
 .glass-hover {
-  @apply transition-all duration-200 hover:border-violet-500/30 hover:shadow-glow hover:-translate-y-0.5;
+  @apply transition-all duration-200 hover:border-violet-500/30 hover:shadow-glow;
 }
-html.light .glass-hover:hover { box-shadow: 0 0 0 1px rgba(14,165,164,0.18), 0 8px 20px -6px rgba(14,165,164,0.16); }
 
 .gm-input {
   @apply bg-navy-800/80 border border-white/[0.08] rounded-xl px-3.5 py-2.5 text-sm
          focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500/40
          placeholder:text-slate-400/60 transition-all;
 }
-html.light .gm-input { @apply bg-white border-navy-700 text-brand-navy; }
+html.light .gm-input { @apply bg-white border-black/10 text-brand-navy; }
 
 .gm-btn-primary {
-  @apply bg-gradient-to-r from-violet-600 to-violet-500 hover:from-violet-700 hover:to-violet-600
+  @apply bg-gradient-to-r from-violet-600 to-violet-500 hover:from-violet-500 hover:to-violet-400
          text-white font-medium rounded-xl px-4 py-2.5 text-sm transition-all shadow-glow
          disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none;
 }

@@ -21,10 +21,10 @@ export default function MobileNav() {
       {/* Floating AI button */}
       <NavLink
         to="/chat"
-        className="md:hidden fixed bottom-20 right-4 z-40 w-14 h-14 rounded-full bg-gradient-to-br from-violet-600 to-violet-500
+        className="md:hidden fixed bottom-20 right-4 z-40 w-14 h-14 rounded-full bg-gradient-to-br from-violet-500 to-cyan-400
                    flex items-center justify-center shadow-glow active:scale-95 transition-transform"
       >
-        <MessageSquare size={22} className="text-white" />
+        <MessageSquare size={22} className="text-brand-navy" />
       </NavLink>
 
       {/* Bottom nav */}

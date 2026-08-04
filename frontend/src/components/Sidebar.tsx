@@ -4,66 +4,52 @@ import {
   LayoutDashboard, MessageSquare, FolderKanban, BookOpen, ScrollText, Sigma,
   Calculator, ScanSearch, FileSearch, Layers3, FlaskConical, Mountain,
   FileText, History, Bookmark, Settings, ChevronsLeft, ChevronsRight,
-  Sun, Moon, LayoutGrid, Waves, Milestone, ArrowLeftRight, Boxes, Network,
-  Grid3x3, Wind,
+  Sun, Moon, LayoutGrid, Waves, Milestone, ArrowLeftRight, Boxes,
 } from 'lucide-react'
 import Logo from './Logo'
 
-type NavItem = { to: string; label: string; icon: any; end?: boolean; soon?: boolean }
-
-// Grouped to match the platform's engineering workflow -- Investigation feeds
-// Foundation Design, which feeds Reporting -- rather than an AI-first layout.
-const NAV_SECTIONS: { label: string | null; items: NavItem[] }[] = [
+const NAV_SECTIONS: { label: string; items: { to: string; label: string; icon: any; end?: boolean; soon?: boolean }[] }[] = [
   {
-    label: null,
+    label: 'Workspace',
     items: [
       { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
+      { to: '/chat', label: 'AI Chat', icon: MessageSquare },
       { to: '/projects', label: 'Projects', icon: FolderKanban, soon: true },
-    ],
-  },
-  {
-    label: 'Investigation',
-    items: [
-      { to: '/borehole-logs', label: 'Borehole Logs', icon: Layers3 },
-      { to: '/lab-reports', label: 'Lab Data', icon: FlaskConical },
-      { to: '/soil-profile', label: 'Soil Profiles', icon: Mountain },
-    ],
-  },
-  {
-    label: 'Foundation Design',
-    items: [
-      { to: '/calculators', label: 'Bearing Capacity & Settlement', icon: Calculator },
-      { to: '/pile-capacity', label: 'Pile Capacity', icon: Milestone },
-      { to: '/pile-group', label: 'Pile Group', icon: Network, soon: true },
-      { to: '/raft-foundation', label: 'Raft Foundation', icon: Grid3x3, soon: true },
-      { to: '/retaining-wall', label: 'Retaining Wall', icon: Boxes },
-      { to: '/lateral-capacity', label: 'Lateral Capacity', icon: ArrowLeftRight },
-      { to: '/liquefaction-analysis', label: 'Liquefaction', icon: Waves },
-      { to: '/ground-improvement', label: 'Ground Improvement', icon: Wind, soon: true },
-      { to: '/batch-analysis', label: 'Batch Analysis', icon: LayoutGrid },
     ],
   },
   {
     label: 'Knowledge',
     items: [
+      { to: '/books', label: 'Document Library', icon: BookOpen },
       { to: '/is-codes', label: 'IS Codes', icon: ScrollText },
-      { to: '/irc-codes', label: 'IRC Codes', icon: ScrollText },
       { to: '/formulas', label: 'Formula Library', icon: Sigma },
       { to: '/clause-finder', label: 'Clause Finder', icon: FileSearch },
-      { to: '/books', label: 'Document Library', icon: BookOpen },
-    ],
-  },
-  {
-    label: 'AI',
-    items: [
-      { to: '/chat', label: 'AI Assistant', icon: MessageSquare },
       { to: '/pdf-chat', label: 'PDF Chat', icon: ScanSearch, soon: true },
     ],
   },
   {
-    label: null,
+    label: 'Analysis',
     items: [
+      { to: '/calculators', label: 'Analysis', icon: Calculator },
+      { to: '/batch-analysis', label: 'Batch Analysis', icon: LayoutGrid },
+      { to: '/liquefaction-analysis', label: 'Liquefaction Analysis', icon: Waves },
+      { to: '/pile-capacity', label: 'Pile Capacity', icon: Milestone },
+      { to: '/lateral-capacity', label: 'Lateral Capacity', icon: ArrowLeftRight },
+      { to: '/retaining-wall', label: 'Retaining Wall', icon: Boxes },
+    ],
+  },
+  {
+    label: 'Engineering',
+    items: [
+      { to: '/borehole-logs', label: 'Borehole Logs', icon: Layers3 },
+      { to: '/lab-reports', label: 'Lab Data Import', icon: FlaskConical },
+      { to: '/soil-profile', label: 'Soil Profile Viewer', icon: Mountain },
       { to: '/reports', label: 'Engineering Reports', icon: FileText },
+    ],
+  },
+  {
+    label: 'You',
+    items: [
       { to: '/history', label: 'History', icon: History },
       { to: '/bookmarks', label: 'Bookmarks', icon: Bookmark, soon: true },
       { to: '/settings', label: 'Settings', icon: Settings },
@@ -75,7 +61,7 @@ export default function Sidebar({ dark, onToggleDark }: { dark: boolean; onToggl
   const [collapsed, setCollapsed] = useState(false)
 
   return (
-    <aside className={`force-dark-scope ${collapsed ? 'w-[76px]' : 'w-64'} shrink-0 h-screen sticky top-0 flex flex-col border-r border-white/[0.06] bg-navy-950/95 backdrop-blur-xl transition-all duration-300 hidden md:flex`}>
+    <aside className={`force-dark-scope ${collapsed ? 'w-[76px]' : 'w-64'} shrink-0 h-screen sticky top-0 flex flex-col border-r border-white/[0.06] bg-navy-900/80 backdrop-blur-xl transition-all duration-300 hidden md:flex`}>
       <div className="px-4 py-5 flex items-center gap-2.5 border-b border-white/[0.06]">
         <Logo variant="icon" size={collapsed ? 40 : 48} linkToHome />
         {!collapsed && (
@@ -87,11 +73,9 @@ export default function Sidebar({ dark, onToggleDark }: { dark: boolean; onToggl
       </div>
 
       <nav className="flex-1 px-2.5 py-4 space-y-5 overflow-y-auto">
-        {NAV_SECTIONS.map((section, si) => (
-          <div key={section.label ?? `s${si}`}>
-            {!collapsed && section.label && (
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 px-2.5 mb-1.5">{section.label}</div>
-            )}
+        {NAV_SECTIONS.map((section) => (
+          <div key={section.label}>
+            {!collapsed && <div className="text-[10px] uppercase tracking-wider text-slate-500 px-2.5 mb-1.5">{section.label}</div>}
             <div className="space-y-0.5">
               {section.items.map(({ to, label, icon: Icon, end, soon }) => (
                 <NavLink
@@ -113,9 +97,6 @@ export default function Sidebar({ dark, onToggleDark }: { dark: boolean; onToggl
                 </NavLink>
               ))}
             </div>
-            {!collapsed && si === 0 && (
-              <div className="mt-4 border-t border-white/[0.06]" />
-            )}
           </div>
         ))}
       </nav>

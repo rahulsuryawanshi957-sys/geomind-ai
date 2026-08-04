@@ -1,13 +1,17 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Download, Upload, FlaskConical, Trash2, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react'
+import { Download, Upload, FlaskConical, Trash2, ChevronDown, ChevronUp, AlertTriangle, Loader2 } from 'lucide-react'
 import { api } from '../../api/client'
+
+type UploadPhase = 'idle' | 'uploading' | 'processing' | 'done'
 
 export default function LabDataImport() {
   const [boreholes, setBoreholes] = useState<any[]>([])
-  const [uploading, setUploading] = useState(false)
+  const [phase, setPhase] = useState<UploadPhase>('idle')
+  const [progress, setProgress] = useState(0)
   const [warnings, setWarnings] = useState<string[]>([])
   const [error, setError] = useState('')
+  const [duplicateFile, setDuplicateFile] = useState<File | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
 
   async function load() {
@@ -15,16 +19,23 @@ export default function LabDataImport() {
   }
   useEffect(() => { load() }, [])
 
-  async function handleUpload(file: File) {
-    setUploading(true); setError(''); setWarnings([])
+  async function handleUpload(file: File, force = false) {
+    setPhase('uploading'); setProgress(0); setError(''); setWarnings([]); setDuplicateFile(null)
     try {
-      const res = await api.uploadLabData(file)
+      const res = await api.uploadLabData(file, {
+        force,
+        // Upload (byte transfer) reaching 100% doesn't mean the server is done --
+        // openpyxl parsing happens AFTER all bytes arrive, so that's shown as a
+        // separate "Processing..." phase rather than pretending progress is 100%
+        // the whole time it's actually parsing.
+        onProgress: (pct) => { setProgress(pct); if (pct >= 100) setPhase('processing') },
+      })
       setWarnings(res.warnings || [])
+      setPhase('done')
       await load()
     } catch (e: any) {
-      setError(e.message)
-    } finally {
-      setUploading(false)
+      if (e.status === 409) { setDuplicateFile(file) } else { setError(e.message) }
+      setPhase('idle')
     }
   }
 
@@ -44,16 +55,35 @@ export default function LabDataImport() {
           <button onClick={() => api.downloadLabDataTemplate()} className="gm-btn-secondary flex items-center justify-center gap-2 flex-1">
             <Download size={15} /> Download Template
           </button>
-          <label className="gm-btn-primary flex items-center justify-center gap-2 flex-1 cursor-pointer">
-            <Upload size={15} /> {uploading ? 'Uploading...' : 'Upload Filled Sheet'}
-            <input type="file" accept=".xlsx,.xlsm" className="hidden" onChange={(e) => e.target.files && handleUpload(e.target.files[0])} />
+          <label className={`gm-btn-primary flex items-center justify-center gap-2 flex-1 ${phase === 'idle' ? 'cursor-pointer' : 'opacity-70 pointer-events-none'}`}>
+            {phase === 'uploading' && <><Loader2 size={15} className="animate-spin" /> Uploading... {progress}%</>}
+            {phase === 'processing' && <><Loader2 size={15} className="animate-spin" /> Processing file...</>}
+            {(phase === 'idle' || phase === 'done') && <><Upload size={15} /> Upload Filled Sheet</>}
+            <input type="file" accept=".xlsx,.xlsm" className="hidden" disabled={phase !== 'idle' && phase !== 'done'}
+                   onChange={(e) => e.target.files && handleUpload(e.target.files[0])} />
           </label>
         </div>
+        {phase === 'uploading' && (
+          <div className="mt-3 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+            <div className="h-full bg-violet-500 transition-all duration-150" style={{ width: `${progress}%` }} />
+          </div>
+        )}
         <p className="text-xs text-slate-500 mt-3">
           One row per soil layer. Repeat Borehole ID, Project Name, and Water Table Depth on every row for
           that borehole — the "Instructions" tab in the template explains this.
         </p>
       </div>
+
+      {duplicateFile && (
+        <div className="glass p-4 mb-5 border-amber-500/30 text-sm">
+          <div className="text-amber-400 flex items-center gap-2 mb-2 font-medium"><AlertTriangle size={15} /> This exact file was already uploaded</div>
+          <p className="text-xs text-slate-400 mb-3">If this is intentional (e.g. a deliberate re-import), you can upload it again anyway.</p>
+          <div className="flex gap-2">
+            <button onClick={() => handleUpload(duplicateFile, true)} className="gm-btn-secondary text-xs">Upload anyway</button>
+            <button onClick={() => setDuplicateFile(null)} className="gm-btn-icon text-xs px-3">Cancel</button>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="glass p-4 mb-5 border-rose-500/30 text-sm text-rose-400 flex items-start gap-2">

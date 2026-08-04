@@ -78,17 +78,12 @@ env vars make things persistent:
 ## Architecture
 
 ```
-frontend/          React + TypeScript + Vite + Tailwind. Enterprise geotech-platform
-                      theme (4 Aug 2026 redesign) -- light workspace by default
-                      (bg #F6F8FA, white cards, #E2E8F0 borders, #0F172A text, #0EA5A4
-                      teal accent), dark mode toggle available. See "UI theme system"
-                      note under What's built for how this is wired.
+frontend/          React + TypeScript + Vite + Tailwind, dark navy/violet/cyan theme
   src/pages/        One file per route (Chat, Books, Calculators, BatchAnalysis,
                       BoreholeLogs, etc.)
   src/pages/planned/  Features that started as "Coming Soon" placeholders -- some have
                       since been built out for real (BoreholeLogs.tsx, LabReports.tsx,
-                      SoilProfile.tsx). Still-placeholder: Projects, PdfChat, Bookmarks,
-                      PileGroup, RaftFoundation, GroundImprovement (added 4 Aug 2026).
+                      SoilProfile.tsx). Still-placeholder: Projects, PdfChat, Bookmarks.
   src/components/    Sidebar, MobileNav, ComingSoon, ReferenceBlock, SourcesPanel
   src/api/client.ts  All backend API calls in one place
 
@@ -1783,100 +1778,77 @@ scoped).
 
 ---
 
-55. **ENTERPRISE UI REDESIGN (frontend-only, no backend/API changes), 4 Aug 2026** --
-    Raahi supplied a full design brief asking the app to read like a professional
-    geotechnical engineering platform (Bentley OpenGround / PLAXIS / Rocscience /
-    GeoStudio) rather than a generic AI dashboard. Scope was deliberately kept
-    frontend-only, per the brief's own "do not change backend logic or APIs" instruction.
-    - **Key leverage point:** this app's whole color system is already CSS variables
-      (`--navy-*`, `--slate-*`, `--violet-*`, `--cyan-*` in `index.css`, consumed via
-      `tailwind.config.js`'s `rgb(var(--x) / <alpha-value>)` pattern -- see the 2 Aug
-      note in `tailwind.config.js`). That meant re-skinning ~20 page files' worth of
-      `bg-navy-900`, `text-slate-400`, `from-violet-500` etc. required editing **one
-      file** (`index.css`), not every page individually.
-    - **New palette** (`html.light` = default theme, `:root` = dark-mode toggle): swapped
-      the `violet` variable slot (was burnt-orange brand accent) to a **teal #0EA5A4**
-      family per the brief's exact hex; `cyan` slot (secondary/informational accent, dark
-      steel-blue) left unchanged. `navy-950`/`navy-900`/`navy-700` slots (page bg / card
-      bg / borders) retuned to the brief's exact `#F6F8FA` / `#FFFFFF` / `#E2E8F0`; text
-      slots retuned to `#0F172A`/`#1E293B`. Hardcoded (non-variable) accent rgba's in
-      `.shadow-glow`, `::selection`, and `body`'s background-glow were updated to match
-      (these don't ride the variable system since they're literal rgba, not `rgb(var(--x))`
-      -- same class of gotcha as playbook #52/#53, checked for and fixed here too).
-    - **Background pattern:** replaced the old grid+contour-ring layers with a slightly
-      richer stack (fine 32px CAD grid, coarse 160px major grid, a shallow-angle banding
-      layer standing in for soil-strata/cross-section, two contour-ring layers, two soft
-      teal/steel-blue glows) -- still CSS-gradient-only (no image assets, per the brief's
-      performance note), still capped at 1.5-4% opacity so it's felt, not seen.
-    - **Cards:** `.glass` in light mode changed from translucent `bg-white/80` +
-      backdrop-blur to **opaque white**, `backdrop-filter: none`, plus a new theme-
-      independent `.shadow-card`/`.shadow-card-hover` (also added as `shadow-card` /
-      `shadow-card-hover` in `tailwind.config.js`) -- matches the brief's "white
-      background, soft shadow" card spec instead of the previous glassmorphism look.
-      Border-radius was already `rounded-2xl` (16px) app-wide, inside the brief's
-      requested 14-16px range -- no change needed there.
-    - **Typography:** `fontFamily.display` in `tailwind.config.js` changed from
-      `"Space Grotesk"` to `"Inter"` (brief: "Use Inter font" for both headings and
-      body) -- the Space Grotesk Google Fonts import was also dropped from
-      `index.html` since nothing references it anymore. `sans`/`mono` unchanged.
-    - **Sidebar (`Sidebar.tsx`) regrouped** to match the brief's exact nav structure:
-      Dashboard/Projects ungrouped at top, then labelled sections **Investigation**
-      (Borehole Logs, Lab Data, Soil Profiles), **Foundation Design** (Bearing
-      Capacity & Settlement, Pile Capacity, Pile Group, Raft Foundation, Retaining
-      Wall, Lateral Capacity, Liquefaction, Ground Improvement, Batch Analysis),
-      **Knowledge** (IS Codes, IRC Codes, Formula Library, Clause Finder, Document
-      Library), **AI** (AI Assistant, PDF Chat), then Reports/History/Bookmarks/
-      Settings ungrouped at the bottom. Rail background changed from a near-black navy
-      to the brief's exact Primary `#0F172A` (still forced-dark via `.force-dark-scope`
-      regardless of the light/dark toggle -- unchanged Bentley/PLAXIS-style convention
-      from the 3 Aug 2026 work, just retinted).
-    - **Three new placeholder modules added** (`src/pages/planned/PileGroup.tsx`,
-      `RaftFoundation.tsx`, `GroundImprovement.tsx`, routed at `/pile-group`,
-      `/raft-foundation`, `/ground-improvement`) -- these were in the brief's Foundation
-      Design nav list but don't exist as real modules yet. Built as honest "Coming Soon"
-      placeholders using the existing `ComingSoon` component (same pattern as
-      Projects/PDF Chat/Bookmarks) rather than either faking a working page or silently
-      dropping them from the nav -- **not real analysis engines, no backend work done.**
-    - **IRC Codes given its own route** (`/irc-codes`, reusing `<Books
-      fixedCategory="IRC Codes" />` the same way `/is-codes` already reuses `<Books
-      fixedCategory="IS Codes" />`) -- this one IS fully real/functional, since the
-      `IRC Codes` document category already existed in the data model (Dashboard's
-      `totalCodes` stat was already counting it, just with no dedicated nav entry).
-    - **Dashboard (`Dashboard.tsx`) restructured** around the brief's requested
-      workflow sections: a new **Quick Actions** row (New Borehole / Run Analysis /
-      Batch Analysis / Generate Report / Ask AI, all linking to real existing pages),
-      **Project Overview** stat strip (kept the 5 existing real-data stats, restyled),
-      then module grids **regrouped to match the new Sidebar** (Investigation ->
-      Foundation Design -> Knowledge -> AI, was previously "AI & Knowledge Base" listed
-      first). **Deliberately did NOT fabricate data** for "Active Projects" / "Pending
-      Reports" / "Completed Reports" the brief asked for -- there's no backend support
-      for a Projects entity (still Coming Soon) or a reports-history list (`/api/reports`
-      only has `generate`/`section-types`, nothing persisted/listable). Faking those
-      numbers would violate the project's own "honest placeholder" convention (see
-      `ComingSoon.tsx`'s own comment). Built a **Reporting & Projects** section instead
-      with an honest "Engineering Reports" quick-launch card (real feature) next to the
-      existing "Projects" Coming Soon card. Bottom recent-activity panels kept to 3 real
-      data sources, relabelled to match the brief's naming where sensible: **Recent
-      Boreholes** (was "Borehole Profiles"), **Recent Documents** (unchanged), **Latest
-      Activity** (was "Recent Conversations" -- still AI-conversation data, no separate
-      activity-log endpoint exists to build a true unified feed from).
-    - **If a real "Recent Calculations" / calculation-history dashboard section is
-      wanted later:** `CalculationLog` rows are already being written on every
-      calculator run (`backend/app/routers/calculators.py`) but there is no GET
-      endpoint to list them and no frontend client method for it -- would need a small
-      *backend* addition (a new read-only route), which was out of scope here since the
-      brief explicitly said frontend-only.
-    - Verified with `tsc --ignoreConfig --noEmit --skipLibCheck --jsx react-jsx` across
-      every changed file -- zero new errors (only the standing missing-`node_modules`
-      noise every file in this repo already produces in the sandbox, e.g.
-      `react/jsx-runtime` not found -- not a real error, see workflow note at the bottom
-      of this doc). Icon names for the 3 new Sidebar/Dashboard entries (`Network`,
-      `Grid3x3`, `Wind` from `lucide-react`) were checked against Lucide's own icon
-      list before use. **Not seen in a real browser** -- same standing sandbox
-      limitation as every other frontend change in this project; the light-theme /
-      dark-theme toggle, background pattern layering, and new Sidebar/Dashboard layout
-      have not been visually confirmed on-device yet. Ask Raahi to screenshot both
-      light and dark mode after deploying.
+55. **Lab Sheet upload pipeline analyzed and optimized, 4 Aug 2026** -- Raahi flagged this
+    as highest priority ("upload is too slow and sometimes fails"). Scope clarification
+    first, since the request's wording didn't quite match this feature's actual
+    architecture: **"Lab Sheet upload" = `LabReports.tsx` -> `POST /api/lab-data/upload`,
+    Excel-only (.xlsx/.xlsm), parsed with openpyxl -- no PDF, no AI/embeddings involved.**
+    PDF documents go through a completely separate pipeline (Document Library ->
+    `routers/documents.py` -> `rag/ingest.py`, which DOES use embeddings) -- not touched
+    here, since it's a different feature with different bottlenecks. If Raahi actually
+    meant that pipeline is also slow, it needs its own separate look.
+    - **Root cause found (the real bug, not a guess):** `parse_uploaded_workbook_auto()`'s
+      3-tier fallback (own template -> office format -> universal fuzzy-match) was
+      re-parsing the ENTIRE file from raw bytes with `openpyxl.load_workbook()`
+      independently in EVERY tier it tried -- and tier 2 (`parse_borehole_log_workbook`)
+      was called ONCE PER SHEET in a loop, each call doing its own full reload. For a
+      real-world N-sheet third-party lab report that doesn't match RaahiGeo's own
+      templates (the common case -- most engineers' files come from their own consultant/
+      lab, not RaahiGeo's downloadable template), this meant **N+2 completely redundant
+      full parses of identical bytes.**
+    - **Fix:** `parse_uploaded_workbook_auto()` now calls `load_workbook()` exactly ONCE
+      and passes the resulting `Workbook` object through every tier via a new
+      `_preloaded_wb` parameter added to `parse_uploaded_workbook()`,
+      `parse_borehole_log_workbook()`, and `universal_soil_parser.parse_workbook()` --
+      each still works exactly as before when called directly/standalone (parameter
+      defaults to `None` -> loads for itself), so nothing that calls these directly
+      elsewhere (or the `universal_soil_parser.py` CLI entry point) broke.
+    - **Measured, not assumed:** built an 8-sheet, 200-rows/sheet synthetic file
+      matching neither fast-path template (forces the worst case), ran the exact
+      pre-fix and post-fix code paths 3x each on identical bytes in the same process:
+      **old (reload-per-tier): ~2.0s average. New (load-once): ~0.19s average. ~10.5x
+      faster** on this file. Real speedup scales with sheet count -- a 20-sheet report
+      would have been ~20x redundant before, now still just 1 load.
+    - **Other upload-pipeline fixes**, same PR:
+      - CPU-bound `parse_uploaded_workbook_auto()` call in the router now runs via
+        FastAPI's `run_in_threadpool()` instead of directly in the async request
+        handler -- previously blocked the single asyncio event loop (and therefore
+        every OTHER concurrent request) for the full parse duration.
+      - File-size limit (20MB, generous for what's structurally a small spreadsheet) --
+        rejected immediately with a clear message instead of a slow parse that might
+        time out or exhaust memory.
+      - **Duplicate-upload prevention:** new `source_file_hash` column on
+        `BoreholeProfile` (sha256 of the uploaded bytes, added via the startup
+        migration in `main.py`, same pattern as the `fines_content_pct` migration).
+        Re-uploading byte-identical content now returns 409 with the existing
+        borehole IDs/date, instead of silently creating duplicates; a `force=true`
+        form field (wired to an "Upload anyway" button in the UI) lets a genuinely
+        intentional re-import through.
+      - Frontend (`api/client.ts`'s `uploadLabData`, `LabReports.tsx`): switched from
+        bare `fetch()` to `XMLHttpRequest` specifically to get real upload-progress
+        events (fetch has no upload-progress API) -- shows a live percentage + progress
+        bar during byte transfer, then switches to a distinct "Processing file..."
+        state for the gap between "all bytes sent" and "server responded" (parsing
+        happens after upload completes, so pretending it's done at 100% would be
+        misleading). Added a 120s client timeout (generous margin for Render free-tier
+        cold start on top of actual parse time) with one automatic retry on
+        network-level/timeout failures only -- NOT on application errors (400/409/413),
+        which are meaningful and shown to the user immediately instead.
+    - **Deliberately NOT built** (would be over-engineering for this feature's real file
+      sizes -- lab sheets are small structured spreadsheets, not multi-hundred-MB files):
+      true chunked/resumable server-side uploads, and a background-job-with-polling
+      architecture. The threadpool fix already prevents the event-loop-blocking problem
+      a job queue would otherwise be solving; a full job queue would add real complexity
+      (a jobs table, a polling endpoint, cleanup of stale jobs) for a file class that
+      now parses in well under a second in the common case. Flagged to Raahi rather than
+      silently built or silently skipped -- if a genuinely huge lab file (50+ sheets,
+      tens of MB) turns out to be a real use case, revisit this.
+    - Verified with `python3 -m py_compile` on every touched backend file and `tsc
+      --noEmit` on every touched frontend file -- zero real errors on either. The
+      benchmark above is a genuine before/after measurement (not a sanity check) run
+      in this sandbox; the parse-time fix itself is proven, but the full upload flow
+      (real browser, real network, real Render cold start) has not been watched
+      end-to-end by a human yet.
 
 ---
 

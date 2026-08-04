@@ -280,12 +280,18 @@ def _extract_metadata(ws, max_row: int, max_col: int, stop_row: int) -> Dict[str
     return metadata
 
 
-def parse_borehole_log_workbook(file_bytes: bytes, sheet_name: Optional[str] = None) -> Dict[str, Any]:
+def parse_borehole_log_workbook(file_bytes: bytes, sheet_name: Optional[str] = None, _preloaded_wb=None) -> Dict[str, Any]:
     """
     Parses ONE sheet of a report-style workbook (the first sheet, or
     `sheet_name` if given -- multi-sheet workbooks with one borehole per
     sheet need to call this once per sheet, same as universal_soil_parser's
     caller does for "one sheet per borehole" workbooks).
+
+    _preloaded_wb: an already-loaded Workbook, to avoid re-parsing the same
+    bytes on every sheet when the caller loops over all sheets (see
+    parse_uploaded_workbook_auto -- this used to reload+reparse the entire
+    file from scratch once per sheet, which for an N-sheet workbook meant N
+    redundant full openpyxl parses of identical bytes; fixed 4 Aug 2026).
 
     Returns:
     {
@@ -297,7 +303,7 @@ def parse_borehole_log_workbook(file_bytes: bytes, sheet_name: Optional[str] = N
     }
     Raises ValueError if no data table could be confidently located.
     """
-    wb = load_workbook(io.BytesIO(file_bytes), data_only=True)
+    wb = _preloaded_wb if _preloaded_wb is not None else load_workbook(io.BytesIO(file_bytes), data_only=True)
     ws = wb[sheet_name] if sheet_name else wb[wb.sheetnames[0]]
     max_row, max_col = ws.max_row, ws.max_column
 

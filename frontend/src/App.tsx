@@ -28,9 +28,6 @@ import LabReports from './pages/planned/LabReports'
 import SoilProfile from './pages/planned/SoilProfile'
 import Bookmarks from './pages/planned/Bookmarks'
 import PdfChat from './pages/planned/PdfChat'
-import PileGroup from './pages/planned/PileGroup'
-import RaftFoundation from './pages/planned/RaftFoundation'
-import GroundImprovement from './pages/planned/GroundImprovement'
 
 export default function App() {
   const [dark, setDark] = useState(false)
@@ -73,7 +70,6 @@ export default function App() {
             <Route path="/projects" element={<Projects />} />
             <Route path="/books" element={<Books />} />
             <Route path="/is-codes" element={<Books fixedCategory="IS Codes" />} />
-            <Route path="/irc-codes" element={<Books fixedCategory="IRC Codes" />} />
             <Route path="/formulas" element={<FormulaLibrary />} />
             <Route path="/clause-finder" element={<ClauseFinder />} />
             <Route path="/pdf-chat" element={<PdfChat />} />
@@ -83,9 +79,6 @@ export default function App() {
             <Route path="/pile-capacity" element={<PileCapacity />} />
             <Route path="/lateral-capacity" element={<LateralCapacity />} />
             <Route path="/retaining-wall" element={<RetainingWall />} />
-            <Route path="/pile-group" element={<PileGroup />} />
-            <Route path="/raft-foundation" element={<RaftFoundation />} />
-            <Route path="/ground-improvement" element={<GroundImprovement />} />
             <Route path="/borehole-logs" element={<BoreholeLogs />} />
             <Route path="/lab-reports" element={<LabReports />} />
             <Route path="/soil-profile" element={<SoilProfile />} />

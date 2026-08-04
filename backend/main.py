@@ -20,6 +20,7 @@ try:
     from sqlalchemy import text
     NEW_COLUMNS = [
         ("soil_layers", "fines_content_pct", "FLOAT"),
+        ("borehole_profiles", "source_file_hash", "VARCHAR"),
     ]
     with engine.connect() as conn:
         for table, column, coltype in NEW_COLUMNS:

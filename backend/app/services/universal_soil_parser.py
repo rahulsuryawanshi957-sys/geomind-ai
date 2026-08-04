@@ -334,7 +334,8 @@ def _company_override(raw_header: Any, company_key: Optional[str]) -> Optional[D
 
 def parse_workbook(file_path_or_bytes: Union[str, bytes],
                     company_key: Optional[str] = None,
-                    manual_overrides: Optional[Dict[int, str]] = None) -> Dict[str, Any]:
+                    manual_overrides: Optional[Dict[int, str]] = None,
+                    _preloaded_wb=None) -> Dict[str, Any]:
     """
     Parse ANY flat, row-per-sample soil-investigation Excel sheet.
 
@@ -343,10 +344,17 @@ def parse_workbook(file_path_or_bytes: Union[str, bytes],
     manual_overrides: {col_idx: field_key} to force specific columns for THIS
         parse call (e.g. right after the user manually mapped some unmapped
         columns in the UI) -- combine with save_company_mapping() to persist.
+    _preloaded_wb: an already-loaded Workbook (parse_uploaded_workbook_auto's
+        single upfront load, reused here) -- avoids a redundant full re-parse
+        of the same bytes. Internal use; external/CLI callers keep passing
+        a path or bytes as before.
     """
     warnings: List[str] = []
-    source = io.BytesIO(file_path_or_bytes) if isinstance(file_path_or_bytes, bytes) else file_path_or_bytes
-    wb = openpyxl.load_workbook(source, data_only=True)
+    if _preloaded_wb is not None:
+        wb = _preloaded_wb
+    else:
+        source = io.BytesIO(file_path_or_bytes) if isinstance(file_path_or_bytes, bytes) else file_path_or_bytes
+        wb = openpyxl.load_workbook(source, data_only=True)
     ws = wb[wb.sheetnames[0]]
     if len(wb.sheetnames) > 1:
         warnings.append(f"Workbook has {len(wb.sheetnames)} sheets -- only the first "
