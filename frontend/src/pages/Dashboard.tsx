@@ -5,7 +5,7 @@ import {
   MessageSquare, FolderKanban, BookOpen, ScrollText, Sigma, FileSearch, ScanSearch,
   Calculator, LayoutGrid, Waves, Milestone, ArrowLeftRight, Boxes, Layers3, FlaskConical,
   Mountain, FileText, History, Bookmark, Layers, Activity, Clock, ArrowUpRight,
-  ArrowRight, Network, Grid3x3, Wind, Sparkles, FilePlus2,
+  ArrowRight, Network, Grid3x3, Wind, Sparkles, FilePlus2, Gem,
 } from 'lucide-react'
 import { api } from '../api/client'
 
@@ -28,6 +28,7 @@ const MODULE_SECTIONS: {
     label: 'Foundation Design',
     items: [
       { to: '/calculators', label: 'Bearing Capacity & Settlement', description: 'IS 6403 shear SBC and IS 8009 settlement, for granular and clay soils.', icon: Calculator },
+      { to: '/rock-bearing-capacity', label: 'Rock Bearing Capacity', description: 'IS 12070 -- classification table, RMR, core strength, pressuremeter, and plate load test, all 5 methods with the governing (minimum) value flagged.', icon: Gem },
       { to: '/pile-capacity', label: 'Pile Capacity', description: 'IS 2911 pile capacity, with a natural-language command parser.', icon: Milestone },
       { to: '/pile-group', label: 'Pile Group', description: 'Group efficiency, block failure, and load-sharing for multi-pile foundations.', icon: Network, soon: true },
       { to: '/raft-foundation', label: 'Raft Foundation', description: 'Bearing capacity, settlement, and contact pressure for combined/raft footings.', icon: Grid3x3, soon: true },

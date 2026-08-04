@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { NavLink, Link } from 'react-router-dom'
 import {
   LayoutDashboard, MessageSquare, FolderKanban, BookOpen, ScrollText, Sigma,
-  Calculator, ScanSearch, FileSearch, Layers3, FlaskConical, Mountain,
+  Calculator, ScanSearch, FileSearch, Layers3, FlaskConical, Mountain, Gem,
   FileText, History, Bookmark, Settings, ChevronsLeft, ChevronsRight,
   Sun, Moon, LayoutGrid, Waves, Milestone, ArrowLeftRight, Boxes, Network,
   Grid3x3, Wind,
@@ -33,6 +33,7 @@ const NAV_SECTIONS: { label: string | null; items: NavItem[] }[] = [
     label: 'Foundation Design',
     items: [
       { to: '/calculators', label: 'Bearing Capacity & Settlement', icon: Calculator },
+      { to: '/rock-bearing-capacity', label: 'Rock Bearing Capacity', icon: Gem },
       { to: '/pile-capacity', label: 'Pile Capacity', icon: Milestone },
       { to: '/pile-group', label: 'Pile Group', icon: Network, soon: true },
       { to: '/raft-foundation', label: 'Raft Foundation', icon: Grid3x3, soon: true },

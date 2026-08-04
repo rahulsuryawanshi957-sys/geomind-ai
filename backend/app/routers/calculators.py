@@ -3,10 +3,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import CalculationLog, BoreholeProfile
-from app.schemas import CalculatorRequest, BatchRunRequest, LiquefactionRequest, PileCapacityRequest, PileCommandRequest, LateralCapacityRequest, RetainingWallRequest
+from app.schemas import CalculatorRequest, BatchRunRequest, LiquefactionRequest, PileCapacityRequest, PileCommandRequest, LateralCapacityRequest, RetainingWallRequest, RockBearingCapacityRequest
 from app.services.calculators import CALCULATOR_REGISTRY, run_batch_matrix, run_liquefaction_analysis
 from app.services.pile_calculator import run_pile_capacity, parse_pile_command, run_lateral_capacity
 from app.services.retaining_wall_calculator import run_retaining_wall_analysis
+from app.services.rock_bearing_capacity import run_rock_bearing_capacity
 from app.services.calculators import _founding_layer, _resolve_field
 
 router = APIRouter(prefix="/api/calculators", tags=["calculators"])
@@ -19,12 +20,14 @@ router = APIRouter(prefix="/api/calculators", tags=["calculators"])
 # retaining_wall_stability moved OUT (3 Aug 2026) -- own /retaining-wall
 # endpoint below, geotechnical checks only (Phase 1+2), see
 # retaining_wall_calculator.py's module docstring for exact scope.
+# rock_bearing_capacity moved OUT (4 Aug 2026) -- own /rock-sbc endpoint
+# below, see rock_bearing_capacity.py's module docstring.
 # Driven piles / rock sockets / pile groups are still not implemented -- see
 # pile_calculator.py's module docstring for exactly what Phase 1 covers.
 PLANNED_CALCULATORS = [
     "raft_foundation", "isolated_footing", "group_efficiency",
     "lateral_pile", "plate_load_test",
-    "safe_bearing_capacity", "modulus_subgrade_reaction", "rock_bearing_capacity",
+    "safe_bearing_capacity", "modulus_subgrade_reaction",
 ]
 
 
@@ -236,6 +239,28 @@ def run_retaining_wall(req: RetainingWallRequest, db: Session = Depends(get_db))
 
     log = CalculationLog(
         calculator_type="retaining_wall_stability",
+        inputs_json=json.dumps(req.model_dump()),
+        result_json=json.dumps(result),
+    )
+    db.add(log)
+    db.commit()
+
+    return result
+
+
+@router.post("/rock-sbc")
+def run_rock_sbc(req: RockBearingCapacityRequest, db: Session = Depends(get_db)):
+    """Not borehole-aware (same reasoning as /retaining-wall) -- rock inputs are
+    a single parameter set per IS 12070's own methods, not a layered soil
+    borehole profile. See rock_bearing_capacity.py's module docstring, in
+    particular the source-fidelity note on the Clause 7 (pressuremeter) formula."""
+    try:
+        result = run_rock_bearing_capacity(req.model_dump())
+    except (ValueError, ZeroDivisionError) as e:
+        raise HTTPException(422, str(e))
+
+    log = CalculationLog(
+        calculator_type="rock_bearing_capacity",
         inputs_json=json.dumps(req.model_dump()),
         result_json=json.dumps(result),
     )

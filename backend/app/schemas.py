@@ -209,7 +209,44 @@ class BoreholeProfileOut(BaseModel):
         from_attributes = True
 
 
-class RetainingWallRequest(BaseModel):
+class RockBearingCapacityRequest(BaseModel):
+    """
+    Safe Bearing Capacity on ROCK -- IS 12070:1987. NOT borehole-aware (same as
+    RetainingWallRequest) -- rock properties are a single input set, not a
+    layered soil borehole profile. Every field is optional; the service runs
+    whichever method(s) have enough inputs and reports the minimum (governing)
+    value, per Raahi's explicit instruction (4 Aug 2026). See
+    rock_bearing_capacity.py's module docstring for the source-fidelity note
+    on Clause 7 (pressuremeter).
+    """
+    # Method 1: Classification table (Cl 5.2)
+    rock_type: str | None = None  # one of ROCK_TYPE_TABLE's keys
+
+    # Method 2: RMR table (Cl 5.3)
+    rmr: float | None = None  # 0-100
+
+    # Method 3: Core strength formula (Cl 6.2) -- all 4 required together
+    ucs_t_m2: float | None = None
+    joint_spacing_cm: float | None = None
+    joint_aperture_mm: float | None = None
+    joint_filled_with_soil: bool = False
+    footing_width_cm: float | None = None
+
+    # Method 4a: Pressuremeter formula (Cl 7.2) -- all 4 required together
+    limit_pressure_t_m2: float | None = None
+    gamma_t_m3: float | None = None
+    depth_m: float | None = None
+    footing_radius_m: float | None = None
+
+    # Method 4b: Plate load test (Cl 8) -- field-read value, not computed
+    plate_load_field_value_t_m2: float | None = None
+
+    # Cl 9.1 correction factor (submerged/cavities/slopes) -- judgment call,
+    # left to the engineer; 1.0 = no reduction applied.
+    correction_factor: float = 1.0
+
+
+
     """
     RC Cantilever Retaining Wall -- geotechnical checks only (earth pressure,
     water pressure, seismic (Mononobe-Okabe), stability, bearing capacity,

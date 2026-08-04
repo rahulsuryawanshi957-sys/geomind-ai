@@ -249,6 +249,12 @@ reading the same data — one looks at the ground, the other sizes a foundation.
   sidebar (see `frontend/src/pages/planned/ComingSoon.tsx` usage). Soil Profile Viewer was
   wrongly listed here in older versions of this doc — it's actually fully built (see
   "What's built" above).
+- **Rock Bearing Capacity** (added 4 Aug 2026, IS 12070) — the Clause 7 (pressuremeter)
+  formula was reconstructed from an OCR-garbled scan and is NOT independently verified
+  against a clean copy of the code — flagged with an in-app warning, but treat with more
+  caution than the other 4 methods until someone checks it. Clause 8 (plate load test) is
+  a direct pass-through of a field-read value, not a computed formula — this is
+  deliberate (the code itself has no clean closed-form equation here), not a gap to fix.
 
 ---
 
@@ -1948,6 +1954,70 @@ scoped).
     stay private. Removed the `<div>` entirely from `SettingsPage.tsx`'s Account & Login
     form -- the input field itself (masked, `type="password"`) and its label are
     unchanged, only the explanatory hint text is gone. Nothing else on that form touched.
+
+---
+
+58. **Rock Bearing Capacity calculator added -- IS 12070:1987, 4 Aug 2026** -- Raahi
+    flagged "rock ke saare SBC missing hai": every existing bearing-capacity module
+    (calculators.py, IS:6403, IS:8009) is for SOIL; there was no ROCK module at all.
+    New files: `backend/app/services/rock_bearing_capacity.py` (all formulas + full
+    source-fidelity notes -- READ ITS MODULE DOCSTRING), `RockBearingCapacityRequest`
+    in `schemas.py`, `POST /api/calculators/rock-sbc` in `calculators.py` (removed
+    `rock_bearing_capacity` from `PLANNED_CALCULATORS` accordingly), `runRockSbc` in
+    `client.ts`, `frontend/src/pages/RockBearingCapacity.tsx`, wired into
+    Sidebar/Dashboard/App.tsx under Foundation Design (route `/rock-bearing-capacity`).
+    **Implements all 5 methods from IS 12070**, per Raahi's explicit "sab methods +
+    jo bhi minimum ho" instruction -- every method is optional input, the backend runs
+    whichever ones have enough data and reports the lowest (most conservative) result
+    as "governing":
+    1. **Classification Table** (Cl 5.2, Table 2) -- rock-type lookup. Uses the
+       **Nov 2008 BIS amendment value for Soft Shale (30 t/m2, not the original 1987
+       value of 40)** -- checked for and applied, same class of gotcha as always
+       cross-checking a code against its amendments, not just the base year.
+    2. **RMR Table** (Cl 5.3, Table 3, amended) -- piecewise-linear interpolation
+       within each of the 5 RMR classes (using the amended, tightened Class III/IV/V
+       ranges). Verified interpolation hits the table's exact boundary values (RMR=100
+       -> 600, RMR=81 -> 448, RMR=20 -> 45, RMR=0 -> 30) with a manual script before
+       shipping.
+    3. **Core Strength Formula** (Cl 6.2) -- `qa (gross) = q0 x Nj`, `Nj = (3 + S/Bf) /
+       (10 x sqrt(1 + 300 x delta/S))`. Includes FS=3 already (code's own Note 1).
+       Flags a warning (not a hard block) when joint spacing < 0.3m, aperture >
+       10mm/15mm(filled), or footing width < 0.3m -- the formula's own stated valid
+       range, per Cl 6.2's note.
+    4. **Pressuremeter Formula** (Cl 7.2, Table 5) -- `qns = gamma.Df + Ka(Pl -
+       gamma.Df)`, Ka interpolated from Table 5's 4 points (depth/radius ratio 0/2/4/10
+       -> Ka 0.8/2.0/3.6/5.0). **SOURCE-FIDELITY CAVEAT: this clause's text was
+       OCR-garbled in the 1987 scan used to build this** -- the formula was
+       reconstructed from the surrounding Table 5 values and the standard
+       Menard-pressuremeter pattern, and is flagged with an in-app amber warning
+       telling Raahi to cross-check against a clean copy of Cl 7 before relying on it
+       for a real submission. Not silently presented as equally certain as the other
+       3 methods.
+    5. **Plate Load Test** (Cl 8) -- **deliberately NOT a computed formula.** Cl 8 is a
+       field-test procedure; the code gives no clean closed-form plate-to-footing
+       settlement-extrapolation equation in a legible part of the scan, so rather than
+       guess at one, this module just accepts the value Raahi already read off his own
+       field pressure-settlement curve at 12mm settlement (per Cl 3.3/8.3) and passes
+       it straight through into the "which is lowest" comparison.
+    - **Cl 9.1 correction factor** (submerged joints / cavities / unfavourable slope --
+      code gives judgement-call ranges like "1 to 1/3", not fixed numbers) is a single
+      optional multiplier field, applied only to Methods 1/3/4 **not** RMR (Cl 9.1 says
+      corrections don't apply to the RMR method) -- verified this exclusion works
+      correctly with a manual test before shipping.
+    - **Net vs gross caveat:** Table 2/3 give NET safe bearing pressure; the Cl 6.2
+      formula gives GROSS. If a run mixes both kinds of result, the response includes
+      a warning telling Raahi they're not directly comparable before he takes the
+      "governing minimum" as a final design number -- flagged rather than silently
+      compared as like-for-like.
+    - Formulas hand-verified against the table before shipping (see the calculation
+      log in this session) -- all Table 2/Table 3 boundary values matched exactly, and
+      the orchestrator's minimum-picking logic was confirmed correct on a 3-method run.
+      Verified with `python3 -m py_compile` across the whole backend tree and
+      `tsc --noEmit` on every changed frontend file -- zero new errors on either.
+      **Not seen in a real browser and not run against a real project's rock data** --
+      same standing sandbox limitation as every other change this session. Ask Raahi
+      to run at least one real rock site through this before trusting it on a live
+      submission, especially the Cl 7 (pressuremeter) method given the caveat above.
 
 ---
 
