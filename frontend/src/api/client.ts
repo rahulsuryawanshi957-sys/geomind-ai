@@ -144,6 +144,9 @@ export const api = {
     overrides?: Record<string, any>
   }) => request<any>('/api/calculators/lateral', { method: 'POST', body: JSON.stringify(payload) }),
 
+  runRetainingWall: (payload: Record<string, any>) =>
+    request<any>('/api/calculators/retaining-wall', { method: 'POST', body: JSON.stringify(payload) }),
+
   reportSectionTypes: () => request<string[]>('/api/reports/section-types'),
 
   generateReportSection: (section_type: string, project_inputs: Record<string, any>, reference_query?: string) =>

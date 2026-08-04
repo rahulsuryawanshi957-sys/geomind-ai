@@ -3,7 +3,7 @@ import { motion } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import {
   MessageSquare, FolderKanban, BookOpen, ScrollText, Sigma, FileSearch, ScanSearch,
-  Calculator, LayoutGrid, Waves, Milestone, ArrowLeftRight, Layers3, FlaskConical,
+  Calculator, LayoutGrid, Waves, Milestone, ArrowLeftRight, Boxes, Layers3, FlaskConical,
   Mountain, FileText, History, Bookmark, Layers, Activity, Clock, ArrowUpRight,
   ArrowRight,
 } from 'lucide-react'
@@ -40,6 +40,7 @@ const MODULE_SECTIONS: {
       { to: '/liquefaction-analysis', label: 'Liquefaction Analysis', description: 'IS 1893:2016 simplified liquefaction procedure, wired to your borehole data.', icon: Waves },
       { to: '/pile-capacity', label: 'Pile Capacity', description: 'IS 2911 pile capacity, with a natural-language command parser.', icon: Milestone },
       { to: '/lateral-capacity', label: 'Lateral Capacity', description: 'Lateral pile capacity analysis for foundation design.', icon: ArrowLeftRight },
+      { to: '/retaining-wall', label: 'Retaining Wall', description: 'Earth pressure, seismic (Mononobe-Okabe), stability, IS 6403 bearing capacity, and settlement.', icon: Boxes },
     ],
   },
   {

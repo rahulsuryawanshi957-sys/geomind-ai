@@ -118,9 +118,13 @@ Report Generator (Word/PDF export), History.
 - **SBC — IS:8009 Settlement (Clay)** — elastic + consolidation (NCS/OCS), same
   Boussinesq/Fox machinery. Manual layer thickness override available.
 - Immediate settlement, consolidation settlement, SPT correction, Rankine earth pressure
-- Still stubbed (`PLANNED_CALCULATORS` in `calculators.py`): raft/isolated footing, pile
-  capacity, group efficiency, lateral pile, retaining wall stability, **liquefaction**,
-  plate load test, modulus of subgrade reaction (standalone)
+- **Retaining Wall (`/retaining-wall`, 3 Aug 2026)** — geotechnical checks only (earth
+  pressure, water pressure, seismic, stability, IS 6403 bearing capacity, settlement) --
+  see playbook entry below for the full build/verification trace.
+- Still stubbed (`PLANNED_CALCULATORS` in `calculators.py`): raft/isolated footing,
+  group efficiency, plate load test, modulus of subgrade reaction (standalone), rock
+  bearing capacity, safe bearing capacity. (This list was stale before 3 Aug 2026 --
+  pile capacity, liquefaction, and retaining wall were already built; corrected here.)
 
 **Batch Analysis (`/batch-analysis`, Phase 3 — done, v2)** — runs shear (IS:6403) +
 settlement (IS:8009) SBC across a full width × depth grid (cross-product of a
@@ -1697,6 +1701,80 @@ scoped).
       session should proactively grep for any other `text-navy-950`/`text-slate-950`-style
       "used as a fixed color, not a themed one" pattern rather than waiting for a third
       report.
+
+---
+
+54. **NEW MODULE: Retaining Wall (geotechnical checks only, Phase 1+2), 3 Aug 2026** --
+    Raahi uploaded a real consultant-grade reference workbook
+    (`retaining_wall_design.xlsx`, 13 sheets: Cover/Inputs/EarthPressure/WaterPressure/
+    SeismicPressure/Stability/BearingCapacity/Settlement/StructuralLoads/RCCDesign/
+    Quantities/Charts/Summary) and asked for it to be added. Given the scope (12 sheets,
+    comparable to or larger than Pile Capacity), presented a 4-phase breakdown before
+    starting rather than silently attempting all of it; **Raahi explicitly chose Phase 1
+    (earth pressure/water/seismic/stability/bearing capacity) + Phase 2 (settlement) only
+    -- Phase 3 (structural/RCC design, stem/heel/toe/shear-key reinforcement per IS 456)
+    and Phase 4 (quantities/charts) were NOT requested and are NOT built.**
+    - New `backend/app/services/retaining_wall_calculator.py` -- every formula transcribed
+      directly from the workbook's own cell FORMULAS (via `openpyxl` with
+      `data_only=False`), not just its displayed values, with the exact source cell
+      reference in a comment next to each (e.g. `# [EarthPressure!C6]`) so a mismatch
+      against the source can be found instantly by a future session.
+    - **Verified against the workbook's own cached computed values** (`data_only=True`)
+      for its worked example (H_wall=4, D_found=1.5, B_base=2.8, phi=30, delta=20,
+      kh=0.08...) -- every checked output (Ka/Kp, Pa, FoS overturning/sliding, qmax/qmin,
+      qu) matched within ~0.02% (rounding-cascade-only difference, not a formula error).
+      This is NOT a "looks reasonable" sanity check -- it's a direct number-for-number
+      comparison against Excel's own calculated cells.
+    - **Two real bugs were found and fixed DURING this verification, not assumed away:**
+      (1) hydrostatic force (Pw) was being computed correctly by `water_pressure()` but
+      never actually added to the sliding/overturning horizontal driving force or
+      overturning moment in `stability_checks()` -- fixed by threading `Pw_used_kn_m`/
+      `Pw_ybar_m` through `_case_stability()`, matching the workbook's own
+      `Pa_h_ref+Pw_switch` / `Pa_h_ref*ybar+Pw_switch*Pw_ybar`. Also fixed
+      `bearing_capacity_is6403`'s load-inclination angle to use the combined
+      Pa_h+Pw horizontal force (matching the workbook's own reference to
+      `Stability!C26`/`D26`), not raw Pa_h alone.
+      (2) A MUCH more subtle bug: every `g.get("field", default)` pattern for an
+      Optional input (`delta`, `mu`, `kh`, `kv`, plus a few others fixed defensively)
+      silently returned `None` instead of its intended default whenever called through
+      the real request path -- because Pydantic's `.model_dump()` always includes every
+      field, `None` for any unset Optional one, and Python's `dict.get(key, default)`
+      only falls back to `default` when the KEY IS ABSENT, not when it's present with
+      value `None`. A test using only the workbook's own explicit worked-example values
+      (all fields supplied) would NEVER have caught this -- it only surfaced by
+      separately testing the realistic all-optional-fields-omitted payload a real
+      frontend submission produces. Fixed with a new `_g(d, key, default)` helper (None-
+      safe get) used everywhere an Optional field has a computed fallback. **Lesson for
+      future modules with optional Pydantic fields and computed defaults: always test the
+      all-nulls-for-optional-fields case, not just the fully-populated worked example --
+      they exercise completely different code paths.**
+    - New `POST /api/calculators/retaining-wall` endpoint (`RetainingWallRequest` schema
+      in `schemas.py`) -- **NOT borehole-aware**, unlike batch/liquefaction/pile/lateral --
+      soil is a single backfill/foundation parameter set (~25 direct inputs), matching the
+      source workbook's own Inputs sheet, not a layered borehole profile. Could be made
+      borehole-aware later (auto-fill gamma/phi/c/qa from a founding layer) if wanted --
+      not done here since the workbook itself isn't borehole-integrated either.
+    - New `frontend/src/pages/RetainingWall.tsx` -- grouped input form (Geometry / Soil
+      Properties / Surcharge & Seismic / Settlement-optional), results shown as
+      static-vs-seismic side-by-side tables for Stability and Bearing Capacity (mirrors
+      the workbook's own Case A/Case B column layout), plus Earth Pressure / Water
+      Pressure / Seismic Pressure summary cards and a warnings panel. Added to
+      `App.tsx` (`/retaining-wall`), `Sidebar.tsx`, and `Dashboard.tsx`'s Engineering
+      Analysis module cards (new `Boxes` icon -- `Milestone`/`ArrowLeftRight` were
+      already taken by Pile/Lateral Capacity).
+    - `retaining_wall_stability` removed from `PLANNED_CALCULATORS` in
+      `calculators.py` (own dedicated endpoint now, same pattern as pile/liquefaction).
+    - **Separately found and fixed while working in `calculators.py` (unrelated to
+      retaining walls):** `parse_pile_ai_command` (the Pile Capacity page's
+      natural-language command parser, `POST /pile/parse-command`) was completely
+      missing its `@router.post(...)` decorator -- meaning that endpoint has never
+      actually existed as a route, and the frontend's `parsePileCommand()` calls to it
+      have been silently 404ing. Fixed with one added decorator line.
+    - Verified with `python3 -m py_compile` (backend) and `tsc --noEmit` (frontend) --
+      zero real errors on either. **Not seen in a real browser** (same standing sandbox
+      limitation as every other frontend change this session) -- the numeric engine
+      itself is now solidly verified against the source workbook, but the new page's
+      actual on-screen layout/usability has not been.
 
 ---
 

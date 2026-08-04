@@ -3,9 +3,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import CalculationLog, BoreholeProfile
-from app.schemas import CalculatorRequest, BatchRunRequest, LiquefactionRequest, PileCapacityRequest, PileCommandRequest, LateralCapacityRequest
+from app.schemas import CalculatorRequest, BatchRunRequest, LiquefactionRequest, PileCapacityRequest, PileCommandRequest, LateralCapacityRequest, RetainingWallRequest
 from app.services.calculators import CALCULATOR_REGISTRY, run_batch_matrix, run_liquefaction_analysis
 from app.services.pile_calculator import run_pile_capacity, parse_pile_command, run_lateral_capacity
+from app.services.retaining_wall_calculator import run_retaining_wall_analysis
 from app.services.calculators import _founding_layer, _resolve_field
 
 router = APIRouter(prefix="/api/calculators", tags=["calculators"])
@@ -15,11 +16,14 @@ router = APIRouter(prefix="/api/calculators", tags=["calculators"])
 # "coming soon" instead of pretending the feature exists.
 # NOTE: pile_capacity moved OUT of this list (27 Jul 2026) -- it now has its
 # own dedicated /pile endpoint below, same pattern as /batch and /liquefaction.
+# retaining_wall_stability moved OUT (3 Aug 2026) -- own /retaining-wall
+# endpoint below, geotechnical checks only (Phase 1+2), see
+# retaining_wall_calculator.py's module docstring for exact scope.
 # Driven piles / rock sockets / pile groups are still not implemented -- see
 # pile_calculator.py's module docstring for exactly what Phase 1 covers.
 PLANNED_CALCULATORS = [
     "raft_foundation", "isolated_footing", "group_efficiency",
-    "lateral_pile", "retaining_wall_stability", "plate_load_test",
+    "lateral_pile", "plate_load_test",
     "safe_bearing_capacity", "modulus_subgrade_reaction", "rock_bearing_capacity",
 ]
 
@@ -216,6 +220,32 @@ def run_lateral(req: LateralCapacityRequest, db: Session = Depends(get_db)):
     result["borehole_id"] = profile.borehole_id
     result["founding_layer"] = f"{founding.from_m}-{founding.to_m}m" + (f" ({founding.classification})" if founding.classification else "")
     return result
+
+
+@router.post("/retaining-wall")
+def run_retaining_wall(req: RetainingWallRequest, db: Session = Depends(get_db)):
+    """Not borehole-aware (unlike the other calculators here) -- retaining
+    wall soil properties are a single backfill/foundation parameter set, per
+    the source reference workbook's own Inputs sheet, not a layered borehole
+    profile. Geotechnical checks only (Phase 1+2) -- see
+    retaining_wall_calculator.py's module docstring for exact scope."""
+    try:
+        result = run_retaining_wall_analysis(req.model_dump())
+    except (ValueError, ZeroDivisionError) as e:
+        raise HTTPException(422, str(e))
+
+    log = CalculationLog(
+        calculator_type="retaining_wall_stability",
+        inputs_json=json.dumps(req.model_dump()),
+        result_json=json.dumps(result),
+    )
+    db.add(log)
+    db.commit()
+
+    return result
+
+
+@router.post("/pile/parse-command")
 def parse_pile_ai_command(req: PileCommandRequest):
     """Step 6 of the spec: turn a typed command ('Design a 1000mm pile',
     'Use IRC:78') into structured fields the frontend can merge into the

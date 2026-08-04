@@ -207,3 +207,65 @@ class BoreholeProfileOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class RetainingWallRequest(BaseModel):
+    """
+    RC Cantilever Retaining Wall -- geotechnical checks only (earth pressure,
+    water pressure, seismic (Mononobe-Okabe), stability, bearing capacity,
+    settlement), per Raahi's uploaded reference workbook (3 Aug 2026).
+    NOT borehole-aware (unlike batch/liquefaction/pile) -- soil is a single
+    set of backfill/foundation parameters here, matching the source
+    workbook's own Inputs sheet, not a layered borehole profile. Structural/
+    RCC design (stem/heel/toe reinforcement) is a separate, not-yet-built
+    phase -- see retaining_wall_calculator.py's module docstring.
+    """
+    # Geometry (m)
+    H_wall: float
+    D_found: float
+    t_base: float
+    B_base: float
+    B_toe: float
+    B_heel: float
+    t_top: float
+    t_bot: float
+
+    # Soil properties
+    gamma: float          # kN/m3, moist/bulk unit weight of backfill
+    gamma_sat: float       # kN/m3
+    phi: float             # degrees
+    cohesion: float = 0.0  # kPa
+    qa: float | None = None  # kPa, allowable bearing capacity from soil report
+    water_table_depth_m: float = 100.0  # below EGL; large default = "not encountered"
+    delta: float | None = None  # wall-backfill friction angle, deg; default (2/3)*phi if omitted
+    beta: float = 0.0      # backfill slope angle, deg
+    i_toe: float = 0.0     # ground slope in front of toe, deg (not yet used in checks)
+    gamma_c: float = 24.0  # kN/m3, unit weight of concrete
+    mu: float | None = None  # base-soil interface friction coefficient; default tan(2/3 phi) if omitted
+    drainage_provided: bool = True
+
+    # Surcharge / external loads (kPa, on backfill/heel side)
+    q_surch: float = 0.0
+    q_traffic: float = 0.0
+    q_build: float = 0.0
+    q_strip: float = 0.0
+
+    # Seismic (IS 1893:2016)
+    Z: float = 0.16         # zone factor; used only to suggest kh=Z/2 if kh omitted
+    kh: float | None = None
+    kv: float | None = None
+
+    # Stability parameters
+    passive_mobilisation_factor: float = 0.5
+    fos_bearing: float = 2.5  # FS_br
+
+    # Settlement (Phase 2) -- all optional, "Insufficient data" if omitted
+    Es_kpa: float | None = None
+    poisson_ratio: float = 0.3
+    influence_factor: float = 0.8
+    Cc: float | None = None
+    e0: float | None = None
+    Hc_m: float | None = None
+    sigma0_kpa: float | None = None
+    C_alpha: float | None = None
+    t_ratio: float | None = None
