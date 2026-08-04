@@ -1939,6 +1939,20 @@ scoped).
       failure mode above (stale zip silently reused) produces no error until `git push`
       says "Everything up-to-date" on a commit that should have had real changes.
 
+---
+
+57. **Owner PIN helper text removed from Settings screen, 4 Aug 2026** -- Raahi flagged
+    that the line under the Owner PIN field ("Set in Render's Environment tab
+    (OWNER_PIN) -- separate from your login password, only you should know it.") was
+    visible to anyone looking at the screen, which defeats the point of a PIN meant to
+    stay private. Removed the `<div>` entirely from `SettingsPage.tsx`'s Account & Login
+    form -- the input field itself (masked, `type="password"`) and its label are
+    unchanged, only the explanatory hint text is gone. Nothing else on that form touched.
+
+---
+
+## How to give Raahi an update (workflow reminder for whoever's helping)
+
 1. Make code changes in your own sandbox, verify with `python3 -m py_compile` (backend,
    whole tree not just changed files) and `tsc --ignoreConfig --noEmit --skipLibCheck --jsx
    react-jsx` (frontend — a real global `tsc` binary is available even though

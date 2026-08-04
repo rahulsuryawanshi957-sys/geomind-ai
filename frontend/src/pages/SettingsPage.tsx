@@ -129,7 +129,6 @@ export default function SettingsPage({ dark, onToggleDark }: { dark: boolean; on
           <div>
             <label className="text-xs text-slate-400 mb-1 block">Owner PIN</label>
             <input type="password" className="gm-input w-full" value={ownerPin} onChange={(e) => setOwnerPin(e.target.value)} />
-            <div className="text-[11px] text-slate-500 mt-1">Set in Render's Environment tab (OWNER_PIN) — separate from your login password, only you should know it.</div>
           </div>
           <div>
             <label className="text-xs text-slate-400 mb-1 block">New username</label>
