@@ -87,7 +87,9 @@ frontend/          React + TypeScript + Vite + Tailwind. Enterprise geotech-plat
   src/pages/planned/  Features that started as "Coming Soon" placeholders -- some have
                       since been built out for real (BoreholeLogs.tsx, LabReports.tsx,
                       SoilProfile.tsx). Still-placeholder: Projects, PdfChat, Bookmarks,
-                      PileGroup, RaftFoundation, GroundImprovement (added 4 Aug 2026).
+                      PileGroup, RaftFoundation (added 4 Aug 2026). GroundImprovement was
+                      also added 4 Aug 2026 as a placeholder but is now a REAL module
+                      (built out 5 Aug 2026, see PROJECT_STATUS #60).
   src/components/    Sidebar, MobileNav, ComingSoon, ReferenceBlock, SourcesPanel
   src/api/client.ts  All backend API calls in one place
 
@@ -2041,6 +2043,72 @@ scoped).
     `RockBearingCapacityRequest` are confirmed as two separate classes with their own
     distinct fields again (checked both `grep -n "^class "` and a full-tree
     `py_compile` after the fix).
+
+---
+
+60. **Ground Improvement calculator built out (was Coming Soon), 5 Aug 2026** -- Raahi
+    pointed at the "Ground Improvement" Coming Soon card and asked for all 4 listed
+    features with full detail. New files: `backend/app/services/ground_improvement.py`
+    (all formulas + full source-fidelity notes per sub-tool -- READ ITS MODULE
+    DOCSTRING), `GroundImprovementRequest` in `schemas.py`, `POST
+    /api/calculators/ground-improvement` in `calculators.py`, `runGroundImprovement` in
+    `client.ts`. `frontend/src/pages/GroundImprovement.tsx` **replaces** the old
+    `pages/planned/GroundImprovement.tsx` Coming-Soon placeholder -- App.tsx's import
+    now points at the real page; Sidebar.tsx/Dashboard.tsx had their `soon: true` flag
+    removed for this entry. (The old placeholder file itself was left in place, just
+    unreferenced -- harmless, not worth a special cleanup step.)
+    **Learned from entry #59's mistake:** re-verified `grep -n "^class "` on
+    `schemas.py` immediately after inserting `GroundImprovementRequest`, before moving
+    on to the router -- confirmed no class declaration got silently eaten this time.
+    **Unlike Rock Bearing Capacity, this is 4 INDEPENDENT sub-tools, not competing
+    methods for one number** -- no "governing minimum" concept here, the endpoint just
+    runs whichever sub-tool(s) have enough inputs and returns all of them together:
+    1. **Stone Column spacing & improvement factor** -- IS 15284 (Part 1):2003, Cl 7.5
+       (area replacement ratio `as = 0.907*(D/S)^2` triangular / `(pi/4)*(D/S)^2`
+       square), Cl 7.6 (stress concentration factor n, typically 2.5-5, left as an
+       engineer-supplied input with a range-check warning), Annex B Reduced Stress
+       Method (`sigma_soil = sigma/(1+(n-1)*as)`, settlement improvement factor
+       `mu = 1+(n-1)*as`). **HIGH CONFIDENCE** -- verified against an archive.org OCR
+       copy of the actual standard, AND the 0.907 constant was independently
+       cross-checked algebraically (0.907 = pi/(2*sqrt(3)), exactly the geometric
+       ratio it should be) -- this is a different, more rigorous check than entry #58
+       could do for the Rock SBC pressuremeter clause, and it passed.
+    2. **Preloading + PVD consolidation timeline** -- Barron (1948) radial
+       consolidation / Hansbo (1981) band-drain adaptation + Terzaghi vertical
+       consolidation combined via Carrillo's (1942) approximation. **HIGH CONFIDENCE**
+       -- this is universal, cross-checked-everywhere textbook material, not a single
+       degraded scan (unlike the Rock SBC pressuremeter caveat). Deliberately does NOT
+       model smear zone or well resistance (both dropped -- "ideal drain" case only) --
+       flagged in every result as making the predicted timeline somewhat optimistic
+       (faster) than a real, smeared installation. Supports both directions: given an
+       elapsed time -> degree of consolidation, OR given a target degree of
+       consolidation -> required time (binary search, since Carrillo's combination
+       isn't cleanly invertible in closed form). Verified round-trip: solved for time
+       to reach 90% U, then fed that time back through the forward calculation and got
+       90.0% back out, before shipping.
+    3. **Vibro-compaction feasibility check** -- simplified fines-content screening
+       rule (<10% suitable, 10-20% marginal, >20% not suitable -- prefer stone
+       columns), a widely cited rule of thumb rather than a single code clause.
+       **MEDIUM CONFIDENCE**, explicitly labelled in the result as a preliminary
+       screen, not a substitute for a field trial.
+    4. **Recommendation linked to liquefaction/settlement results** -- rule-based
+       guidance text (not a formula): flags FS_liquefaction < 1.0 (or 1.0-1.25 as
+       marginal) and predicted-settlement > allowable, and suggests stone columns vs
+       vibro-compaction depending on fines content. **This is NOT pulled automatically
+       from a prior Liquefaction/Settlement run** -- there's still no calculation-log
+       listing endpoint (see entry #56's note on this same gap) -- Raahi has to type
+       the FS/settlement numbers in manually from his own earlier run.
+    - Verified with a battery of manual sanity tests before shipping (not just
+      py_compile): area-replacement-ratio triangular-vs-square ordering, settlement
+      improvement factor increasing with n, the de=1.05S/1.13S equivalent-diameter
+      formula cross-checked algebraically against its own area definition, PVD U%
+      monotonically increasing with time, PVD target-time/forward-check round-trip
+      matching to 0.5%, vibro-compaction verdict boundaries, and the orchestrator
+      correctly running only the sub-tools that had enough input. Full-tree
+      `python3 -m py_compile` and `tsc --noEmit` on every changed frontend file --
+      zero new errors on either. **Not seen in a real browser and not run against a
+      real project's ground-improvement data** -- same standing sandbox limitation as
+      every other change this session.
 
 ---
 

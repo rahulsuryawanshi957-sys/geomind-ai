@@ -3,11 +3,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import CalculationLog, BoreholeProfile
-from app.schemas import CalculatorRequest, BatchRunRequest, LiquefactionRequest, PileCapacityRequest, PileCommandRequest, LateralCapacityRequest, RetainingWallRequest, RockBearingCapacityRequest
+from app.schemas import CalculatorRequest, BatchRunRequest, LiquefactionRequest, PileCapacityRequest, PileCommandRequest, LateralCapacityRequest, RetainingWallRequest, RockBearingCapacityRequest, GroundImprovementRequest
 from app.services.calculators import CALCULATOR_REGISTRY, run_batch_matrix, run_liquefaction_analysis
 from app.services.pile_calculator import run_pile_capacity, parse_pile_command, run_lateral_capacity
 from app.services.retaining_wall_calculator import run_retaining_wall_analysis
 from app.services.rock_bearing_capacity import run_rock_bearing_capacity
+from app.services.ground_improvement import run_ground_improvement
 from app.services.calculators import _founding_layer, _resolve_field
 
 router = APIRouter(prefix="/api/calculators", tags=["calculators"])
@@ -261,6 +262,27 @@ def run_rock_sbc(req: RockBearingCapacityRequest, db: Session = Depends(get_db))
 
     log = CalculationLog(
         calculator_type="rock_bearing_capacity",
+        inputs_json=json.dumps(req.model_dump()),
+        result_json=json.dumps(result),
+    )
+    db.add(log)
+    db.commit()
+
+    return result
+
+
+@router.post("/ground-improvement")
+def run_ground_improvement_endpoint(req: GroundImprovementRequest, db: Session = Depends(get_db)):
+    """Runs whichever of the 4 sub-tools (stone column / PVD / vibro-compaction /
+    recommendation) have enough inputs -- see ground_improvement.py's module
+    docstring for formula sources/confidence per sub-tool."""
+    try:
+        result = run_ground_improvement(req.model_dump())
+    except (ValueError, ZeroDivisionError) as e:
+        raise HTTPException(422, str(e))
+
+    log = CalculationLog(
+        calculator_type="ground_improvement",
         inputs_json=json.dumps(req.model_dump()),
         result_json=json.dumps(result),
     )

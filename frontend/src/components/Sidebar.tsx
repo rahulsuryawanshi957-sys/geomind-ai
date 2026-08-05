@@ -40,7 +40,7 @@ const NAV_SECTIONS: { label: string | null; items: NavItem[] }[] = [
       { to: '/retaining-wall', label: 'Retaining Wall', icon: Boxes },
       { to: '/lateral-capacity', label: 'Lateral Capacity', icon: ArrowLeftRight },
       { to: '/liquefaction-analysis', label: 'Liquefaction', icon: Waves },
-      { to: '/ground-improvement', label: 'Ground Improvement', icon: Wind, soon: true },
+      { to: '/ground-improvement', label: 'Ground Improvement', icon: Wind },
       { to: '/batch-analysis', label: 'Batch Analysis', icon: LayoutGrid },
     ],
   },

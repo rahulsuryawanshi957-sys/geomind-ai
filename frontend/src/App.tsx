@@ -31,7 +31,7 @@ import Bookmarks from './pages/planned/Bookmarks'
 import PdfChat from './pages/planned/PdfChat'
 import PileGroup from './pages/planned/PileGroup'
 import RaftFoundation from './pages/planned/RaftFoundation'
-import GroundImprovement from './pages/planned/GroundImprovement'
+import GroundImprovement from './pages/GroundImprovement'
 
 export default function App() {
   const [dark, setDark] = useState(false)

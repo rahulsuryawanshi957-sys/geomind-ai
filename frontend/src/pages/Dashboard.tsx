@@ -35,7 +35,7 @@ const MODULE_SECTIONS: {
       { to: '/retaining-wall', label: 'Retaining Wall', description: 'Earth pressure, seismic (Mononobe-Okabe), stability, bearing capacity, settlement.', icon: Boxes },
       { to: '/lateral-capacity', label: 'Lateral Capacity', description: 'Lateral pile capacity analysis for foundation design.', icon: ArrowLeftRight },
       { to: '/liquefaction-analysis', label: 'Liquefaction', description: 'IS 1893:2016 simplified liquefaction procedure, wired to your borehole data.', icon: Waves },
-      { to: '/ground-improvement', label: 'Ground Improvement', description: 'Stone columns, preloading/PVD, and vibro-compaction sizing checks.', icon: Wind, soon: true },
+      { to: '/ground-improvement', label: 'Ground Improvement', description: 'IS 15284 stone columns, PVD consolidation timeline, vibro-compaction feasibility, and a liquefaction/settlement-linked recommendation.', icon: Wind },
       { to: '/batch-analysis', label: 'Batch Analysis', description: 'Run a full width x depth matrix of foundation combinations at once.', icon: LayoutGrid },
     ],
   },

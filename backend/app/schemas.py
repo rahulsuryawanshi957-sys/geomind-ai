@@ -209,6 +209,44 @@ class BoreholeProfileOut(BaseModel):
         from_attributes = True
 
 
+class GroundImprovementRequest(BaseModel):
+    """
+    Ground Improvement -- 4 independent sub-tools (stone columns, PVD,
+    vibro-compaction, recommendation). See ground_improvement.py's module
+    docstring for formula sources/confidence. Every field is optional; the
+    service runs whichever sub-tool(s) have enough inputs.
+    """
+    # Stone column (IS 15284 Part 1) -- all 5 required together to run
+    column_dia_m: float | None = None
+    sc_spacing_m: float | None = None
+    sc_pattern: str | None = None  # 'triangular' | 'square'
+    stress_ratio_n: float | None = None
+    applied_stress_kpa: float | None = None
+    mv_m2_per_kn: float | None = None
+    treated_depth_m: float | None = None
+    untreated_settlement_mm: float | None = None
+
+    # PVD consolidation -- all 7 required together to run
+    pvd_spacing_m: float | None = None
+    pvd_pattern: str | None = None  # 'triangular' | 'square'
+    drain_width_mm: float | None = None
+    drain_thickness_mm: float | None = None
+    ch_m2_per_year: float | None = None
+    cv_m2_per_year: float | None = None
+    drainage_path_m: float | None = None
+    target_U_percent: float | None = None
+    elapsed_time_years: float | None = None
+
+    # Vibro-compaction feasibility
+    fines_content_percent: float | None = None
+    d50_mm: float | None = None
+
+    # Recommendation engine
+    fs_liquefaction: float | None = None
+    predicted_settlement_mm: float | None = None
+    allowable_settlement_mm: float | None = None
+
+
 class RockBearingCapacityRequest(BaseModel):
     """
     Safe Bearing Capacity on ROCK -- IS 12070:1987. NOT borehole-aware (same as
