@@ -2021,6 +2021,29 @@ scoped).
 
 ---
 
+59. **Deploy-breaking bug in entry #58 fixed, 4 Aug 2026** -- backend failed to start
+    (`ImportError: cannot import name 'RetainingWallRequest' from 'app.schemas'`).
+    Cause: when `RockBearingCapacityRequest` was inserted into `schemas.py` right
+    before `RetainingWallRequest`, the edit accidentally deleted the line
+    `class RetainingWallRequest(BaseModel):` itself while keeping its docstring and
+    every field below it -- since those lines were still correctly indented, Python
+    silently treated them as MORE fields of `RockBearingCapacityRequest` instead of
+    raising a syntax error, so `python3 -m py_compile` (which only checks syntax, not
+    whether the right classes/names exist) reported no problem. The class
+    `RetainingWallRequest` effectively stopped existing, so `calculators.py`'s
+    `from app.schemas import ... RetainingWallRequest` failed at import time on
+    Render -- worked perfectly on the sandbox's compile check, failed for real on
+    deploy. **Lesson for next time:** `py_compile`/`tsc --noEmit` catch syntax errors,
+    not "did I accidentally merge two classes into one" -- for schema/model files
+    specifically, grep for every expected `class X` name still existing as its own
+    line is a cheap extra check worth doing before shipping. Fixed by restoring the
+    missing class declaration line; `RetainingWallRequest` and
+    `RockBearingCapacityRequest` are confirmed as two separate classes with their own
+    distinct fields again (checked both `grep -n "^class "` and a full-tree
+    `py_compile` after the fix).
+
+---
+
 ## How to give Raahi an update (workflow reminder for whoever's helping)
 
 1. Make code changes in your own sandbox, verify with `python3 -m py_compile` (backend,

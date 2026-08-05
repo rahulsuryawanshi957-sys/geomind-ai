@@ -246,7 +246,7 @@ class RockBearingCapacityRequest(BaseModel):
     correction_factor: float = 1.0
 
 
-
+class RetainingWallRequest(BaseModel):
     """
     RC Cantilever Retaining Wall -- geotechnical checks only (earth pressure,
     water pressure, seismic (Mononobe-Okabe), stability, bearing capacity,
