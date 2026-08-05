@@ -2112,6 +2112,42 @@ scoped).
 
 ---
 
+61. **Ground Improvement — in-app "Theory / Calculation kaise hui" panels added,
+    5 Aug 2026** -- Raahi asked (via a screenshot of the live Ground Improvement page)
+    for the calculation theory behind every sub-tool to be visible in-app, in detail,
+    with diagrams, including which IS code / source was used. Frontend-only change,
+    no backend/schema changes needed (all theory content is static text + inline SVG,
+    not computed).
+    - New file: `frontend/src/components/TheorySection.tsx` -- reusable collapsible
+      "Theory / Calculation kaise hui" block (closed by default, click to expand).
+      Shows: title, source citation (IS code clause / researcher names), a
+      confidence badge (High/Medium/Low, matches the confidence levels already
+      documented in `ground_improvement.py`'s module docstring), an optional inline
+      SVG diagram, a list of formula steps, and an extra caution note.
+    - `frontend/src/pages/GroundImprovement.tsx` -- added 3 inline SVG diagram
+      components (`StoneColumnDiagram` -- triangular pattern top view with D/S
+      labelled; `PvdDiagram` -- band drain cross-section with de/dw/drainage-path
+      and radial+vertical flow arrows; `VibroDiagram` -- fines-content suitability
+      scale) and wired a `<TheorySection>` into all 4 result cards (Stone Column,
+      PVD, Vibro-Compaction, Recommendation), each with the exact formulas from
+      `ground_improvement.py` transcribed into the UI (area replacement ratio,
+      settlement improvement factor, Barron/Hansbo/Carrillo consolidation formulas,
+      fines-content screening thresholds, and the recommendation engine's rule
+      logic). Diagrams are plain inline SVG (no image files, no network calls) so
+      they render instantly and theme correctly in both light/dark mode via
+      `currentColor`/CSS variables.
+    - Verified with `tsc --ignoreConfig --noEmit --skipLibCheck --jsx react-jsx` on
+      both changed files -- zero `TS1xxx` (real syntax) errors; only the usual
+      missing-`node_modules` noise (`TS2307`/`TS7xxx`) which is expected in the
+      sandbox. **Not seen in a real browser** -- same standing sandbox limitation
+      as every other change this session; ask Raahi to open Ground Improvement,
+      run each sub-tool, and click the new "Theory" toggle under each result card
+      to confirm the diagrams render and the panel expands/collapses correctly.
+    - **Only `frontend/` changed this round** -- Raahi only needs to replace the
+      `frontend` folder, not `backend`.
+
+---
+
 ## How to give Raahi an update (workflow reminder for whoever's helping)
 
 1. Make code changes in your own sandbox, verify with `python3 -m py_compile` (backend,
