@@ -2148,6 +2148,40 @@ scoped).
 
 ---
 
+62. **Lateral Pile Capacity — "Theory / Calculation kaise hui" panel + live Fig.3
+    graph added, 5 Aug 2026** -- Raahi asked for the same theory-panel treatment on
+    the Lateral Pile Capacity page, specifically wanting a manual calculation
+    explanation with a graph. Frontend-only change.
+    - `frontend/src/pages/LateralCapacity.tsx` -- added a `<TheorySection>` (same
+      reusable component from the Ground Improvement update) covering: nh/K
+      subgrade modulus lookup, stiffness factor T/R, pile behaviour classification,
+      the L1/stiffness ratio, the Fig.3 chart factor, equivalent cantilever length,
+      and the safe-load formula -- all transcribed from
+      `backend/app/services/pile_calculator.py`'s `run_lateral_capacity()`.
+    - New `EquivalentCantileverDiagram` (inline SVG) -- schematic showing L1 (free
+      length above ground), Lf (depth to virtual fixity), Leq = L1+Lf, and the
+      deflected shape under load P.
+    - New `Fig3Chart` -- an actual **live graph** of IS:2911's Fig.3 curve (free-head
+      and fixed-head lines), redrawn in-browser from a DISPLAY-ONLY mirror of the
+      same digitized/polynomial data in `pile_calculator.py`
+      (`_fig3_factor_clay_ocs` / `_fig3_factor_sand`). A dot marks exactly where the
+      current pile's L1/stiffness ratio lands on the curve, using the real chart
+      factor values returned by the backend (not recomputed) -- so the dot position
+      is always trustworthy even if the redrawn curve line itself were ever slightly
+      off. Auto-switches between the clay-OCS polynomial curve (x range 0-1) and the
+      sand/NCS piecewise-linear curve (x range 0-10) based on the result.
+    - No new npm dependency added (no recharts/chart.js) -- kept as plain inline SVG
+      to avoid any `npm install` / build-risk on Render for a mobile-only workflow.
+    - Verified with `tsc --ignoreConfig --noEmit --skipLibCheck --jsx react-jsx` --
+      zero `TS1xxx` (real syntax) errors, only the usual missing-`node_modules`
+      noise. **Not seen in a real browser** -- ask Raahi to run a Lateral Capacity
+      calc (both a sand case and a clay case, since the graph range switches) and
+      confirm the graph renders, the dot sits on the curve, and the diagram looks
+      right.
+    - **Only `frontend/` changed this round.**
+
+---
+
 ## How to give Raahi an update (workflow reminder for whoever's helping)
 
 1. Make code changes in your own sandbox, verify with `python3 -m py_compile` (backend,
