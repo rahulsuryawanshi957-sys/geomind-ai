@@ -97,6 +97,7 @@ export const api = {
 
   deleteDocument: (id: string) => request(`/api/documents/${id}`, { method: 'DELETE' }),
   reindexDocument: (id: string) => request(`/api/documents/${id}/reindex`, { method: 'POST' }),
+  cleanupOrphanedChunks: () => request<{ status: string; orphaned_documents_purged: number }>('/api/documents/cleanup-orphans', { method: 'POST' }),
 
   search: (query: string, category_filter?: string) =>
     request<any>('/api/search', { method: 'POST', body: JSON.stringify({ query, category_filter }) }),
@@ -149,6 +150,9 @@ export const api = {
 
   runRockSbc: (payload: Record<string, any>) =>
     request<any>('/api/calculators/rock-sbc', { method: 'POST', body: JSON.stringify(payload) }),
+
+  runRockSocketPile: (payload: Record<string, any>) =>
+    request<any>('/api/calculators/rock-socket-pile', { method: 'POST', body: JSON.stringify(payload) }),
 
   runGroundImprovement: (payload: Record<string, any>) =>
     request<any>('/api/calculators/ground-improvement', { method: 'POST', body: JSON.stringify(payload) }),
