@@ -2245,6 +2245,47 @@ scoped).
 
 ---
 
+64. **Pile Compression/Uplift + Batch Analysis settlement -- theory panels added,
+    5 Aug 2026** -- Raahi asked for the stress-diagram/influence-zone theory to
+    be shown for the Pile Capacity (Compression + Uplift) page and for the
+    settlement part of Batch Analysis, same as the earlier theory-panel work.
+    Frontend-only, no backend changes.
+    - `frontend/src/pages/PileCapacity.tsx` -- new `PileStressDiagram` (inline
+      SVG): shows the overburden stress (σ'v) diagram along the pile shaft as
+      a widening-then-flat shape, the critical-depth line (15D for IS:2911,
+      20D for IRC:78) where σ'v FREEZES, skin friction arrows along the whole
+      shaft, and the end-bearing arrow at the toe. A `<TheorySection>` below
+      the results explains: how σ'v builds up (with the water-table effective-
+      density correction), what critical depth/influence-zone means and why
+      it exists (deep uniform strata don't keep gaining friction/bearing
+      forever -- a real field-test-backed plateau), the skin-friction formula
+      per segment (α·c + K·σ'v·tanφ), and the 3-depth end-bearing check
+      (toe−2D/toe/toe+2D, lowest governs) -- all transcribed directly from
+      `pile_calculator.py`'s own logic and existing warnings.
+    - `frontend/src/pages/BatchAnalysis.tsx` -- new `SettlementInfluenceDiagram`
+      (inline SVG): classic footing + pressure-bulb shape narrowing with
+      depth, the influence-zone boundary (Df + 1.5×B) dashed, and a Δσ = Iz×q
+      annotation. A `<TheorySection>` was added once at the top of the
+      results (inside the "Critical combination" card, so it shows regardless
+      of which row's "Full calc" is expanded) explaining: what the influence
+      zone is and how it's set (Automatic Df+1.5B, or the existing manual
+      override field), what the Boussinesq/Steinbrenner stress-influence
+      factor Iz does (reduces surface pressure q to Δσ at depth z), how each
+      real borehole layer inside the zone gets summed, the water-table Aw
+      correction, and that the whole thing is solved by bisection for the
+      pressure matching the allowable settlement input -- transcribed
+      directly from `run_settlement_multilayer()`'s own docstring/logic in
+      calculators.py.
+    - Verified with `tsc --ignoreConfig --noEmit --skipLibCheck --jsx react-jsx`
+      on both changed files -- zero `TS1xxx` (real syntax) errors, only the
+      usual missing-`node_modules` noise. **Not seen in a real browser** --
+      ask Raahi to run a Pile Capacity calc and a Batch Analysis, and confirm
+      both new "Theory / Calculation kaise hui" toggles expand correctly and
+      the diagrams render.
+    - **Only `frontend/` changed this round.**
+
+---
+
 ## How to give Raahi an update (workflow reminder for whoever's helping)
 
 1. Make code changes in your own sandbox, verify with `python3 -m py_compile` (backend,
