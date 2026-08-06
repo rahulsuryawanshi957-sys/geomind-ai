@@ -20,7 +20,7 @@ from app.config import settings, logger
 
 if settings.database_url.startswith("postgres"):
     logger.info("[vectorstore] DATABASE_URL is Postgres -- using pgvector (same database).")
-    from app.rag.pgvector_store import get_collection, add_chunks, query, delete_document
+    from app.rag.pgvector_store import get_collection, add_chunks, query, delete_document, delete_orphaned_chunks
 
 else:
     import chromadb
@@ -82,3 +82,18 @@ else:
     def delete_document(document_id: str):
         logger.info(f"[chroma] Deleting all chunks for document_id={document_id}")
         _collection.delete(where={"document_id": document_id})
+
+    def delete_orphaned_chunks(valid_document_ids: set[str]) -> int:
+        """
+        Removes any indexed chunk whose document_id isn't in valid_document_ids
+        (i.e. its Document row no longer exists -- deleted outside the normal
+        flow, or a leftover from before persistent storage was configured).
+        Returns the number of distinct orphaned document_ids that were purged.
+        """
+        all_metas = _collection.get(include=["metadatas"])["metadatas"]
+        seen_doc_ids = {m.get("document_id") for m in all_metas if m.get("document_id")}
+        orphan_ids = seen_doc_ids - valid_document_ids
+        for did in orphan_ids:
+            logger.info(f"[chroma] Purging orphaned chunks for document_id={did}")
+            _collection.delete(where={"document_id": did})
+        return len(orphan_ids)

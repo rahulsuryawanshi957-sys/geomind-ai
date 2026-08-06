@@ -2322,6 +2322,43 @@ scoped).
 
 ---
 
+66. **Orphaned vector-chunk fix + cleanup endpoint, 7 Aug 2026** -- Raahi got a Chat
+    answer citing a source file ("GT REPORT OF ASL-35-2025 BORE HOLE 115-116 REVISED.pdf")
+    that does NOT appear in the Document Library. Root cause: `rag/retrieval.py` queried
+    the vector store (Chroma/pgvector) purely by embedding similarity, with no check
+    against the `documents` table -- so if a document's chunks ever end up in the vector
+    store without a matching `Document` row (deleted outside the normal delete flow,
+    a partial/interrupted indexing run, or a leftover from before persistent storage was
+    configured), those "orphaned" chunks stay searchable and citable forever, even though
+    the file shows up nowhere in the app. Two-part fix, backend-only:
+    - `rag/retrieval.py` -- `retrieve()` now cross-checks every chunk's `document_id`
+      against the current `documents` table (status=`indexed`) and silently skips any
+      chunk whose parent document no longer exists, before scoring/returning results.
+      Self-healing: takes effect on the very next question, no restart/cleanup needed.
+    - New `POST /api/documents/cleanup-orphans` endpoint -- permanently purges orphaned
+      chunks from the vector store itself (both Chroma and pgvector backends got a new
+      `delete_orphaned_chunks()` function). The retrieval-time skip above stops them from
+      being *cited*; this endpoint actually removes the dead weight from storage. Safe to
+      run anytime (Swagger docs page, or any HTTP client) -- only deletes chunks with no
+      matching `Document` row, returns `{"orphaned_documents_purged": N}`.
+    - **Not yet root-caused**: exactly how this particular file's chunks became orphaned
+      in the first place (Raahi confirmed it was never in the Library / doesn't recall
+      uploading it). Candidates: deleted directly in the DB outside the app's own delete
+      endpoint, or a leftover from before persistent Postgres/pgvector was set up. Not
+      fully diagnosed -- if orphaned chunks keep reappearing after running cleanup-orphans,
+      that's a sign something is still writing chunks without a matching Document row, and
+      needs a deeper look at the upload/indexing flow.
+    - **Action needed from Raahi**: after deploying this, call
+      `POST /api/documents/cleanup-orphans` once (via `/docs` Swagger page -- find it in the
+      list, "Try it out", Execute) to purge this and any other existing orphaned chunks.
+    - Verified with `python3 -m py_compile` on all 4 changed files -- zero syntax errors.
+      **Not tested against a live vector store** (no DB access from the sandbox) -- ask
+      Raahi to re-run the same question after deploying + cleanup and confirm the fake
+      citation is gone.
+    - `backend/` only changed this round.
+
+---
+
 ## How to give Raahi an update (workflow reminder for whoever's helping)
 
 1. Make code changes in your own sandbox, verify with `python3 -m py_compile` (backend,

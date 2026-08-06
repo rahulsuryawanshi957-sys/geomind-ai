@@ -5,7 +5,7 @@ from app.database import get_db
 from app.models import Document
 from app.schemas import DocumentOut
 from app.rag.ingest import ingest_pdf
-from app.rag.vectorstore import delete_document as vs_delete_document
+from app.rag.vectorstore import delete_document as vs_delete_document, delete_orphaned_chunks
 from app.services import file_storage
 from app.config import settings, logger
 
@@ -129,6 +129,22 @@ def delete_document(document_id: str, db: Session = Depends(get_db)):
     db.delete(doc)
     db.commit()
     return {"status": "deleted"}
+
+
+@router.post("/cleanup-orphans")
+def cleanup_orphans(db: Session = Depends(get_db)):
+    """
+    Permanently purges any vector-store chunks whose Document row no longer
+    exists -- e.g. a document deleted outside the normal delete flow, or a
+    leftover from before persistent storage (Postgres/pgvector) was set up.
+    These orphaned chunks are already skipped at retrieval time (see
+    rag/retrieval.py), but they still sit in storage until this is run.
+    Safe to run anytime; only removes chunks with no matching document.
+    """
+    valid_ids = {d.id for d in db.query(Document.id).all()}
+    purged_count = delete_orphaned_chunks(valid_ids)
+    logger.info(f"[cleanup-orphans] Purged chunks for {purged_count} orphaned document_id(s).")
+    return {"status": "ok", "orphaned_documents_purged": purged_count}
 
 
 @router.post("/{document_id}/reindex", response_model=DocumentOut)

@@ -111,3 +111,20 @@ def delete_document(document_id: str):
     logger.info(f"[pgvector] Deleting all chunks for document_id={document_id}")
     with engine.begin() as conn:
         conn.execute(text(f"DELETE FROM {TABLE} WHERE document_id = :document_id"), {"document_id": document_id})
+
+
+def delete_orphaned_chunks(valid_document_ids: set[str]) -> int:
+    """
+    Removes any indexed chunk whose document_id isn't in valid_document_ids
+    (i.e. its Document row no longer exists -- deleted outside the normal
+    flow, or a leftover from before persistent storage was configured).
+    Returns the number of distinct orphaned document_ids that were purged.
+    """
+    with engine.begin() as conn:
+        rows = conn.execute(text(f"SELECT DISTINCT document_id FROM {TABLE}")).fetchall()
+        seen_doc_ids = {r[0] for r in rows}
+        orphan_ids = seen_doc_ids - valid_document_ids
+        for did in orphan_ids:
+            logger.info(f"[pgvector] Purging orphaned chunks for document_id={did}")
+            conn.execute(text(f"DELETE FROM {TABLE} WHERE document_id = :document_id"), {"document_id": did})
+    return len(orphan_ids)
