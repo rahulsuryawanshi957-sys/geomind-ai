@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Settings as SettingsIcon, Download, Upload, WifiOff, Lock, LogOut, Loader2, ShieldAlert } from 'lucide-react'
+import { Settings as SettingsIcon, Download, Upload, WifiOff, Lock, LogOut, Loader2, ShieldAlert, Trash2 } from 'lucide-react'
 import { api } from '../api/client'
 
 const UNIT_SYSTEMS = ['SI (kN, kPa, m)', 'Imperial (lb, psf, ft)']
@@ -51,6 +51,28 @@ export default function SettingsPage({ dark, onToggleDark }: { dark: boolean; on
   const [loggingOutAll, setLoggingOutAll] = useState(false)
   const [loggedOutAllMsg, setLoggedOutAllMsg] = useState(false)
 
+  const [cleaningUp, setCleaningUp] = useState(false)
+  const [cleanupResult, setCleanupResult] = useState<string | null>(null)
+  const [cleanupError, setCleanupError] = useState('')
+
+  async function handleCleanupOrphans() {
+    setCleaningUp(true)
+    setCleanupResult(null)
+    setCleanupError('')
+    try {
+      const res = await api.cleanupOrphanedChunks()
+      setCleanupResult(
+        res.orphaned_documents_purged > 0
+          ? `Done — removed leftover data for ${res.orphaned_documents_purged} deleted document(s). Fake references should stop appearing now.`
+          : 'Done — nothing to clean up, no leftover data found.'
+      )
+    } catch (err: any) {
+      setCleanupError('Could not run cleanup. Try again in a moment.')
+    } finally {
+      setCleaningUp(false)
+    }
+  }
+
   async function handleLogout() {
     try { await api.logout() } catch {}
     localStorage.removeItem('raahigeo_auth_token')
@@ -101,20 +123,22 @@ export default function SettingsPage({ dark, onToggleDark }: { dark: boolean; on
           <div className="text-xs text-slate-500 mt-1">Calculators currently compute in SI regardless of this setting — imperial conversion is on the roadmap.</div>
         </div>
 
-        <div>
-          <div className="text-sm text-slate-200 mb-1">AI Model</div>
-          <div className="font-mono text-xs text-slate-400">Configured server-side (CHAT_MODEL in backend/.env), currently gpt-4o.</div>
-        </div>
-
-        <div>
-          <div className="text-sm text-slate-200 mb-1">API Keys</div>
-          <div className="text-xs text-slate-500">Your OpenAI key stays in the backend's <code className="font-mono text-violet-300">.env</code> file — never entered here, never sent to the browser.</div>
-        </div>
-
         <div className="pt-3 border-t border-white/[0.06] flex flex-wrap gap-2">
           <button onClick={exportLocalData} className="gm-btn-secondary flex items-center gap-2 text-xs"><Download size={13} /> Export saved calculations</button>
           <button disabled className="gm-btn-secondary flex items-center gap-2 text-xs opacity-50 cursor-not-allowed" title="Coming soon"><Upload size={13} /> Import backup</button>
           <button disabled className="gm-btn-secondary flex items-center gap-2 text-xs opacity-50 cursor-not-allowed" title="Coming soon"><WifiOff size={13} /> Offline mode</button>
+        </div>
+
+        <div className="pt-3 border-t border-white/[0.06]">
+          <button onClick={handleCleanupOrphans} disabled={cleaningUp} className="gm-btn-secondary flex items-center gap-2 text-xs">
+            {cleaningUp ? <><Loader2 size={13} className="animate-spin" /> Cleaning up...</> : <><Trash2 size={13} /> Clean up deleted-document references</>}
+          </button>
+          <div className="text-[11px] text-slate-500 mt-1">
+            Run this if Chat ever cites a source file that isn't in your Document Library — it removes leftover
+            search data for documents that no longer exist.
+          </div>
+          {cleanupResult && <div className="text-xs text-emerald-400 mt-1">{cleanupResult}</div>}
+          {cleanupError && <div className="text-xs text-rose-400 mt-1">{cleanupError}</div>}
         </div>
       </div>
 
