@@ -160,7 +160,6 @@ const PLANNED_CATEGORIES: Record<string, string> = {
   liquefaction: 'Soil Parameters',
   retaining_wall_stability: 'Lateral Earth Pressure',
   rock_bearing_capacity: 'Rock',
-  rock_socket_pile: 'Rock',
 }
 
 export default function Calculators() {

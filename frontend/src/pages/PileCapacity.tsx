@@ -1,50 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Milestone, Loader2, Sparkles } from 'lucide-react'
 import { api } from '../api/client'
-import TheorySection from '../components/TheorySection'
-
-// Stress diagram + critical-depth (influence zone) explainer -- added 5 Aug
-// 2026, same request pattern as Ground Improvement / Lateral Capacity / Rock
-// Socket Pile. Mirrors the actual logic in pile_calculator.py's
-// run_pile_capacity(): overburden stress (sigma'v) builds up linearly with
-// depth, gets FROZEN once "critical depth" (15D for IS:2911, 20D for
-// IRC:78, measured below the ineffective ground level) is crossed -- that
-// frozen value is what every deeper segment's skin friction AND the end
-// bearing surcharge term both use. That freeze depth IS the "influence
-// zone" for this calculator.
-
-function PileStressDiagram({ code }: { code: string }) {
-  const criticalLabel = code === 'IRC_78' ? '20 × D' : '15 × D'
-  return (
-    <svg viewBox="0 0 260 220" width="260" height="220" className="text-slate-400">
-      <line x1="10" y1="20" x2="250" y2="20" stroke="rgb(226 232 240 / 0.5)" strokeWidth="1" strokeDasharray="4 2" />
-      <text x="14" y="15" fontSize="9" fill="currentColor">GL</text>
-      {/* pile shaft */}
-      <rect x="110" y="20" width="20" height="170" fill="rgb(148 163 184 / 0.25)" stroke="currentColor" strokeWidth="1.5" />
-      {/* stress diagram: triangle widening to critical depth, then constant (capped) */}
-      <path d="M 108 20 L 70 110 L 70 190 L 108 190 Z" fill="rgb(45 212 191 / 0.15)" stroke="rgb(45 212 191)" strokeWidth="1" />
-      <line x1="70" y1="110" x2="108" y2="110" stroke="rgb(45 212 191 / 0.4)" strokeWidth="1" strokeDasharray="2 2" />
-      {/* critical depth line */}
-      <line x1="20" y1="110" x2="240" y2="110" stroke="rgb(244 63 94 / 0.6)" strokeWidth="1" strokeDasharray="3 2" />
-      <text x="150" y="106" fontSize="9" fill="rgb(244 63 94)">critical depth = {criticalLabel} (σ'v frozen below here)</text>
-      {/* skin friction arrows along whole shaft */}
-      {[45, 75, 105, 135, 165].map((y, i) => (
-        <line key={i} x1="95" y1={y} x2="112" y2={y} stroke="rgb(34 211 238)" strokeWidth="1.2" markerEnd="url(#pl-arrow)" />
-      ))}
-      <text x="20" y="70" fontSize="9" fill="rgb(34 211 238)">qs (skin</text>
-      <text x="20" y="82" fontSize="9" fill="rgb(34 211 238)">friction)</text>
-      {/* end bearing arrow at toe */}
-      <line x1="120" y1="205" x2="120" y2="192" stroke="rgb(244 63 94)" strokeWidth="1.5" markerEnd="url(#pl-arrow2)" />
-      <text x="120" y="216" textAnchor="middle" fontSize="9" fill="rgb(244 63 94)">Qp (end bearing)</text>
-      {/* sigma'v axis label */}
-      <text x="60" y="205" fontSize="9" fill="rgb(45 212 191)" textAnchor="middle">σ'v</text>
-      <defs>
-        <marker id="pl-arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="rgb(34 211 238)" /></marker>
-        <marker id="pl-arrow2" markerWidth="6" markerHeight="6" refX="3" refY="5" orient="auto"><path d="M0,0 L6,0 L3,6 Z" fill="rgb(244 63 94)" /></marker>
-      </defs>
-    </svg>
-  )
-}
 
 export default function PileCapacity() {
   const [boreholes, setBoreholes] = useState<any[]>([])
@@ -90,8 +46,8 @@ export default function PileCapacity() {
 
   async function run() {
     setError(''); setResult(null)
-    if (!selectedBoreholeId) { setError('Select a borehole first.'); return }
-    if (!diameterMm || !pileLength) { setError('Provide both pile diameter and length.'); return }
+    if (!selectedBoreholeId) { setError('Pehle ek borehole select karo.'); return }
+    if (!diameterMm || !pileLength) { setError('Pile diameter aur length dono do.'); return }
 
     setLoading(true)
     try {
@@ -371,23 +327,6 @@ export default function PileCapacity() {
               </ul>
             </div>
           )}
-
-          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-            <TheorySection
-              title="Pile Compression + Uplift — Overburden Stress Diagram & Critical Depth (Influence Zone)"
-              source={`${code === 'IRC_78' ? 'IRC:78:2024' : 'IS 2911 Part-1 Sec-2:2010'} — static formula method (α-method for cohesion, earth-pressure-coefficient method for friction).`}
-              confidence="High"
-              diagram={<PileStressDiagram code={code} />}
-              steps={[
-                { label: "Effective overburden stress σ'v", formula: "σ'v = Σ γ_eff × thickness, from GL down (γ_eff = γ_bulk − 1.0 t/m³ below water table)" },
-                { label: 'Critical depth (influence zone limit)', formula: code === 'IRC_78' ? '20 × D below the ineffective ground level' : '15 × D below the ineffective ground level', note: 'ineffective ground level = the deeper of scour depth / liquefaction depth, if given' },
-                { label: "Beyond critical depth", formula: "σ'v is FROZEN at its value at the critical depth", note: "every deeper segment reuses this same frozen σ'v — it does not keep increasing with depth" },
-                { label: 'Skin friction per segment', formula: 'qs = [α×c + K×σ\'v,avg×tanφ] × (π×D) × thickness', note: 'α = adhesion factor (from cohesion for IS:2911, from N-value for IRC:78); K = 1.0 (IS:2911) or 1.5 (IRC:78)' },
-                { label: 'End bearing (checked at 3 depths, lowest governs)', formula: 'Qp = Ap × (c×Nc + σ\'v,toe×Nq + 0.5×γ×D×Nγ)', note: 'checked at toe−2D, toe, and toe+2D — the governing (lowest) one is used' },
-              ]}
-              extraNote="The critical-depth cap exists because in a deep uniform sand/clay stratum, skin friction and end-bearing pressure don't keep growing forever with depth — field tests show they plateau. Capping σ'v beyond 15D/20D avoids over-estimating capacity for long piles. Nq/Nγ here use this app's own Vesic-type formula (same as the IS:6403 shear calculator) rather than a code chart, for internal consistency — see the warnings below."
-            />
-          </div>
 
           <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-4">
             <div className="text-sm font-medium text-slate-300 mb-1">Assumptions & warnings</div>

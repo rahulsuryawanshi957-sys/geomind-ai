@@ -164,7 +164,7 @@ export default function RetainingWall() {
     const required = ['H_wall', 'D_found', 't_base', 'B_base', 'B_toe', 'B_heel', 't_top', 't_bot', 'gamma', 'gamma_sat', 'phi']
     for (const k of required) {
       if (!values[k] || isNaN(parseFloat(values[k]))) {
-        setError(`Provide a valid number for "${k}".`)
+        setError(`"${k}" ke liye ek valid number do.`)
         return
       }
     }

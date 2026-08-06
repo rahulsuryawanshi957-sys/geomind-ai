@@ -34,7 +34,6 @@ const NAV_SECTIONS: { label: string | null; items: NavItem[] }[] = [
     items: [
       { to: '/calculators', label: 'Bearing Capacity & Settlement', icon: Calculator },
       { to: '/rock-bearing-capacity', label: 'Rock Bearing Capacity', icon: Gem },
-      { to: '/rock-socket-pile', label: 'Rock Socket Pile', icon: Gem },
       { to: '/pile-capacity', label: 'Pile Capacity', icon: Milestone },
       { to: '/pile-group', label: 'Pile Group', icon: Network, soon: true },
       { to: '/raft-foundation', label: 'Raft Foundation', icon: Grid3x3, soon: true },

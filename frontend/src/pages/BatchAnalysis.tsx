@@ -3,44 +3,6 @@ import { motion } from 'framer-motion'
 import { LayoutGrid, Layers3, Target, Printer, Loader2, SlidersHorizontal, ChevronDown, ChevronUp } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
-import TheorySection from '../components/TheorySection'
-
-// Settlement stress-diagram / influence-zone explainer -- added 5 Aug 2026,
-// same request pattern as the other calculators. Mirrors the actual logic
-// in calculators.py's run_settlement_multilayer(): the influence zone
-// (depth range the settlement sum is taken over) defaults to
-// Df + 1.5*B below ground, and within it, the applied surface pressure is
-// reduced with depth using a Boussinesq-type stress-influence factor Iz
-// (rectangular loaded area, exact closed-form -- see the `_iz` function),
-// which is what actually shapes the classic "pressure bulb" under a footing.
-
-function SettlementInfluenceDiagram() {
-  return (
-    <svg viewBox="0 0 260 210" width="260" height="210" className="text-slate-400">
-      <line x1="10" y1="45" x2="250" y2="45" stroke="rgb(226 232 240 / 0.5)" strokeWidth="1" strokeDasharray="4 2" />
-      <text x="14" y="40" fontSize="9" fill="currentColor">GL</text>
-      {/* footing */}
-      <rect x="95" y="30" width="70" height="15" fill="rgb(148 163 184 / 0.3)" stroke="currentColor" strokeWidth="1.5" />
-      <text x="130" y="27" textAnchor="middle" fontSize="9" fill="currentColor">B (footing width)</text>
-      {/* pressure bulb (isobar-style outline, narrowing with depth) */}
-      <path d="M 95 45 Q 40 100 75 175 Q 130 195 185 175 Q 220 100 165 45 Z"
-        fill="rgb(45 212 191 / 0.1)" stroke="rgb(45 212 191 / 0.6)" strokeWidth="1" strokeDasharray="2 2" />
-      <path d="M 108 45 Q 85 90 105 155 Q 130 168 155 155 Q 175 90 152 45 Z"
-        fill="rgb(45 212 191 / 0.18)" stroke="rgb(45 212 191)" strokeWidth="1" />
-      {/* influence zone boundary */}
-      <line x1="15" y1="175" x2="245" y2="175" stroke="rgb(244 63 94 / 0.6)" strokeWidth="1" strokeDasharray="3 2" />
-      <text x="130" y="188" textAnchor="middle" fontSize="9" fill="rgb(244 63 94)">Influence zone limit = Df + 1.5×B</text>
-      {/* z arrow */}
-      <line x1="30" y1="45" x2="30" y2="150" stroke="rgb(34 211 238)" strokeWidth="1" markerEnd="url(#se-arrow)" />
-      <text x="22" y="100" fontSize="9" fill="rgb(34 211 238)">z</text>
-      <text x="130" y="112" textAnchor="middle" fontSize="9" fill="rgb(45 212 191)">Δσ = Iz × q</text>
-      <text x="130" y="124" textAnchor="middle" fontSize="8" fill="currentColor">(stress reduces with depth)</text>
-      <defs>
-        <marker id="se-arrow" markerWidth="6" markerHeight="6" refX="3" refY="5" orient="auto"><path d="M0,0 L6,0 L3,6 Z" fill="rgb(34 211 238)" /></marker>
-      </defs>
-    </svg>
-  )
-}
 
 function parseNumberList(input: string): number[] {
   return input
@@ -140,9 +102,9 @@ export default function BatchAnalysis() {
 
   async function runBatch() {
     setError(''); setResult(null); setProgress(0)
-    if (!selectedBoreholeId) { setError('Select a borehole first.'); return }
-    if (widths.length === 0 || depths.length === 0) { setError('Provide at least one width and one depth value.'); return }
-    if (comboCount > 400) { setError(`${comboCount} combinations is too many (max 400 at once) — shorten your width/depth list.`); return }
+    if (!selectedBoreholeId) { setError('Pehle ek borehole select karo.'); return }
+    if (widths.length === 0 || depths.length === 0) { setError('Kam se kam ek width aur ek depth value do.'); return }
+    if (comboCount > 400) { setError(`${comboCount} combinations bahut zyada hain (max 400 ek saath) — width/depth list chhoti karo.`); return }
 
     setLoading(true)
     const allCombos: any[] = []
@@ -370,21 +332,6 @@ export default function BatchAnalysis() {
                   <div className="text-xs text-slate-400 mt-1">
                     B = {result.critical_combination.width_m}m, D = {result.critical_combination.depth_m}m ({result.critical_combination.founding_layer}) — governed by {result.critical_combination.governing}
                   </div>
-                  <TheorySection
-                    title="Settlement (IS:8009) — Stress Diagram & Influence Zone"
-                    source="IS 8009 (Part I)-1976 -- multi-layer settlement, Boussinesq/Steinbrenner-type stress-influence factor Iz for a rectangular loaded area."
-                    confidence="High"
-                    diagram={<SettlementInfluenceDiagram />}
-                    steps={[
-                      { label: 'Influence zone (depth range summed)', formula: 'Df + 1.5 × B below ground', note: 'Automatic; can be overridden per batch via the Influence Zone override field' },
-                      { label: 'Stress-influence factor Iz', formula: 'closed-form Boussinesq solution for a rectangular loaded area, function of L, B and depth z below the footing', note: 'reduces the applied surface pressure q to the stress increment Δσ at each depth' },
-                      { label: 'Stress increment at depth z', formula: 'Δσ(z) = Iz(z) × q' },
-                      { label: 'Each real borehole layer inside the influence zone', formula: 'gets its own Δσ, its own settlement contribution (NCS log formula / OCS mv-linear / IS:8009 Fig-9 chart for granular), then all contributions are summed' },
-                      { label: 'Water table correction (Aw)', formula: '0.5 at/above founding depth, scaling linearly to 1.0 at the base of the influence zone', note: 'applied to granular sub-layers only' },
-                      { label: 'Final answer', formula: 'the applied pressure q is numerically solved (bisection) so that total settlement = your allowable settlement input' },
-                    ]}
-                    extraNote="The influence zone is where the footing's own pressure bulb still matters — deeper than Df+1.5B, the stress increment Δσ becomes small enough to ignore. A wider or deeper footing pushes this boundary down, which is why it scales with B, not a fixed depth."
-                  />
                 </motion.div>
               )}
 

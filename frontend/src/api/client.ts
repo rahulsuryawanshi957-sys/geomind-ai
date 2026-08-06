@@ -150,9 +150,6 @@ export const api = {
   runRockSbc: (payload: Record<string, any>) =>
     request<any>('/api/calculators/rock-sbc', { method: 'POST', body: JSON.stringify(payload) }),
 
-  runRockSocketPile: (payload: Record<string, any>) =>
-    request<any>('/api/calculators/rock-socket-pile', { method: 'POST', body: JSON.stringify(payload) }),
-
   runGroundImprovement: (payload: Record<string, any>) =>
     request<any>('/api/calculators/ground-improvement', { method: 'POST', body: JSON.stringify(payload) }),
 

@@ -44,9 +44,9 @@ export default function LiquefactionAnalysis() {
 
   async function run() {
     setError(''); setResult(null)
-    if (!selectedBoreholeId) { setError('Select a borehole first.'); return }
-    if (!magnitude || isNaN(parseFloat(magnitude))) { setError('Provide the earthquake magnitude (Mw).'); return }
-    if (!pgaOverride && !zone) { setError('Either choose a seismic zone, or provide PGA manually.'); return }
+    if (!selectedBoreholeId) { setError('Pehle ek borehole select karo.'); return }
+    if (!magnitude || isNaN(parseFloat(magnitude))) { setError('Earthquake magnitude (Mw) do.'); return }
+    if (!pgaOverride && !zone) { setError('Ya to seismic zone chuno, ya PGA manually do.'); return }
 
     setLoading(true)
     try {
