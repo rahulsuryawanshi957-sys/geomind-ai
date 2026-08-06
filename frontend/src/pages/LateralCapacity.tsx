@@ -135,7 +135,7 @@ export default function LateralCapacity() {
 
   async function run() {
     setError(''); setResult(null)
-    if (!selectedBoreholeId) { setError('Pehle ek borehole select karo.'); return }
+    if (!selectedBoreholeId) { setError('Select a borehole first.'); return }
     setLoading(true)
     try {
       const overrides: Record<string, any> = {}
@@ -299,7 +299,7 @@ export default function LateralCapacity() {
                     { label: `Stiffness factor (${result.stiffness_factor_label})`, formula: result.stiffness_factor_label === 'R' ? 'R = (EI / (K×D))^0.25' : 'T = (EI / nh)^0.2' },
                     { label: 'Pile behaviour classification', formula: result.stiffness_factor_label === 'R' ? 'Short: L≤2R · Long: L≥3.5R' : 'Short: L≤2T · Long: L≥4T', note: 'IS:2911 Table 5' },
                     { label: 'Ratio plotted on Fig.3 chart', formula: `x = L1 / ${result.stiffness_factor_label} = ${result.L1_over_stiffness}` },
-                    { label: 'Chart factor (Lf/stiffness) read off Fig.3', formula: `Free head = ${result.free_head?.chart_factor}  ·  Fixed head = ${result.fixed_head?.chart_factor}`, note: 'graph niche dekho' },
+                    { label: 'Chart factor (Lf/stiffness) read off Fig.3', formula: `Free head = ${result.free_head?.chart_factor}  ·  Fixed head = ${result.fixed_head?.chart_factor}`, note: 'see graph below' },
                     { label: 'Equivalent cantilever length', formula: 'Leq = L1 + Lf' },
                     { label: 'Safe lateral load (at allowable deflection)', formula: 'Q = [0.5 × k × E × I / Leq³] × (allow. deflection / 0.5)', note: 'k = 3 for free head, 12 for fixed head' },
                   ]}
@@ -319,7 +319,7 @@ export default function LateralCapacity() {
                   />
                 </div>
                 <p className="text-[10px] text-slate-500 text-center mt-1">
-                  IS:2911 Fig.3 curve ({result.soil_type === 'cohesive' && result.consolidation_type === 'OCS' ? 'preloaded clay' : 'sand / NCS clay'}) — dots dikhate hain tumhara pile is curve pe kahaan aata hai.
+                  IS:2911 Fig.3 curve ({result.soil_type === 'cohesive' && result.consolidation_type === 'OCS' ? 'preloaded clay' : 'sand / NCS clay'}) — the dots show exactly where your pile lands on this curve.
                 </p>
               </div>
             </div>

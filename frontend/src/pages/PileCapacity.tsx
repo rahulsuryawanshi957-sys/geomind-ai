@@ -90,8 +90,8 @@ export default function PileCapacity() {
 
   async function run() {
     setError(''); setResult(null)
-    if (!selectedBoreholeId) { setError('Pehle ek borehole select karo.'); return }
-    if (!diameterMm || !pileLength) { setError('Pile diameter aur length dono do.'); return }
+    if (!selectedBoreholeId) { setError('Select a borehole first.'); return }
+    if (!diameterMm || !pileLength) { setError('Provide both pile diameter and length.'); return }
 
     setLoading(true)
     try {

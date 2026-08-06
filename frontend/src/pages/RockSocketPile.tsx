@@ -175,7 +175,7 @@ export default function RockSocketPile() {
               <input className="gm-input w-full" value={nc} onChange={(e) => setNc(e.target.value)} /></div>
           </div>
           <p className="text-[11px] text-slate-500 mt-2.5">
-            Cub, crushing strength aur Nc apne IRC:78 Table 6 se rock type + SPT-N ke hisaab se manually nikal ke daalo — ye is code me auto-calculate nahi hote (tumhare workbook me bhi manual hi hain).
+            Look up Cub, crushing strength and Nc from your own copy of IRC:78 Table 6, based on rock type + SPT-N, and enter them manually — the code doesn't give a closed-form formula for these (same as your own workbook, which also treats them as manual inputs).
           </p>
         </div>
       )}

@@ -2286,6 +2286,42 @@ scoped).
 
 ---
 
+65. **App-wide Hinglish -> English cleanup, 5 Aug 2026** -- Raahi pointed out that
+    several places in the app itself (not this chat -- the actual UI text
+    shown to users of RaahiGeo) were in Hinglish, mostly from earlier updates
+    this session (the Theory panel button label, a couple of explanatory
+    notes) plus some pre-existing error messages that had always been in
+    Hinglish. All converted to English. Frontend-only, text-only change (no
+    logic touched). Files changed:
+    - `frontend/src/components/TheorySection.tsx` -- the "Theory / Calculation
+      kaise hui" toggle button label -> "Theory / How this was calculated".
+    - `frontend/src/pages/RockSocketPile.tsx` -- Method 2's Cub/crushing-
+      strength/Nc manual-input note.
+    - `frontend/src/pages/PileCapacity.tsx` -- "Select a borehole first" /
+      "Provide both pile diameter and length" validation messages.
+    - `frontend/src/pages/LateralCapacity.tsx` -- borehole-required message,
+      the Fig.3 chart-factor note ("see graph below"), and the Fig.3 chart
+      caption under the new graph.
+    - `frontend/src/pages/LiquefactionAnalysis.tsx` -- borehole/magnitude/
+      seismic-zone-or-PGA validation messages (these were pre-existing
+      Hinglish, not from this session's changes).
+    - `frontend/src/pages/BatchAnalysis.tsx` -- borehole-required, width/depth-
+      required, and the 400-combination-limit validation messages
+      (pre-existing).
+    - `frontend/src/pages/RetainingWall.tsx` -- the per-field "provide a valid
+      number" validation message (pre-existing).
+    - Searched the WHOLE `frontend/src` tree with several rounds of
+      progressively broader Hindi/Hinglish word patterns (not just the files
+      touched this session) to make sure nothing was missed -- final sweep
+      came back clean. If Raahi spots any more Hinglish in the live app later,
+      it slipped past this search and should be flagged directly.
+    - Verified with `tsc --ignoreConfig --noEmit --skipLibCheck --jsx react-jsx`
+      on all 7 changed files -- zero `TS1xxx` errors.
+    - Note: this chat itself (between Raahi and Claude) stays in Hinglish as
+      always -- only the app's own UI text was in scope here.
+
+---
+
 ## How to give Raahi an update (workflow reminder for whoever's helping)
 
 1. Make code changes in your own sandbox, verify with `python3 -m py_compile` (backend,

@@ -140,9 +140,9 @@ export default function BatchAnalysis() {
 
   async function runBatch() {
     setError(''); setResult(null); setProgress(0)
-    if (!selectedBoreholeId) { setError('Pehle ek borehole select karo.'); return }
-    if (widths.length === 0 || depths.length === 0) { setError('Kam se kam ek width aur ek depth value do.'); return }
-    if (comboCount > 400) { setError(`${comboCount} combinations bahut zyada hain (max 400 ek saath) — width/depth list chhoti karo.`); return }
+    if (!selectedBoreholeId) { setError('Select a borehole first.'); return }
+    if (widths.length === 0 || depths.length === 0) { setError('Provide at least one width and one depth value.'); return }
+    if (comboCount > 400) { setError(`${comboCount} combinations is too many (max 400 at once) — shorten your width/depth list.`); return }
 
     setLoading(true)
     const allCombos: any[] = []
