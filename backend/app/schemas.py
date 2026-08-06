@@ -247,6 +247,33 @@ class GroundImprovementRequest(BaseModel):
     allowable_settlement_mm: float | None = None
 
 
+class RockSocketPileRequest(BaseModel):
+    """
+    Safe Axial (Compression + Uplift) Capacity of a Pile Socketed into Rock --
+    IRC:78, Appendix-5, Cl 9, Method 1 or Method 2. Added 5 Aug 2026, digitized
+    directly from Raahi's own Method_I_sheet.xlsx / Method_II_sheet.xlsx --
+    see rock_socket_pile.py's module docstring for exactly what's implemented
+    and what's deliberately deferred (the lateral/moment-in-rock check).
+    """
+    method: str  # 'method_1' | 'method_2'
+
+    # Common geometry -- required for both methods
+    dia_mm: float | None = None
+    socket_length_x_dia: float | None = None   # socket length as a multiple of D, e.g. 2 = 2xD
+    rock_top_depth_m: float | None = None       # depth of rock strata below GL
+    scour_depth_m: float | None = None          # optional, default 0
+    cr_percent: float | None = None             # core recovery %
+    rqd_percent: float | None = None            # RQD %
+
+    # Method 1 only -- core UCS
+    qc_kgcm2: float | None = None
+
+    # Method 2 only -- read off IRC:78 Table 6 by rock type + SPT-N
+    cub_mpa: float | None = None
+    crushing_strength_mpa: float | None = None
+    nc: float | None = None  # bearing capacity factor, default 9
+
+
 class RockBearingCapacityRequest(BaseModel):
     """
     Safe Bearing Capacity on ROCK -- IS 12070:1987. NOT borehole-aware (same as

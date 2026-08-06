@@ -3,12 +3,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import CalculationLog, BoreholeProfile
-from app.schemas import CalculatorRequest, BatchRunRequest, LiquefactionRequest, PileCapacityRequest, PileCommandRequest, LateralCapacityRequest, RetainingWallRequest, RockBearingCapacityRequest, GroundImprovementRequest
+from app.schemas import CalculatorRequest, BatchRunRequest, LiquefactionRequest, PileCapacityRequest, PileCommandRequest, LateralCapacityRequest, RetainingWallRequest, RockBearingCapacityRequest, GroundImprovementRequest, RockSocketPileRequest
 from app.services.calculators import CALCULATOR_REGISTRY, run_batch_matrix, run_liquefaction_analysis
 from app.services.pile_calculator import run_pile_capacity, parse_pile_command, run_lateral_capacity
 from app.services.retaining_wall_calculator import run_retaining_wall_analysis
 from app.services.rock_bearing_capacity import run_rock_bearing_capacity
 from app.services.ground_improvement import run_ground_improvement
+from app.services.rock_socket_pile import run_rock_socket_pile
 from app.services.calculators import _founding_layer, _resolve_field
 
 router = APIRouter(prefix="/api/calculators", tags=["calculators"])
@@ -283,6 +284,30 @@ def run_ground_improvement_endpoint(req: GroundImprovementRequest, db: Session =
 
     log = CalculationLog(
         calculator_type="ground_improvement",
+        inputs_json=json.dumps(req.model_dump()),
+        result_json=json.dumps(result),
+    )
+    db.add(log)
+    db.commit()
+
+    return result
+
+
+@router.post("/rock-socket-pile")
+def run_rock_socket_pile_endpoint(req: RockSocketPileRequest, db: Session = Depends(get_db)):
+    """Safe axial (compression + uplift) capacity of a pile socketed into rock,
+    IRC:78 Appendix-5 Cl 9, Method 1 or Method 2 (caller picks via req.method).
+    Not borehole-aware (same reasoning as /rock-sbc, /retaining-wall) -- rock
+    socket inputs are a single parameter set per borehole, not a layered soil
+    profile. See rock_socket_pile.py's module docstring for exactly what's
+    implemented and what's deliberately deferred."""
+    try:
+        result = run_rock_socket_pile(req.model_dump())
+    except (ValueError, ZeroDivisionError) as e:
+        raise HTTPException(422, str(e))
+
+    log = CalculationLog(
+        calculator_type="rock_socket_pile",
         inputs_json=json.dumps(req.model_dump()),
         result_json=json.dumps(result),
     )

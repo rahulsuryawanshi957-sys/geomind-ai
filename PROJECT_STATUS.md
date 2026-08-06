@@ -2182,6 +2182,69 @@ scoped).
 
 ---
 
+63. **Rock Socket Pile Capacity -- new calculator, IRC:78 Appendix-5 Method 1 &
+    Method 2, 5 Aug 2026** -- Raahi asked for "rock ka pile wala socketing
+    method 1 and 2 according to IS 78" (= IRC:78, a road-bridge foundation
+    code, not an IS code -- confirmed via web search). This is a genuinely NEW
+    calculator, distinct from `rock_bearing_capacity.py` (IS 12070, shallow
+    foundations sitting ON rock) -- this one is for a PILE SHAFT SOCKETED INTO
+    rock (end bearing + side shear combined).
+    - Raahi uploaded his own reference workbooks (`Method_I_sheet.xlsx`,
+      `Method_II_sheet.xlsx`) -- every formula was dug out of the actual Excel
+      cell formulas (openpyxl, not OCR/guessing) and cross-checked cell-by-cell
+      against the workbook's own cached calculated values until they matched
+      to within 0.001%. This is the highest-fidelity source this project has
+      had for any calculator so far -- Confidence: **High** for both methods.
+    - New `backend/app/services/rock_socket_pile.py` -- `run_rock_socket_pile()`
+      dispatches to Method 1 (`qc`/UCS-based, needs rock core strength) or
+      Method 2 (SPT-N / IRC:78 Table 6 based -- Cub/Cus/crushing-strength are
+      MANUAL inputs, same as the workbook itself, since Table 6 correlates
+      rock quality+SPT to shear strength and isn't a closed-form formula).
+      Both give: safe end bearing, safe socket shear, safe pile capacity in
+      compression (sum), self-weight, and safe pile capacity in uplift
+      (0.7×socket shear + submerged self-weight). Also auto-suggests which
+      method applies based on (CR+RQD)/2, RQD, and qc, per the workbook's own
+      selection criteria (Method 1 if (CR+RQD)/2 > 30% AND RQD > 0 AND
+      qc > 10 MPa, else Method 2) -- flags a warning if the user picked the
+      "wrong" method per that rule, without blocking them.
+    - New `RockSocketPileRequest` schema, new `/api/calculators/rock-socket-pile`
+      endpoint, new `api.runRockSocketPile()` client function.
+    - New page `frontend/src/pages/RockSocketPile.tsx` -- Method 1/Method 2
+      toggle, geometry + method-specific inputs, result cards, and a
+      `<TheorySection>` (same reusable component as Ground Improvement /
+      Lateral Capacity) with a schematic cross-section diagram (rock socket
+      showing end-bearing arrows at the tip, socket-shear arrows along the
+      sides, the "top 0.3m ignored" zone greyed out) and the exact formula
+      steps per method. Added to Sidebar nav ("Rock Socket Pile", under
+      Foundation Design) and App.tsx routing (`/rock-socket-pile`).
+    - **NOT implemented (deliberately, scope of this pass)**: the workbook's
+      "Lateral Load / Moment Carrying Capacity of Socketed Pile" section
+      (rows F56:K76 of Method_I_sheet.xlsx) -- computing required socket
+      length from a TRIAL horizontal force + moment, using the rock's
+      permissible compressive strength. This is a materially different
+      calculation (beam-on-elastic-foundation style, not end-bearing+shear)
+      and needs a trial load the engineer picks, not a clean input --
+      flagged to Raahi as a possible follow-up, not silently dropped. Also
+      not implemented: Method 2's "+1 diameter" what-if row (I41/K52) -- its
+      end-bearing cap logic doesn't match the base-case row in the source
+      workbook itself (looks like an inconsistency in the workbook, not a
+      second intentional formula), so only the base-case formula was used.
+    - Precision notes worth knowing: Method 1's workbook uses exact `PI()`
+      (rounded 2dp) for pile circumference and a flat unit weight of 15 for
+      self-weight; Method 2's workbook uses the `22/7` approximation (rounded
+      3dp) for circumference and the exact `25−9.807=15.193` for self-weight
+      unit weight. Both quirks were matched exactly per-method rather than
+      unified, so each method's output lines up 1:1 with its own source sheet.
+    - Verified with `tsc --ignoreConfig --noEmit --skipLibCheck --jsx react-jsx`
+      (frontend, zero TS1xxx errors) and `ast.parse` + a live run against the
+      workbook's own numbers (backend, exact match). **Not seen in a real
+      browser** -- ask Raahi to run both methods with his own project data and
+      compare the output side-by-side against his Excel one more time before
+      trusting it for a real submission, even though the digitization was
+      unusually rigorous this time.
+
+---
+
 ## How to give Raahi an update (workflow reminder for whoever's helping)
 
 1. Make code changes in your own sandbox, verify with `python3 -m py_compile` (backend,
