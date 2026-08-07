@@ -165,6 +165,17 @@ export const api = {
       body: JSON.stringify({ section_type, project_inputs, reference_query }),
     }),
 
+  autoGenerateBatchReport: async (borehole_id: string, batch_result: Record<string, any>): Promise<Blob> => {
+    const res = await fetch(`${BASE_URL}/api/reports/auto-generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ borehole_id, batch_result }),
+    })
+    if (res.status === 401) { handleUnauthorized(); throw new Error('Not authenticated.') }
+    if (!res.ok) throw new Error(`Report generation failed (${res.status}): ${await res.text()}`)
+    return res.blob()
+  },
+
   listConversations: (q?: string) =>
     request<any[]>(`/api/history/conversations${q ? `?q=${encodeURIComponent(q)}` : ''}`),
 

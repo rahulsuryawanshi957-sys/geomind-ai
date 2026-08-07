@@ -1,6 +1,6 @@
 import { useEffect, useState, Fragment } from 'react'
 import { motion } from 'framer-motion'
-import { LayoutGrid, Layers3, Target, Printer, Loader2, SlidersHorizontal, ChevronDown, ChevronUp } from 'lucide-react'
+import { LayoutGrid, Layers3, Target, Printer, FileDown, Loader2, SlidersHorizontal, ChevronDown, ChevronUp } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import TheorySection from '../components/TheorySection'
@@ -110,6 +110,26 @@ export default function BatchAnalysis() {
   }, [])
 
   const selectedBorehole = boreholes.find((b) => b.id === selectedBoreholeId)
+
+  const [reportLoading, setReportLoading] = useState(false)
+  const [reportError, setReportError] = useState('')
+
+  async function generateReport() {
+    if (!result || !selectedBoreholeId) return
+    setReportLoading(true); setReportError('')
+    try {
+      const blob = await api.autoGenerateBatchReport(selectedBoreholeId, result)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url; a.download = `raahigeo_batch_report_${result.borehole_id || selectedBoreholeId}.docx`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e: any) {
+      setReportError(e.message || 'Report generation failed.')
+    } finally {
+      setReportLoading(false)
+    }
+  }
   const widths = parseNumberList(widthsInput)
   const depths = parseNumberList(depthsInput)
   const comboCount = widths.length * depths.length
@@ -412,6 +432,7 @@ export default function BatchAnalysis() {
               )}
 
               <div className="glass p-5 print:text-black" id="batch-result">
+                {reportError && <div className="text-xs text-rose-400 mb-2">{reportError}</div>}
                 <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
                   <div className="text-xs uppercase tracking-wide text-slate-500">
                     {result.successful}/{result.total} combinations · {result.borehole_id}
@@ -425,6 +446,9 @@ export default function BatchAnalysis() {
                     />
                     <button onClick={() => window.print()} className="gm-btn-secondary flex items-center gap-1.5 text-xs whitespace-nowrap">
                       <Printer size={13} /> Print
+                    </button>
+                    <button onClick={generateReport} disabled={reportLoading} className="gm-btn-secondary flex items-center gap-1.5 text-xs whitespace-nowrap">
+                      {reportLoading ? <><Loader2 size={13} className="animate-spin" /> Generating...</> : <><FileDown size={13} /> Generate Report</>}
                     </button>
                   </div>
                 </div>

@@ -1,13 +1,17 @@
 import io
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
 from docx import Document as DocxDocument
 from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
-from app.schemas import ReportSectionRequest
+from app.schemas import ReportSectionRequest, AutoReportRequest
 from app.rag.retrieval import retrieve
 from app.services.llm import generate_report_section
+from app.services.report_builder import build_batch_report_docx
+from app.database import get_db
+from app.models import BoreholeProfile
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 
@@ -66,4 +70,41 @@ def export_pdf(sections: dict):
     return StreamingResponse(
         buf, media_type="application/pdf",
         headers={"Content-Disposition": "attachment; filename=raahigeo_report.pdf"},
+    )
+
+
+@router.post("/auto-generate")
+def auto_generate(req: AutoReportRequest, db: Session = Depends(get_db)):
+    """
+    Combines a borehole log chart, the given batch analysis results table,
+    and an AI-written summary into one downloadable DOCX -- see
+    app/services/report_builder.py for exactly what's covered (DOCX only,
+    one borehole + one batch result per report; no PDF export of this
+    combined report yet).
+    """
+    borehole = db.query(BoreholeProfile).filter(BoreholeProfile.id == req.borehole_id).first()
+    if not borehole:
+        raise HTTPException(404, f"Borehole '{req.borehole_id}' not found.")
+    if not borehole.layers:
+        raise HTTPException(422, f"Borehole '{req.borehole_id}' has no soil layers -- nothing to chart.")
+
+    critical = req.batch_result.get("critical_combination") or {}
+    summary_inputs = {
+        "borehole_id": borehole.borehole_id,
+        "project_name": borehole.project_name,
+        "total_combinations_run": req.batch_result.get("total"),
+        "successful_combinations": req.batch_result.get("successful"),
+        "critical_width_m": critical.get("width_m"),
+        "critical_depth_m": critical.get("depth_m"),
+        "critical_recommended_sbc_t_m2": critical.get("recommended_sbc"),
+        "critical_governing": critical.get("governing"),
+    }
+    chunks = retrieve(f"foundation recommendation SBC {borehole.project_name or borehole.borehole_id}")
+    ai_summary = generate_report_section("Batch Analysis Summary", summary_inputs, chunks)
+
+    docx_bytes = build_batch_report_docx(borehole, req.batch_result, ai_summary)
+    return StreamingResponse(
+        io.BytesIO(docx_bytes),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f"attachment; filename=raahigeo_batch_report_{borehole.borehole_id}.docx"},
     )

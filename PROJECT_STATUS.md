@@ -2504,6 +2504,52 @@ scoped).
 
 ---
 
+72. **Auto Report Generation (roadmap item #5) -- borehole log chart + batch results +
+    AI summary combined into one DOCX, 7 Aug 2026** -- this was the roadmap item flagged
+    as "the next real open item" when this status doc was first written. Deliberately
+    scoped to exactly what that roadmap line said (not a general report builder -- the
+    existing manual section-by-section Reports page, routers/reports.py's original
+    /generate + /export/docx + /export/pdf, is untouched and still there for anything
+    more freeform):
+    - `backend/app/services/report_builder.py` (new) -- `generate_borehole_chart_png()`
+      renders a two-panel strip log with matplotlib (left: strata/classification labels
+      per layer, right: SPT N-value vs depth, water table as a dashed line) to a PNG in
+      memory; `build_batch_report_docx()` assembles the final DOCX -- title, borehole/
+      project info, the chart image, a results table (one row per width×depth combination:
+      shear/settlement/recommended SBC + governing mode), the critical combination called
+      out, and the AI-written summary paragraph.
+    - `backend/app/routers/reports.py` -- new `POST /api/reports/auto-generate`
+      (`{borehole_id, batch_result}`) -- fetches the borehole + layers from the DB, calls
+      the existing `generate_report_section()` LLM helper (same one the manual Reports page
+      already uses) with a "Batch Analysis Summary" section type fed the critical
+      combination's numbers, builds the DOCX, streams it back.
+    - `frontend/src/api/client.ts` -- new `autoGenerateBatchReport()` (raw fetch + blob,
+      not the generic JSON `request()` helper, since this returns a binary DOCX).
+    - `frontend/src/pages/BatchAnalysis.tsx` -- new "Generate Report" button next to the
+      existing Print button (only enabled once a batch has run) -- downloads the DOCX
+      directly, named `raahigeo_batch_report_<borehole_id>.docx`.
+    - **NOT covered** (flagged in the module docstring, not silently dropped): PDF export
+      of this combined report (DOCX only); more than one borehole or batch result per
+      report; in-app editing of the generated report (one-shot download, edit in Word after).
+    - Added `matplotlib==3.9.2` to `backend/requirements.txt` -- it wasn't a dependency
+      before this. Chosen for known compatibility with the already-pinned `numpy==1.26.4`,
+      but **not verified against that exact combination** (only tested in this session's
+      sandbox, which had a newer/unpinned numpy) -- if the Render build fails specifically
+      on matplotlib/numpy version resolution, that's the first thing to check.
+    - Verified with `python3 -m py_compile` (backend, all 3 changed/new files) and a live
+      Python smoke test: generated a real chart PNG from mock borehole data (visually
+      inspected -- strata panel, N-value trend, and water table line all rendered
+      correctly) and a real DOCX from mock batch data (verified programmatically -- correct
+      headings, embedded chart image, results table with right data, critical-combination
+      paragraph, summary section all present). `tsc --ignoreConfig --noEmit --skipLibCheck
+      --jsx react-jsx` on both changed frontend files -- zero real errors.
+    - **Not tested against a live Render deploy** (matplotlib version risk above) or against
+      a real borehole from Raahi's own data (only mock data) -- first real run after
+      deploying should be treated as the actual test.
+    - `backend/` + `frontend/` both changed this round.
+
+---
+
 ## How to give Raahi an update (workflow reminder for whoever's helping)
 
 1. Make code changes in your own sandbox, verify with `python3 -m py_compile` (backend,

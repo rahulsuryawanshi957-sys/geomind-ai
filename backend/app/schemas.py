@@ -164,6 +164,11 @@ class ReportSectionRequest(BaseModel):
     reference_query: str | None = None
 
 
+class AutoReportRequest(BaseModel):
+    borehole_id: str
+    batch_result: dict
+
+
 class SoilLayerOut(BaseModel):
     id: str
     from_m: float
