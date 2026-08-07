@@ -2389,6 +2389,52 @@ scoped).
 
 ---
 
+69. **Batch Analysis: per-layer soil-type override (bug fix + new capability), 7 Aug 2026**
+    -- deep-search review of the batch/settlement engine (asked for by Raahi) found the
+    "Soil type per combination" dropdown in Manual Overrides ("Force: Clay/Granular for
+    all") only changed the displayed label in the results table -- it never reached
+    `run_settlement_multilayer`, which independently decides cohesive-vs-granular per
+    sub-layer from that layer's own USCS classification/Cc-presence. Confirmed live: forcing
+    a real sand (SP) layer to "cohesive" showed "Clay" in the table while the actual
+    settlement math still ran the Sand/Gravel (IS:8009 Fig-9) method underneath --
+    misleading, not a fabricated-but-wrong number, but a silently ignored override.
+    Raahi's ask went further than a straight bug fix: wanted the ability to force soil type
+    **per individual borehole layer** (not just one global toggle for the whole batch), to
+    test "what if this layer were sand instead of clay" scenarios. Implemented as a real
+    feature:
+    - `backend/app/services/calculators.py` -- `run_settlement_multilayer` now reads
+      `overrides["layer_soil_type"]` (a `{layer_id: "cohesive"|"noncohesive"}` map) and, for
+      each sub-layer, uses the forced type if that sub-layer's parent layer has one --
+      overriding the classification/Cc-presence check. `layer_report` entries now show
+      `[forced]` next to the soil type when an override was applied, so it's visible which
+      rows were manually overridden. `run_batch_matrix`'s row-level `soil_type` display
+      label now also checks this same map for the founding layer, so the summary column and
+      the detailed layer report never disagree. A forced type still can't fabricate missing
+      data -- it only picks which formula path (and therefore which fields) applies; the
+      existing borrow-from-neighbouring-layers fallback and "no X anywhere in this borehole"
+      errors both still apply normally underneath.
+    - `frontend/src/pages/BatchAnalysis.tsx` -- removed the old single global "Force:
+      Clay/Granular for all" dropdown. The existing "Layers in this borehole" list (sidebar)
+      now has a small Auto/Force Clay/Force Sand selector next to every individual layer,
+      with a "Clear N layer overrides" link when any are set. Sends
+      `overrides.layer_soil_type = {layerId: 'cohesive'|'noncohesive', ...}` (only the
+      layers actually overridden) instead of the old single `soil_type` field.
+    - Verified live (mock borehole, 3 layers) with a direct Python test: forcing a real clay
+      (CH) layer to "noncohesive" changed both the settlement method actually used
+      (Clay/Silt consolidation -> Sand/Gravel IS:8009 chart) and the resulting number
+      (2.24 t/m² -> 2.39 t/m² in the test case) -- confirms the override now genuinely
+      drives the calculation, not just a label.
+    - Verified with `python3 -m py_compile` (backend) and
+      `tsc --ignoreConfig --noEmit --skipLibCheck --jsx react-jsx` (frontend) -- zero real
+      errors on either changed file.
+    - Rest of the batch/settlement engine was reviewed line-by-line this round (bearing
+      capacity IS:6403 shear formula, Fox depth-correction factor, water-table correction,
+      gap-filling between recorded layers, OCS/NCS consolidation, elastic settlement) and
+      no other formula mistakes were found -- this soil-type-override gap was the only issue.
+    - `backend/` + `frontend/` both changed this round.
+
+---
+
 ## How to give Raahi an update (workflow reminder for whoever's helping)
 
 1. Make code changes in your own sandbox, verify with `python3 -m py_compile` (backend,

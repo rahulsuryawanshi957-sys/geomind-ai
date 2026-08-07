@@ -654,7 +654,10 @@ def run_batch_matrix(
                     gamma_above = _weighted_overburden(layers, d, "bulk_density_t_m3") or gamma_base
 
                 _founding_class = (getattr(founding, "classification", None) or "").strip().upper()
-                if overrides.get("soil_type"):
+                _layer_forced = (overrides.get("layer_soil_type") or {}).get(str(getattr(founding, "id", None)))
+                if _layer_forced in ("cohesive", "noncohesive"):
+                    soil_type = _layer_forced
+                elif overrides.get("soil_type"):
                     soil_type = overrides["soil_type"]
                 elif _founding_class:
                     soil_type = "cohesive" if _founding_class[0] in ("C", "M") else "noncohesive"
@@ -898,18 +901,34 @@ def run_settlement_multilayer(
 
     # Pre-compute each sub-layer's geometry-dependent factors (independent of
     # applied pressure), so the pressure-solve loop below is cheap per guess.
+    layer_soil_type_overrides = overrides.get("layer_soil_type") or {}
     for sl in sub_layers:
         l, H, top, bottom = sl["layer"], sl["thickness"], sl["top"], sl["bottom"]
         z_mid_surface = top + 0.5 * H
         z_below_footing = z_mid_surface - depth_m
-        classification = (getattr(l, "classification", None) or "").strip().upper()
-        if classification:
-            # USCS: C../M.. (clay/silt) behave as cohesive; S../G.. (sand/gravel) as granular.
-            # This is the soil's actual type, not which lab test happened to be run on it --
-            # an SPT-only clay layer is still clay, not "granular" just because it lacks Cc/e0.
-            is_cohesive = classification[0] in ("C", "M")
+        forced_type = layer_soil_type_overrides.get(str(getattr(l, "id", None)))
+        if forced_type in ("cohesive", "noncohesive"):
+            # Manual per-layer override (Batch Analysis "Layers in this borehole"
+            # panel) -- lets Raahi test "what if this layer were sand instead of
+            # clay" without editing the borehole data itself. Wins over the
+            # layer's own USCS classification/Cc-presence below. If the forced
+            # type needs data this layer doesn't have (e.g. forced cohesive but
+            # no e0 anywhere to fall back on), the existing "no X anywhere in
+            # this borehole" errors further down still fire -- forcing a type
+            # never fabricates missing data, it only picks which formula path
+            # (and therefore which required fields) applies.
+            is_cohesive = forced_type == "cohesive"
+            sl["soil_type_forced"] = True
         else:
-            is_cohesive = getattr(l, "compression_index_cc", None) is not None
+            classification = (getattr(l, "classification", None) or "").strip().upper()
+            if classification:
+                # USCS: C../M.. (clay/silt) behave as cohesive; S../G.. (sand/gravel) as granular.
+                # This is the soil's actual type, not which lab test happened to be run on it --
+                # an SPT-only clay layer is still clay, not "granular" just because it lacks Cc/e0.
+                is_cohesive = classification[0] in ("C", "M")
+            else:
+                is_cohesive = getattr(l, "compression_index_cc", None) is not None
+            sl["soil_type_forced"] = False
         sl["is_cohesive"] = is_cohesive
         sl["Iz"] = _iz(z_below_footing)
         sl["P0"] = _cumulative_overburden_stress(layers, z_mid_surface, overrides)
@@ -1041,7 +1060,7 @@ def run_settlement_multilayer(
             "effective_from_m": round(sl["top"], 2), "effective_to_m": round(sl["bottom"], 2),
             "effective_thickness_m": round(sl["thickness"], 2),
             "gap_filled": sl.get("gap_filled", False),
-            "soil_type": "Cohesive (incl. Silt)" if sl["is_cohesive"] else "Non-cohesive (granular)",
+            "soil_type": ("Cohesive (incl. Silt)" if sl["is_cohesive"] else "Non-cohesive (granular)") + (" [forced]" if sl.get("soil_type_forced") else ""),
             "classification": (getattr(l, "classification", None) or "n/a"),
             "settlement_method": method,
             "spt_n_used": sl.get("n_val", "n/a (cohesive layer)"),
