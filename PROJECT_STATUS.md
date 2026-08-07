@@ -2435,6 +2435,34 @@ scoped).
 
 ---
 
+70. **Theory panels not actually live on the deployed site, 7 Aug 2026** -- Raahi sent a
+    screenshot of the live Pile Capacity page: results end at "Assumptions & warnings",
+    no "Theory / How this was calculated" section anywhere below it -- even though that
+    panel (added 5 Aug 2026, see the `TheorySection` component and its use in
+    PileCapacity/LateralCapacity/BatchAnalysis/GroundImprovement/RockSocketPile) is present
+    in the code Raahi uploaded at the start of this session. Also asked about "Hinglish" in
+    the Batch Matrix explanation -- re-checked both the whole frontend (Devanagari script +
+    common Hinglish words, via a Python Unicode scan) and the whole backend for any
+    user-facing string (not code comments) -- found none; every calculation-explanation
+    string (batch layer notes, warnings, TheorySection content) is plain English. Most
+    likely explanation for the missing Theory panel: the 5 Aug work was written and the
+    zip was handed off, but the Termux copy+push for it either never completed or got
+    silently overwritten by a later step -- same class of "copy didn't fully land" issue
+    hit twice already this session (#68's client.ts, and the cleanup-orphans button). Not
+    a code bug -- no changes made to any of these 5 files this round, just re-shipping the
+    already-correct versions from this session's working copy (which includes today's #69
+    soil-type-override changes to BatchAnalysis.tsx) so Raahi can redeploy and confirm the
+    panel actually appears everywhere it's supposed to this time.
+    - Verified with `tsc --ignoreConfig --noEmit --skipLibCheck --jsx react-jsx` across all
+      5 pages + the shared component -- zero real errors.
+    - **Action needed from Raahi**: after deploying, check the Theory section shows up on
+      all 5 pages (Pile Capacity, Lateral Capacity, Batch Analysis, Ground Improvement,
+      Rock Socket Pile) after running a calculation -- it's a collapsed button below the
+      results ("Theory / How this was calculated"), click to expand.
+    - `frontend/` only changed this round (no actual code changes, re-deploy only).
+
+---
+
 ## How to give Raahi an update (workflow reminder for whoever's helping)
 
 1. Make code changes in your own sandbox, verify with `python3 -m py_compile` (backend,

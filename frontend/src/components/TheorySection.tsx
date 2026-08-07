@@ -42,7 +42,7 @@ export default function TheorySection({
         className="flex items-center gap-2 text-xs font-medium text-violet-400 hover:text-violet-300 transition-colors"
       >
         <BookOpen size={13} />
-        Theory / Calculation kaise hui (formula + IS code + diagram)
+        Theory / How this was calculated (formula + IS code + diagram)
         <ChevronDown size={13} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
