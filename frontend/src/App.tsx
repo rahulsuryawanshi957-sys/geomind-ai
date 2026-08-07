@@ -32,6 +32,8 @@ import PdfChat from './pages/planned/PdfChat'
 import PileGroup from './pages/planned/PileGroup'
 import RaftFoundation from './pages/planned/RaftFoundation'
 import GroundImprovement from './pages/GroundImprovement'
+import RockSocketPile from './pages/RockSocketPile'
+import WellFoundation from './pages/WellFoundation'
 
 export default function App() {
   const [dark, setDark] = useState(false)
@@ -88,6 +90,8 @@ export default function App() {
             <Route path="/pile-group" element={<PileGroup />} />
             <Route path="/raft-foundation" element={<RaftFoundation />} />
             <Route path="/ground-improvement" element={<GroundImprovement />} />
+            <Route path="/rock-socket-pile" element={<RockSocketPile />} />
+            <Route path="/well-foundation" element={<WellFoundation />} />
             <Route path="/borehole-logs" element={<BoreholeLogs />} />
             <Route path="/lab-reports" element={<LabReports />} />
             <Route path="/soil-profile" element={<SoilProfile />} />

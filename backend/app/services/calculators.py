@@ -1496,6 +1496,162 @@ def run_liquefaction_analysis(
     }
 
 
+def well_foundation(
+    outer_dia_m: float, steining_thickness_m: float, founding_depth_m: float,
+    max_scour_depth_m: float, steining_unit_weight_t_m3: float,
+    superstructure_load_t: float, moment_at_base_tm: float = 0.0,
+    bottom_plug_weight_t: float = 0.0,
+    cohesion_t_m2: float = 0.0, phi_deg: float = 0.0,
+    gamma_avg_above_t_m3: float = 1.8, gamma_at_base_t_m3: float = 1.8,
+    specific_gravity: float = 2.67, moisture_content_pct: float = 15.0,
+    water_table_depth_m: float = 0.0, fos: float = 2.5,
+) -> dict:
+    """
+    Well (caisson) foundation -- IS 3955:1967 + IRC:78-2014 Section VII.
+    Added 7 Aug 2026 -- Raahi asked for well foundation design; no personal
+    reference workbook this time (unlike rock_socket_pile.py / rock_bearing_
+    capacity.py, which were digitized cell-by-cell from Raahi's own Excel
+    sheets), so this uses standard code/textbook formulas instead. Raahi
+    confirmed: use IS 3955 / IRC:78 directly.
+
+    SCOPE -- Phase 1 only (deliberately, flagged rather than silently
+    dropped -- same policy as rock_socket_pile.py):
+      - Grip length check (IRC:78's minimum-embedment rule)
+      - Self-weight + eccentric base pressure (max/min under P and M, per
+        the standard circular-section kern formula p = P/A(1 +/- 8e/D))
+      - Bearing capacity check at the well base, by calling the existing
+        audited IS:6403 shear engine (bearing_capacity_is6403_shear) with
+        the well's own outer diameter as a circular footing -- reuses
+        already-verified code rather than a second bearing formula.
+    NOT IMPLEMENTED (deferred, same as rock socket's lateral/moment check):
+      - Lateral stability / tilt & shift during sinking (IRC:78's "elastic
+        theory" method -- needs a soil modulus-of-subgrade-reaction chart
+        by soil type/density and an iterative depth-of-fixity procedure;
+        materially different from this axial+moment check, and risky to
+        freehand without a source workbook to cross-check against).
+      - Steining thickness / hoop-stress design during sinking (IS 3955's
+        own semi-empirical minimum-thickness rule, kentledge, skin-friction-
+        during-sinking checks) -- steining_thickness_m here is a given
+        input, not designed by this function.
+      - Scour depth itself (Lacey's formula / IRC:5) -- max_scour_depth_m
+        is a direct input, not computed here.
+      - Bottom plug design (thickness, punching shear) -- its weight is
+        taken as a direct optional input, not derived from plug geometry.
+    Tell me if you want any of these built next -- they're real IRC:78/IS
+    3955 clauses, just deferred so this first pass stays checkable.
+
+    Units: t / m / t-m throughout (Indian geotechnical practice convention,
+    matches every other calculator in this app).
+    """
+    if outer_dia_m <= 0:
+        raise ValueError("Outer diameter must be positive.")
+    if steining_thickness_m <= 0 or steining_thickness_m >= outer_dia_m / 2:
+        raise ValueError("Steining thickness must be positive and less than half the outer diameter.")
+    if founding_depth_m <= 0:
+        raise ValueError("Founding depth (well base below GL/bed level) must be positive.")
+
+    inner_dia_m = round(outer_dia_m - 2 * steining_thickness_m, 3)
+    area_gross_m2 = round(math.pi / 4 * outer_dia_m ** 2, 3)
+    area_annulus_m2 = round(math.pi / 4 * (outer_dia_m ** 2 - inner_dia_m ** 2), 3)
+
+    # -- Grip length (IRC:78: embedment below max scour, min 1/3 of max scour depth) --
+    grip_length_m = round(founding_depth_m - max_scour_depth_m, 3)
+    min_grip_required_m = round(max_scour_depth_m / 3, 3)
+    grip_adequate = grip_length_m >= min_grip_required_m
+
+    warnings = [
+        "Lateral stability / tilt & shift (IRC:78 elastic theory) is NOT checked by this calculator -- "
+        "this is an axial load + moment check only. Get the lateral/elastic-theory check done separately "
+        "before finalising the design.",
+        "Steining thickness is taken as given, not designed here -- IS 3955's own minimum-thickness and "
+        "sinking-stress checks (kentledge, skin friction during sinking) still need to be done separately.",
+    ]
+    if not grip_adequate:
+        warnings.append(
+            f"Grip length ({grip_length_m}m) is less than the IRC:78 minimum of scour/3 = {min_grip_required_m}m -- "
+            f"increase founding depth or re-check the scour depth."
+        )
+
+    # -- Self-weight + total vertical load --
+    self_weight_t = round(area_annulus_m2 * founding_depth_m * steining_unit_weight_t_m3, 2)
+    total_vertical_load_t = round(superstructure_load_t + self_weight_t + bottom_plug_weight_t, 2)
+
+    # -- Eccentric base pressure, circular section (kern radius = D/8) --
+    eccentricity_m = round(moment_at_base_tm / total_vertical_load_t, 4) if total_vertical_load_t else 0.0
+    kern_limit_m = round(outer_dia_m / 8, 4)
+    no_tension = eccentricity_m <= kern_limit_m
+    p_avg_t_m2 = round(total_vertical_load_t / area_gross_m2, 2)
+    if no_tension:
+        p_max_t_m2 = round(p_avg_t_m2 * (1 + 8 * eccentricity_m / outer_dia_m), 2)
+        p_min_t_m2 = round(p_avg_t_m2 * (1 - 8 * eccentricity_m / outer_dia_m), 2)
+    else:
+        # e > D/8: base starts lifting off on one side -- the simple p=(P/A)(1+-8e/D)
+        # formula no longer applies (it would give a negative/false p_min). Flagged,
+        # not silently computed -- a proper partial-contact re-analysis is needed.
+        p_max_t_m2 = None
+        p_min_t_m2 = None
+        warnings.append(
+            f"Eccentricity ({eccentricity_m}m) exceeds the circular kern limit D/8 = {kern_limit_m}m -- "
+            f"part of the base would lift off (no-tension condition violated). The standard p=(P/A)(1±8e/D) "
+            f"formula doesn't apply here; max/min pressure isn't computed. Reduce the moment or increase the diameter."
+        )
+
+    # -- Bearing capacity check at founding level, reusing the audited IS:6403 shear engine --
+    bearing_check = None
+    if p_max_t_m2 is not None:
+        try:
+            bearing_check = bearing_capacity_is6403_shear(
+                length_m=outer_dia_m, width_m=outer_dia_m, depth_m=founding_depth_m,
+                cohesion_t_m2=cohesion_t_m2, phi_deg=phi_deg,
+                gamma_avg_above_t_m3=gamma_avg_above_t_m3, gamma_at_base_t_m3=gamma_at_base_t_m3,
+                specific_gravity=specific_gravity, moisture_content_pct=moisture_content_pct,
+                water_table_depth_m=water_table_depth_m, shape="circular", fos=fos,
+            )
+            safe_net = bearing_check["result"]
+            safe_gross = round(safe_net + gamma_avg_above_t_m3 * founding_depth_m, 2)
+            bearing_check["safe_gross_bearing_capacity_t_m2"] = safe_gross
+            if p_max_t_m2 > safe_gross:
+                warnings.append(
+                    f"Max base pressure ({p_max_t_m2} t/m²) exceeds the gross safe bearing capacity "
+                    f"({safe_gross} t/m² = net {safe_net} + overburden {round(gamma_avg_above_t_m3 * founding_depth_m, 2)}) "
+                    f"at this founding depth -- increase diameter/founding depth or reduce load."
+                )
+        except Exception as e:
+            warnings.append(f"Bearing capacity check couldn't run: {e}")
+
+    return {
+        "clause": "IS 3955:1967 + IRC:78-2014, Section VII",
+        "geometry": {
+            "outer_dia_m": outer_dia_m, "inner_dia_m": inner_dia_m,
+            "steining_thickness_m": steining_thickness_m,
+            "area_gross_m2": area_gross_m2, "area_annulus_m2": area_annulus_m2,
+            "founding_depth_m": founding_depth_m,
+        },
+        "grip_length": {
+            "grip_length_m": grip_length_m,
+            "min_required_m": min_grip_required_m,
+            "adequate": grip_adequate,
+        },
+        "loads": {
+            "superstructure_load_t": superstructure_load_t,
+            "self_weight_t": self_weight_t,
+            "bottom_plug_weight_t": bottom_plug_weight_t,
+            "total_vertical_load_t": total_vertical_load_t,
+            "moment_at_base_tm": moment_at_base_tm,
+        },
+        "base_pressure": {
+            "eccentricity_m": eccentricity_m,
+            "kern_limit_m": kern_limit_m,
+            "no_tension": no_tension,
+            "p_avg_t_m2": p_avg_t_m2,
+            "p_max_t_m2": p_max_t_m2,
+            "p_min_t_m2": p_min_t_m2,
+        },
+        "bearing_check": bearing_check,
+        "warnings": warnings,
+    }
+
+
 CALCULATOR_REGISTRY = {
     "bearing_capacity_terzaghi": terzaghi_bearing_capacity,
     "bearing_capacity_is6403_shear": bearing_capacity_is6403_shear,
@@ -1506,4 +1662,5 @@ CALCULATOR_REGISTRY = {
     "spt_correction": spt_correction,
     "earth_pressure_rankine": rankine_earth_pressure,
     "liquefaction_analysis": run_liquefaction_analysis,
+    "well_foundation": well_foundation,
 }

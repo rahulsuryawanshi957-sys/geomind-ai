@@ -2463,6 +2463,47 @@ scoped).
 
 ---
 
+71. **New calculator: Well Foundation (Phase 1), 7 Aug 2026** -- Raahi asked how to design
+    a well foundation, then asked to add it to the app. No personal reference workbook this
+    time (unlike Rock Socket Pile / Rock Bearing Capacity, both digitized cell-by-cell from
+    Raahi's own Excel sheets) -- Raahi confirmed: use IS 3955:1967 / IRC:78-2014 Section VII
+    directly. Given the added risk of freehand code-formula work without a source to
+    cross-check against, scoped deliberately narrow (Phase 1) rather than attempting the
+    full design in one pass:
+    - **Implemented**: grip length check (embedment below max scour must be ≥ scour/3, per
+      IRC:78); self-weight + eccentric base pressure for a circular well
+      (p = P/A·(1±8e/D), kern limit D/8 for no-tension); bearing capacity check at founding
+      level by calling the *existing, already-audited* `bearing_capacity_is6403_shear()`
+      with the well's own outer diameter as a circular footing (reuses proven code rather
+      than a second formula) -- correctly converts its net SBC to gross before comparing
+      against the applied base pressure (net + γ_avg×D; caught and fixed a mismatch here
+      during testing -- comparing gross pressure against net capacity would have understated
+      the margin).
+    - **Explicitly NOT implemented** (flagged in-app, not silently skipped): lateral
+      stability / tilt & shift during sinking (IRC:78's "elastic theory" method -- needs a
+      soil modulus-of-subgrade-reaction chart by soil type and an iterative depth-of-fixity
+      procedure; too easy to get subtly wrong without a source workbook); steining
+      thickness/hoop-stress design during sinking (IS 3955's own semi-empirical rules,
+      kentledge, skin-friction-during-sinking); scour depth itself (Lacey's formula/IRC:5 --
+      taken as a direct input); bottom plug design (weight taken as a direct input, not
+      derived from plug geometry). Tell Raahi's AI helper if any of these should be built
+      next -- they're real clauses, just deferred so this first pass stays checkable.
+    - `backend/app/services/calculators.py` -- new `well_foundation()` function, registered
+      in `CALCULATOR_REGISTRY` as `"well_foundation"` -- reachable through the existing
+      generic `POST /api/calculators/run` endpoint (`{calculator_type: "well_foundation",
+      inputs: {...}}`), no new router endpoint needed.
+    - `frontend/src/pages/WellFoundation.tsx` -- new page (geometry, loads, collapsible
+      optional bearing-check section, TheorySection with an SVG cross-section diagram),
+      wired into `App.tsx` (route `/well-foundation`) and `Sidebar.tsx` (under "Foundation
+      Design", after Rock Socket Pile).
+    - Verified with `python3 -m py_compile` (backend) + a live Python smoke test (normal
+      case, high-eccentricity no-tension case, inadequate-grip case -- all behaved as
+      expected) and `tsc --ignoreConfig --noEmit --skipLibCheck --jsx react-jsx` (frontend,
+      all 3 changed/new files) -- zero real errors either side.
+    - `backend/` + `frontend/` both changed this round.
+
+---
+
 ## How to give Raahi an update (workflow reminder for whoever's helping)
 
 1. Make code changes in your own sandbox, verify with `python3 -m py_compile` (backend,
