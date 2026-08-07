@@ -294,9 +294,14 @@ foundation combinations, in ~1 hour instead of a full day. Phases:
    `/lateral`). All three are done. **If you're picking this up fresh, ask Raahi to
    confirm current status rather than trusting this roadmap blindly** -- it has drifted
    from actual code before.
-5. **Auto-report generation.** Combine borehole log chart + batch calculation results +
-   summary into one downloadable Word/PDF report. **Still the next real open item**, as
-   far as this doc can tell after the 2 Aug 2026 audit above.
+5. **✅ DONE — Auto Report Generation, 7 Aug 2026.** Borehole log chart + batch calculation
+   results + AI summary combined into one downloadable DOCX. `POST /api/reports/
+   auto-generate`, new "Generate Report" button on Batch Analysis page. See changelog
+   #72 for full build/verification notes. **Not yet tested against a live Render deploy
+   or a real borehole from Raahi's own data** (only mock data so far in sandbox) — treat
+   the first real run after deploying as the actual test. PDF export of this combined
+   report is NOT included (DOCX only) — the original manual Reports page still covers
+   anything more freeform.
 
 If you're picking this up fresh: **ask Raahi which phase they're on** before assuming:
 they may have skipped ahead or asked for something adjacent (this has happened before —
