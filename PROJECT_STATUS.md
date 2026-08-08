@@ -2667,6 +2667,27 @@ scoped).
     - `frontend/` only changed this round (new files under `public/dashboard/` +
       rewritten `Dashboard.tsx`).
 
+77. **Dashboard fix -- mislabeled card, 8 Aug 2026.** Raahi caught this from the live
+    deploy: the "Analysis & Design" card at `/ground-improvement` was labeled "Slope
+    Stability" (copied straight from the reference mockup's text without checking it
+    against what the app actually has). This app has no Slope Stability feature at all
+    -- relabeled the card to "Ground Improvement" (matching what it actually links to)
+    with a real description of that feature (IS 15284 stone columns / PVD / vibro-
+    compaction), and removed the incorrect `soon: true` flag since Ground Improvement is
+    a real, already-built page, not a placeholder. Note: the card's photo (`tool-
+    slope.jpg`, a terrain/slope image) is still a loose thematic fit for "Ground
+    Improvement" -- no better-matching photo was available in the crop set; flagged for
+    Raahi to swap if it bothers him.
+    - Also clarified for Raahi: the white/light background he saw on the live site is
+      NOT a bug -- `index.css` documents light as the intentional default app theme
+      (`useState(false)` in `App.tsx` for `dark`), with a working sun/moon toggle
+      already in `Sidebar.tsx` to switch to dark (matching the reference image). No code
+      change needed for that; just tap the toggle. If Raahi wants dark to be the
+      *default* on load instead, that's a one-line change (`useState(true)`) but wasn't
+      made since light-as-default looked like a deliberate earlier decision (per the
+      code comment) and changing it wasn't asked for.
+    - `frontend/` only changed this round.
+
 ---
 
 ## How to give Raahi an update (workflow reminder for whoever's helping)

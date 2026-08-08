@@ -22,7 +22,7 @@ const INVESTIGATION_TOOLS: ToolItem[] = [
 
 const ANALYSIS_TOOLS: ToolItem[] = [
   { to: '/calculators', label: 'Foundation Design', description: 'Shallow, deep foundation & raft design as per codes.', img: '/dashboard/tool-foundation.jpg' },
-  { to: '/ground-improvement', label: 'Slope Stability', description: 'Analyze slope stability using various methods.', img: '/dashboard/tool-slope.jpg', soon: true },
+  { to: '/ground-improvement', label: 'Ground Improvement', description: 'IS 15284 stone columns, PVD consolidation timeline, vibro-compaction feasibility.', img: '/dashboard/tool-slope.jpg' },
   { to: '/calculators', label: 'Bearing Capacity', description: 'Calculate ultimate & safe bearing capacity for foundations.', img: '/dashboard/tool-bearing.jpg' },
   { to: '/calculators', label: 'Settlement Analysis', description: 'Calculate total & differential settlement of foundations.', img: '/dashboard/tool-settlement.jpg' },
   { to: '/pile-capacity', label: 'Pile Design', description: 'Axial, lateral & group pile analysis and design.', img: '/dashboard/tool-pile.jpg' },
