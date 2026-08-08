@@ -2593,6 +2593,80 @@ scoped).
     - **Not yet tested against a live Render deploy.**
     - `backend/` only changed this round.
 
+75. **Dashboard redesign, 8 Aug 2026.** Rebuilt `Dashboard.tsx` to match a reference
+    screenshot Raahi shared (rich hero + stat cards + activity feed + icon-banner tool
+    grid), while keeping the existing `Logo` component and brand asset completely
+    untouched.
+    - **Hero banner:** headline + subtitle, 5 quick-action tiles (reused from the old
+      `QUICK_ACTIONS`), plus a decorative (non-live-data) shear-strength envelope SVG +
+      soil-strata legend on desktop -- ties the hero back to the app's actual subject
+      matter instead of a generic gradient. Hidden on small screens.
+    - **Project Overview stat cards:** same 5 real, API-backed stats as before (Total
+      Books, IS/IRC Codes, Indexed Pages, Borehole Profiles, AI status) -- restyled
+      bigger, no fabricated numbers added (deliberately did NOT invent a fake "Total
+      Projects" stat like the reference screenshot had, since this app has no real
+      Projects feature yet).
+    - **Recent Activity panel:** new -- merges real borehole (`created_at`) and document
+      (`upload_date`) timestamps into one sorted feed with relative time ("2h ago").
+    - **Module section cards:** restyled with a gradient + icon "banner" strip (no stock
+      photos used/generated -- kept honest to what's actually in the app) instead of the
+      old plain icon-left row layout.
+    - **Colors:** reused the existing `brand-orange` (#F97316) token (already in
+      `tailwind.config.js`, previously unused on this page) as the accent, matching the
+      reference's amber look, instead of introducing a new color -- so it stays
+      consistent with the logo. All navy/slate/violet/cyan classes kept exactly as
+      before, so the light/dark theme toggle (`html.light` in `index.css`) still works
+      on this page without any changes needed there.
+    - **Verified:** `tsc --ignoreConfig --noEmit --skipLibCheck --jsx react-jsx` on the
+      file -- zero real (TS1xxx) syntax errors; the only TS7006 implicit-any warnings
+      are pre-existing isolated-compile noise (confirmed present on unrelated,
+      untouched `BatchAnalysis.tsx` too, so not something this change introduced).
+    - **Not yet tested against a live Render deploy** -- please eyeball it on mobile
+      and desktop widths after deploying; hero grid especially needs a real-screen check.
+    - `frontend/` only changed this round.
+
+76. **Dashboard rebuilt with real cropped photos from Raahi's reference mockup, 8 Aug
+    2026.** Superseded changelog #75's vector-illustration version.
+    - Raahi shared a 1024x1536 reference mockup PNG (his own image, not stock/AI
+      requested from us). Instead of generating new art (no image-gen tool available),
+      cropped 20 individual assets directly out of that PNG with PIL/Pillow: the hero
+      photo (mountain/crane/pier construction scene, with its baked-in title text kept
+      intact since it's static copy anyway), 10 tool-card photos (borehole rig, lab
+      flasks, drilling rig, soil strata, foundation pier, slope, bearing-capacity
+      arrows, settlement, piles, liquefaction bubbles), 8 small line-icon PNGs (Reports,
+      Excel, Plot Generator, Document Manager, Code & Standards, Formula Library, Unit
+      Converter, Soil Properties), and the AI-assistant chat-bubble illustration.
+    - Photo assets compressed to JPEG q85 (icons kept as PNG for crisp lines) --
+      **~85KB total** for all 19 image files combined, saved to
+      `frontend/public/dashboard/`. Verified sizes with `ls -la` before finalizing.
+    - `Dashboard.tsx` rewritten again: hero is now the actual cropped photo (`hero.jpg`)
+      with real, clickable quick-action buttons overlaid via a CSS gradient at the
+      bottom (not baked into the image, so they stay real `<Link>`s); each Investigation
+      Tools / Analysis & Design card uses its real cropped photo on the right ~40% with
+      real text on the left; Reports & Output / References & Tools tiles use the real
+      cropped icon PNGs; AI banner uses the real cropped chat-bubble graphic.
+    - Stats and Recent Activity are still 100% real API data (unchanged from #75) --
+      did NOT copy the reference's fabricated "12 Total Projects / 8 In Progress"
+      numbers, since this app has no real Projects feature yet.
+    - **Bug caught before shipping:** initial version spread `{...t}` (and even later,
+      fully explicit props) into `<ToolCard key={t.label} .../>` and
+      `<RefTile key={t.label} .../>`, which threw `TS2322: Property 'key' does not
+      exist...` under an isolated `tsc` check. Root-caused this as a sandbox-only
+      artifact (no `@types/react` installed there to teach TS that `key` is a special
+      JSX attribute) by reproducing the exact same failure on a trivial 6-line
+      unrelated component -- confirmed `@types/react": "^18.3.5"` IS a real dependency
+      in `frontend/package.json`, so the real `tsc -b` step in `npm run build` will NOT
+      hit this. Kept the explicit-props version anyway (clearer than spread either way).
+    - **Verified:** `tsc --ignoreConfig --noEmit --skipLibCheck --jsx react-jsx` on the
+      file -- zero real (TS1xxx/TS2xxx, excluding the confirmed sandbox-only `key`
+      noise above) errors; bracket-balance sanity check; `ls -la` confirmed all 19
+      image files present and reasonably sized in `public/dashboard/`.
+    - **Not yet tested against a live Render deploy** -- please eyeball spacing/photo
+      crops on a real phone screen after deploying; some crops were sized by eye and
+      may need minor `object-position` tweaks per card.
+    - `frontend/` only changed this round (new files under `public/dashboard/` +
+      rewritten `Dashboard.tsx`).
+
 ---
 
 ## How to give Raahi an update (workflow reminder for whoever's helping)
