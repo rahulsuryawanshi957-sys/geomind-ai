@@ -2553,6 +2553,27 @@ scoped).
       deploying should be treated as the actual test.
     - `backend/` + `frontend/` both changed this round.
 
+73. **Bug fix — Well Foundation bearing check ran unconditionally, 8 Aug 2026.**
+    - **Bug:** `well_foundation()` in `calculators.py` ran the bearing-capacity sub-check
+      (via `bearing_capacity_is6403_shear`) any time the base pressure was compressive
+      (`p_max_t_m2 is not None`), regardless of whether the frontend's "Bearing capacity
+      check" section was expanded/filled in. When left collapsed (the default), the
+      frontend never sends `cohesion_t_m2`/`phi_deg`/etc., and the backend silently fell
+      back to its defaults (`cohesion=0`, `phi=0`), which computes a near-zero net SBC.
+      That showed up in the UI as a real-looking `bearing_check` result and could trigger
+      a false "exceeds gross safe bearing capacity" warning even though bearing wasn't
+      being checked at all.
+    - **Fix:** added a `check_bearing: bool = False` parameter to `well_foundation()`; the
+      bearing sub-check now only runs when `check_bearing=True`. `WellFoundation.tsx` now
+      always sends `check_bearing: showBearing` in the payload.
+    - **Verified:** `python3 -m py_compile` on `calculators.py`; simulated both cases
+      directly (`check_bearing` omitted/False → `bearing_check` is `None`, no bogus
+      result; `check_bearing=True` with real soil params → correct non-zero safe gross
+      SBC computed). `tsc --ignoreConfig --noEmit --skipLibCheck --jsx react-jsx` on the
+      changed frontend file — zero real errors.
+    - **Not yet tested against a live Render deploy.**
+    - `backend/` + `frontend/` both changed this round.
+
 ---
 
 ## How to give Raahi an update (workflow reminder for whoever's helping)

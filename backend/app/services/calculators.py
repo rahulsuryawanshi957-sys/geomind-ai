@@ -1505,6 +1505,7 @@ def well_foundation(
     gamma_avg_above_t_m3: float = 1.8, gamma_at_base_t_m3: float = 1.8,
     specific_gravity: float = 2.67, moisture_content_pct: float = 15.0,
     water_table_depth_m: float = 0.0, fos: float = 2.5,
+    check_bearing: bool = False,
 ) -> dict:
     """
     Well (caisson) foundation -- IS 3955:1967 + IRC:78-2014 Section VII.
@@ -1597,8 +1598,12 @@ def well_foundation(
         )
 
     # -- Bearing capacity check at founding level, reusing the audited IS:6403 shear engine --
+    # Gated behind check_bearing: this only runs when the caller actually supplied real
+    # soil parameters (cohesion/phi/etc). Without this gate, omitted params silently fall
+    # back to cohesion=0, phi=0 defaults, producing a bogus near-zero "safe bearing capacity"
+    # and misleading/false "exceeds bearing capacity" warnings. Fixed 8 Aug 2026.
     bearing_check = None
-    if p_max_t_m2 is not None:
+    if check_bearing and p_max_t_m2 is not None:
         try:
             bearing_check = bearing_capacity_is6403_shear(
                 length_m=outer_dia_m, width_m=outer_dia_m, depth_m=founding_depth_m,

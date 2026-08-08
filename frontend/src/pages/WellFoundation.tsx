@@ -86,6 +86,12 @@ export default function WellFoundation() {
       bottom_plug_weight_t: num(plugWeight),
       fos: num(fos, 2.5),
     }
+    // check_bearing tells the backend whether to actually run the bearing capacity
+    // check. Without this, the backend used to run it anyway with cohesion=0/phi=0
+    // defaults whenever this section was left collapsed, giving a bogus near-zero
+    // "safe bearing capacity" and sometimes a false "exceeds capacity" warning.
+    // Fixed 8 Aug 2026.
+    payload.check_bearing = showBearing
     if (showBearing) {
       Object.assign(payload, {
         cohesion_t_m2: num(cohesion), phi_deg: num(phi),
