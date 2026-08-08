@@ -54,6 +54,14 @@ def run_calculator(req: CalculatorRequest, db: Session = Depends(get_db)):
         result = fn(**req.inputs)
     except TypeError as e:
         raise HTTPException(422, f"Invalid inputs for {req.calculator_type}: {e}")
+    except ValueError as e:
+        # Fixed 8 Aug 2026 -- several calculators (settlement_sbc_is8009_*,
+        # well_foundation, etc.) raise ValueError for bad/out-of-range inputs
+        # (e.g. N-value <= 3, negative founding depth). Without this, that
+        # ValueError went uncaught here and FastAPI returned a raw 500 with
+        # no readable message instead of a clean validation error. Same
+        # pattern already used by the dedicated /liquefaction endpoint below.
+        raise HTTPException(422, f"Invalid inputs for {req.calculator_type}: {e}")
 
     log = CalculationLog(
         calculator_type=req.calculator_type,

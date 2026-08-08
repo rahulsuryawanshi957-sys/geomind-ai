@@ -2574,6 +2574,25 @@ scoped).
     - **Not yet tested against a live Render deploy.**
     - `backend/` + `frontend/` both changed this round.
 
+74. **Bug fix — generic `/api/calculators/run` didn't catch `ValueError`, 8 Aug 2026.**
+    - **Bug:** the generic calculator endpoint (used by Settlement SBC non-cohesive/
+      cohesive, Well Foundation, and others in `CALCULATOR_REGISTRY`) only caught
+      `TypeError` around the calculation call. Several calculators raise `ValueError`
+      for out-of-range/invalid inputs (e.g. N-value ≤ 3, negative founding depth,
+      steining thickness ≥ half the outer diameter — 7 such checks across those 3
+      calculators). An uncaught `ValueError` meant FastAPI returned a raw, unreadable
+      500 error instead of a clean validation message -- the person had no idea what
+      input was actually wrong. The dedicated `/liquefaction` endpoint already had this
+      right; the generic `/run` endpoint didn't.
+    - **Fix:** added `except ValueError as e: raise HTTPException(422, ...)` to
+      `run_calculator()` in `app/routers/calculators.py`, same pattern as `/liquefaction`.
+    - **Verified:** `python3 -m py_compile` on the changed router file; simulated the
+      try/except logic standalone with a deliberately invalid input (negative
+      `outer_dia_m`) -- confirmed it now returns a clean 422 with the real message
+      instead of an unhandled crash.
+    - **Not yet tested against a live Render deploy.**
+    - `backend/` only changed this round.
+
 ---
 
 ## How to give Raahi an update (workflow reminder for whoever's helping)
