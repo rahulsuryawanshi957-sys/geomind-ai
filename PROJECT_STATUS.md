@@ -2886,6 +2886,38 @@ scoped).
 
 ---
 
+82. **Real bug found: dashboard background stayed white in dark mode despite #81's
+    fix, 8 Aug 2026.** Raahi deployed #81, switched to dark mode, and sent a
+    screenshot: sidebar correctly dark (new `#050B14`), cards correctly dark (new
+    `#101E2D`, confirming dark mode WAS active, not a stale-theme issue), but the
+    page canvas around/between them was still white/pale-mint instead of the new
+    `#0A1422`.
+    - **Root cause:** `frontend/index.html` had `<body class="bg-white">` --
+      a literal hardcoded Tailwind class baked into the HTML shell, completely
+      outside `index.css`'s theme system. A class selector (`.bg-white`, specificity
+      0-1-0) always beats an element selector (`body { @apply bg-navy-950 }`,
+      specificity 0-0-1) regardless of file/source order, so this hardcoded class
+      silently won in BOTH themes, every time -- `index.css`'s `body` background
+      rule (dark) and `html.light body` rule (light) never had any effect on the
+      actual `<body>` element. This bug existed before today and before #81 too --
+      it only went unnoticed because in light theme, "hardcoded white" happens to
+      visually match "intended light theme bg" by coincidence. Switching to dark
+      mode for the first time is what finally exposed it.
+    - **Fix:** removed `class="bg-white"` from `<body>` in `index.html` (now just
+      `<body>`), letting `index.css`'s existing theme-aware `body` rules (both the
+      dark-mode default and the `html.light body` override) actually take effect
+      as they were always meant to.
+    - **Not #81's fault / not a re-explanation of #81** -- #81's CSS variable
+      values were correct; this was a separate, pre-existing bug in the HTML shell
+      that #81 never touched.
+    - **Not yet verified on a real device** -- same sandbox limitation as #81 (no
+      build/render available here). Treat the next deploy as the real test: in
+      dark mode, the full page canvas (not just cards) should be deep navy
+      (`#0A1422`), with cards one shade lighter.
+    - `frontend/` only changed this round (`index.html` only).
+
+---
+
 ## How to give Raahi an update (workflow reminder for whoever's helping)
 
 1. Make code changes in your own sandbox, verify with `python3 -m py_compile` (backend,
