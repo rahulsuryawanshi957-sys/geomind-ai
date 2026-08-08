@@ -140,9 +140,12 @@ export default function Dashboard() {
       {/* ---------------- HERO ---------------- */}
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="relative overflow-hidden rounded-2xl mb-6 border border-white/[0.06]">
         <img src="/dashboard/hero.jpg" alt="Engineering Workspace" className="w-full h-auto block" />
-        {/* Real, clickable quick actions -- overlaid on the photo rather than baked
-            into it, so they stay actual buttons/links instead of flat pixels. */}
-        <div className="absolute left-0 right-0 bottom-0 p-4 md:p-6 flex flex-wrap gap-2.5 bg-gradient-to-t from-navy-950/90 via-navy-950/40 to-transparent pt-10">
+        {/* Real, clickable quick actions -- overlaid on the photo on desktop, where the
+            scaled image is tall enough for a button row without colliding with the
+            baked-in title text. On mobile the same 819x240 image scales to a very short
+            height (~100px), which isn't enough room for 5 buttons -- so on mobile they
+            move to their own opaque bar below the image instead (see next block). */}
+        <div className="hidden md:flex absolute left-0 right-0 bottom-0 p-4 md:p-6 flex-wrap gap-2.5 bg-gradient-to-t from-navy-950/90 via-navy-950/40 to-transparent pt-10">
           {QUICK_ACTIONS.map((a, i) => (
             <motion.div key={a.to} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}>
               <Link to={a.to} className="flex flex-col items-center gap-1.5 w-[76px] py-2.5 rounded-xl border border-white/[0.1] bg-white/[0.05] hover:border-brand-orange/50 hover:bg-white/[0.09] transition-all">
@@ -155,6 +158,19 @@ export default function Dashboard() {
           ))}
         </div>
       </motion.div>
+
+      {/* Mobile-only quick actions bar -- below the image, not overlaid, so it never
+          collides with the hero's title text regardless of how short the scaled image is. */}
+      <div className="md:hidden grid grid-cols-5 gap-1.5 mb-6 -mt-3">
+        {QUICK_ACTIONS.map((a) => (
+          <Link key={a.to} to={a.to} className="glass flex flex-col items-center gap-1 py-2.5 rounded-xl active:scale-95 transition-transform">
+            <span className={`w-6 h-6 rounded-lg flex items-center justify-center ${a.label === 'Ask AI' ? 'bg-blue-500/25 text-blue-300' : 'bg-brand-orange/20 text-brand-orange'}`}>
+              <a.icon size={12} />
+            </span>
+            <span className="text-[8.5px] font-medium text-slate-300 text-center leading-tight">{a.label}</span>
+          </Link>
+        ))}
+      </div>
 
       {/* ---------------- PROJECT OVERVIEW + RECENT ACTIVITY ---------------- */}
       <div className="grid lg:grid-cols-[1.5fr_1fr] gap-4 mb-6 items-start">

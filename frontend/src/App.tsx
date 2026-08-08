@@ -36,12 +36,18 @@ import RockSocketPile from './pages/RockSocketPile'
 import WellFoundation from './pages/WellFoundation'
 
 export default function App() {
-  const [dark, setDark] = useState(false)
+  const [dark, setDark] = useState<boolean>(() => {
+    const saved = localStorage.getItem('raahigeo_theme')
+    return saved ? saved === 'dark' : false
+  })
   // 'checking' avoids a Login-screen flash while we verify a token that's
   // already in localStorage; 'in'/'out' are the settled states.
   const [authState, setAuthState] = useState<'checking' | 'in' | 'out'>('checking')
 
-  useEffect(() => { document.documentElement.classList.toggle('light', !dark) }, [dark])
+  useEffect(() => {
+    document.documentElement.classList.toggle('light', !dark)
+    localStorage.setItem('raahigeo_theme', dark ? 'dark' : 'light')
+  }, [dark])
 
   useEffect(() => {
     const token = localStorage.getItem('raahigeo_auth_token')
@@ -102,7 +108,7 @@ export default function App() {
           </Routes>
           <Footer />
         </main>
-        <MobileNav />
+        <MobileNav dark={dark} onToggleDark={() => setDark((d) => !d)} />
       </div>
     </HashRouter>
   )

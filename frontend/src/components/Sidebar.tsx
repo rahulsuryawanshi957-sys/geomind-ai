@@ -9,11 +9,11 @@ import {
 } from 'lucide-react'
 import Logo from './Logo'
 
-type NavItem = { to: string; label: string; icon: any; end?: boolean; soon?: boolean }
+export type NavItem = { to: string; label: string; icon: any; end?: boolean; soon?: boolean }
 
 // Grouped to match the platform's engineering workflow -- Investigation feeds
 // Foundation Design, which feeds Reporting -- rather than an AI-first layout.
-const NAV_SECTIONS: { label: string | null; items: NavItem[] }[] = [
+export const NAV_SECTIONS: { label: string | null; items: NavItem[] }[] = [
   {
     label: null,
     items: [

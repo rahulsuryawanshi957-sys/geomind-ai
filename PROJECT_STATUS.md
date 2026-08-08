@@ -2690,6 +2690,48 @@ scoped).
 
 ---
 
+78. **Three mobile UX fixes from Raahi's live screenshots, 8 Aug 2026.**
+    - **Dark mode didn't persist:** `App.tsx`'s `dark` state was plain `useState(false)`
+      with no storage -- every full page load/refresh silently reset to light mode
+      regardless of what Raahi had toggled. This is what "dark mode mein bhi white ajeeb
+      lag raha" actually was -- not a broken dark theme, a theme choice that kept getting
+      forgotten. Fixed: reads `localStorage.getItem('raahigeo_theme')` on initial state,
+      writes it back in the existing toggle `useEffect` alongside the `html.light` class
+      toggle. One key (`raahigeo_theme`), values `'dark'`/`'light'`.
+    - **Mobile hero banner overlap:** `hero.jpg` is 819x240 (checked directly with PIL) --
+      at mobile width that scales to ~100px tall, nowhere near enough room for the 5
+      overlaid quick-action buttons (`w-[76px]` each, flex-wrap), so they visually
+      collided with the image's own baked-in "Engineering Workspace" title text. Root
+      cause was the fixed aspect-ratio image getting too short on narrow screens, not
+      anything wrong with the image itself. Fixed in `Dashboard.tsx`: the overlaid button
+      row is now `hidden md:flex` (desktop-only, where the scaled image is tall enough);
+      added a separate `md:hidden` 5-column grid of the same `QUICK_ACTIONS` in their own
+      opaque bar directly below the image on mobile -- same buttons, same destinations,
+      just never overlapping the photo.
+    - **No way to reach most pages on mobile:** the desktop `Sidebar` is `hidden md:flex`;
+      `MobileNav`'s bottom bar only had 4 fixed items (Home/Library/Analysis/History) and
+      the top header had no menu button at all -- Well Foundation, Batch Analysis, every
+      individual calculator, IS/IRC Codes, Formula Library, Reports, Settings etc. were
+      only reachable by scrolling the Dashboard's tool cards, with no actual navigation
+      menu. Fixed: exported `NAV_SECTIONS` from `Sidebar.tsx` (was a private module
+      constant) so it's a single source of truth for both; `MobileNav.tsx` now has a
+      hamburger (`Menu` icon) button in the top header that opens a full-screen drawer
+      rendering the exact same grouped nav list as the desktop Sidebar, plus a dark/light
+      toggle at the bottom -- closes on backdrop tap, on the X button, or automatically
+      when a link is tapped. `MobileNav` now takes `dark`/`onToggleDark` props (previously
+      took none), wired from `App.tsx`.
+    - **Verified:** `tsc --ignoreConfig --noEmit --skipLibCheck --jsx react-jsx` across all
+      4 changed files -- zero real errors (only the already-documented sandbox-only `key`-
+      prop TS2322 noise from changelog #76, confirmed not present in the real build).
+    - **Not yet tested against a live Render deploy** -- please check on an actual phone
+      after deploying: (1) toggle dark mode, refresh the page, confirm it stays dark;
+      (2) Dashboard hero on a narrow screen, confirm no text/button overlap; (3) tap the
+      new hamburger icon (top-left, next to the logo), confirm the drawer opens and every
+      link works and closes the drawer.
+    - `frontend/` only changed this round.
+
+---
+
 ## How to give Raahi an update (workflow reminder for whoever's helping)
 
 1. Make code changes in your own sandbox, verify with `python3 -m py_compile` (backend,
