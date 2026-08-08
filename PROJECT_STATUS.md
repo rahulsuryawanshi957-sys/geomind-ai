@@ -2778,6 +2778,61 @@ scoped).
 
 ---
 
+80. **Dashboard mobile responsive overflow fix, 8 Aug 2026** -- Raahi sent 3 reference
+    images (desktop, current-mobile-broken, target-inspiration) + a detailed brief. Logo
+    was explicitly locked (don't touch) -- confirmed already correct via the `Logo`
+    component, not modified. Mobile sidebar drawer requirement was ALSO already correctly
+    implemented (`MobileNav.tsx`'s full-screen overlay drawer, doesn't push content) --
+    confirmed, not modified, since it already matched spec.
+    - **This session synced its working copy from Raahi's freshly re-uploaded zip first**,
+      rather than working from its own stale in-sandbox copy -- other sessions had added
+      substantial work since this session's last touch (hero.jpg banner, per-module
+      tool-card photos, Rock Bearing Capacity/Ground Improvement/Rock Socket Pile
+      calculators). Working from the stale copy would have silently reverted all of that.
+      **Lesson for future sessions on this project: always ask for/use the latest zip
+      before editing, given how many parallel sessions touch this codebase.**
+    - **Root cause of the mobile overflow (confirmed against Raahi's screenshot, not
+      guessed):** classic CSS grid/flex `min-width: auto` gotcha. The Recent Activity
+      card's long filename text had `truncate` on the innermost `<span>` only -- but
+      none of its ANCESTOR containers (the flex row, the grid item wrapping the whole
+      Recent Activity card) had `min-w-0`. A grid/flex track's default `min-width: auto`
+      means it will grow to fit its content's intrinsic width regardless of a
+      deeply-nested child's `truncate`, UNLESS `min-w-0` is set at every level in the
+      chain -- so the long unbroken filename forced the whole grid row (and therefore the
+      page) wider than the viewport, which is why the Project Overview stat cards
+      *appeared* cut off too (they weren't broken themselves -- the page around them was
+      wider than 100vw). Fixed by adding `min-w-0` at each level: the grid-item div, the
+      activity-list wrapper, and each activity row's flex container.
+    - Stat card grid changed from `grid-cols-2 sm:grid-cols-3` to
+      `grid-cols-1 sm:grid-cols-2 lg:grid-cols-3`, matching the brief's explicit
+      breakpoint spec (mobile=1 col, tablet=2, desktop=3+) -- also directly reduces
+      overflow risk on very narrow phones (360px) independent of the min-w-0 fix above.
+    - Mobile quick-actions bar changed from a cramped `grid-cols-5` (5 buttons forced
+      into one row on a 360-412px screen) to a horizontal-scroll strip -- each button
+      keeps a comfortable fixed width/touch-target and the row scrolls instead of
+      squeezing, per the brief's explicit "never squeeze 5 buttons into one row" ask.
+    - Defensive `min-w-0` added to `ToolCard`'s text column, `RefTile`, and the AI
+      Assistant banner's text column too (same class of bug, lower risk today since
+      their text is short, but cheap insurance against a future longer label/description
+      causing the identical overflow).
+    - **Did NOT add a blanket `overflow-x: hidden`** anywhere -- the brief explicitly
+      called this out as unacceptable, and it would have masked the real cause rather
+      than fixing it. Confirmed none was already present either.
+    - **Not done in this pass** (flagged, not silently skipped): a systematic min-w-0
+      audit of every OTHER page using `truncate` (`BatchAnalysis.tsx`, `Books.tsx`,
+      `HistoryPage.tsx`, `Sidebar.tsx`, `SourcesPanel.tsx`,
+      `pages/planned/SoilProfile.tsx` all use it) -- Raahi's screenshots and brief were
+      Dashboard-specific, so only Dashboard was fixed. If any of those pages show the
+      same overflow symptom on mobile, they likely have the identical root cause and the
+      same fix pattern (min-w-0 up the ancestor chain) would apply.
+    - Verified with `tsc --noEmit` on the touched file (zero real errors) -- **not seen at
+      an actual 360/375/390/412px viewport by a human yet**, which the brief explicitly
+      asked for (steps 11-12). The fix is a well-understood, standard CSS pattern for
+      this exact symptom, but treat the next real-device check as the actual test.
+    - `frontend/` only changed this round (`pages/Dashboard.tsx` only).
+
+---
+
 ## How to give Raahi an update (workflow reminder for whoever's helping)
 
 1. Make code changes in your own sandbox, verify with `python3 -m py_compile` (backend,

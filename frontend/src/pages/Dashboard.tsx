@@ -81,8 +81,8 @@ function ToolCard({ to, label, description, img, soon, delay = 0 }: { to: string
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay }}>
       <Link to={to} className="glass glass-hover flex items-stretch overflow-hidden min-h-[96px] relative">
-        <div className="flex-1 p-4 flex flex-col justify-center">
-          <div className="text-sm font-medium text-slate-100 mb-1">{label}</div>
+        <div className="flex-1 min-w-0 p-4 flex flex-col justify-center">
+          <div className="text-sm font-medium text-slate-100 mb-1 truncate">{label}</div>
           <p className="text-[11px] text-slate-400 leading-relaxed">{description}</p>
         </div>
         <div className="w-2/5 shrink-0 relative">
@@ -102,10 +102,10 @@ function ToolCard({ to, label, description, img, soon, delay = 0 }: { to: string
 
 function RefTile({ to, label, description, icon, soon }: { to: string; label: string; description: string; icon: string; soon?: boolean }) {
   return (
-    <Link to={to} className="glass glass-hover p-4 flex flex-col gap-2 relative">
+    <Link to={to} className="glass glass-hover p-4 flex flex-col gap-2 relative min-w-0">
       {soon && <span className="absolute top-2.5 right-2.5 text-[8px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300">Soon</span>}
       <img src={icon} alt="" className="w-8 h-8 rounded-md object-cover" />
-      <div className="text-[12.5px] font-medium text-slate-100">{label}</div>
+      <div className="text-[12.5px] font-medium text-slate-100 truncate">{label}</div>
       <p className="text-[10px] text-slate-500 leading-relaxed">{description}</p>
     </Link>
   )
@@ -160,26 +160,28 @@ export default function Dashboard() {
       </motion.div>
 
       {/* Mobile-only quick actions bar -- below the image, not overlaid, so it never
-          collides with the hero's title text regardless of how short the scaled image is. */}
-      <div className="md:hidden grid grid-cols-5 gap-1.5 mb-6 -mt-3">
+          collides with the hero's title text regardless of how short the scaled image is.
+          Horizontal scroll (not a 5-column grid) so each button keeps a comfortable size
+          and touch target on narrow phones instead of being squeezed to fit in one row. */}
+      <div className="md:hidden flex gap-2 mb-6 -mt-3 overflow-x-auto px-0.5 -mx-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {QUICK_ACTIONS.map((a) => (
-          <Link key={a.to} to={a.to} className="glass flex flex-col items-center gap-1 py-2.5 rounded-xl active:scale-95 transition-transform">
+          <Link key={a.to} to={a.to} className="glass flex flex-col items-center gap-1 py-2.5 px-3 rounded-xl active:scale-95 transition-transform shrink-0 w-[78px]">
             <span className={`w-6 h-6 rounded-lg flex items-center justify-center ${a.label === 'Ask AI' ? 'bg-blue-500/25 text-blue-300' : 'bg-brand-orange/20 text-brand-orange'}`}>
               <a.icon size={12} />
             </span>
-            <span className="text-[8.5px] font-medium text-slate-300 text-center leading-tight">{a.label}</span>
+            <span className="text-[9px] font-medium text-slate-300 text-center leading-tight">{a.label}</span>
           </Link>
         ))}
       </div>
 
       {/* ---------------- PROJECT OVERVIEW + RECENT ACTIVITY ---------------- */}
       <div className="grid lg:grid-cols-[1.5fr_1fr] gap-4 mb-6 items-start">
-        <div>
+        <div className="min-w-0">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-[11px] font-semibold text-slate-400 tracking-wider uppercase">Project Overview</h2>
-            <Link to="/books" className="text-[11px] text-brand-orange flex items-center gap-1 hover:underline">View library <ArrowUpRight size={11} /></Link>
+            <Link to="/books" className="text-[11px] text-brand-orange flex items-center gap-1 hover:underline shrink-0">View library <ArrowUpRight size={11} /></Link>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
             <StatCard icon={BookOpen} label="Total Books" value={totalBooks} color="bg-green-500/15 text-green-400" delay={0.02} />
             <StatCard icon={ScrollText} label="IS / IRC Codes" value={totalCodes} color="bg-brand-orange/15 text-brand-orange" delay={0.04} />
             <StatCard icon={Layers} label="Indexed Pages" value={indexedPages} color="bg-yellow-500/15 text-yellow-400" delay={0.06} />
@@ -187,14 +189,14 @@ export default function Dashboard() {
             <StatCard icon={Activity} label="AI Assistant" value="Online" color="bg-blue-500/15 text-blue-400" delay={0.1} />
           </div>
         </div>
-        <div className="glass p-4 h-full">
+        <div className="glass p-4 h-full min-w-0">
           <h2 className="text-[11px] font-semibold text-slate-400 tracking-wider uppercase mb-3">Recent Activity</h2>
           {activity.length === 0 ? (
             <p className="text-xs text-slate-500 py-6 text-center">No activity yet -- create a borehole or upload a document.</p>
           ) : (
-            <div className="space-y-0.5">
+            <div className="space-y-0.5 min-w-0">
               {activity.map((item) => (
-                <div key={item.key} className="flex items-center gap-2.5 text-[12.5px] py-2 border-b border-white/[0.03] last:border-0">
+                <div key={item.key} className="flex items-center gap-2.5 text-[12.5px] py-2 border-b border-white/[0.03] last:border-0 min-w-0">
                   <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${item.color}`} />
                   <span className="text-slate-300 flex-1 min-w-0 truncate">{item.label}</span>
                   <span className="text-[9.5px] text-slate-500 shrink-0">{timeAgo(item.time)}</span>
@@ -238,12 +240,12 @@ export default function Dashboard() {
       </div>
 
       {/* ---------------- AI ASSISTANT BANNER ---------------- */}
-      <Link to="/chat" className="glass glass-hover flex items-center justify-between gap-4 p-5 relative overflow-hidden">
-        <div>
+      <Link to="/chat" className="glass glass-hover flex items-center justify-between gap-4 p-5 relative overflow-hidden flex-wrap sm:flex-nowrap">
+        <div className="min-w-0">
           <div className="flex items-center gap-2 mb-1">
             <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">AI Assistant</span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-base font-display font-semibold text-slate-50">Ask Raahigeo</span>
             <span className="gm-badge bg-blue-500/20 text-blue-300">New</span>
           </div>
