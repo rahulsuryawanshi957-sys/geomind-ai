@@ -133,32 +133,53 @@ body {
   background-attachment: fixed;
 }
 
-::selection { @apply bg-violet-500/40; }
+::selection { background-color: rgb(var(--violet-500) / 0.4); }
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { @apply bg-navy-600 rounded-full; }
 ::-webkit-scrollbar-track { background: transparent; }
 
 /* Glass surface used across cards, sidebars, panels.
    Dark mode: translucent secondary-surface glass (unchanged pattern).
-   Light mode: opaque white enterprise card, soft shadow, no blur -- see override below. */
+   Light mode: opaque white enterprise card, soft shadow, no blur -- see override below.
+   NOTE (8 Aug 2026 fix): background-color/border-color here are literal
+   `rgb(var(--x) / N)` CSS, NOT Tailwind's `@apply bg-navy-850/70` opacity-modifier
+   shorthand. Raahi's live site showed every .glass card as a flat, uniformly gray
+   box in BOTH light and dark mode (confirmed from screenshots -- correct white
+   bg-white text WAS reaching plain full-opacity utilities like body's `bg-navy-950`,
+   but not opacity-modified custom-CSS-variable colors specifically). Root cause:
+   Tailwind's `<alpha-value>` substitution for custom CSS-variable colors
+   (tailwind.config.js's `rgb(var(--navy-850) / <alpha-value>)` pattern) is
+   unreliable when the opacity-modified class is used inside an `@apply` block in a
+   plain CSS file, as opposed to directly as a className in JSX -- a known category
+   of Tailwind/PostCSS gotcha. Writing the same color as literal CSS here sidesteps
+   that resolution path entirely and always works. Every other opacity-modified
+   custom-color `@apply` in this file (gm-input, glass-hover, gm-prose blockquote)
+   got the same literal-CSS treatment below for the same reason -- if you add a new
+   `@apply` rule here using `-navy-`/`-slate-`/`-violet-`/`-cyan-` with a `/opacity`
+   suffix, use literal `rgb(var(--x) / N)` instead, not `@apply`. */
 .glass {
-  @apply bg-navy-850/70 backdrop-blur-xl border border-white/[0.06] rounded-2xl;
+  @apply backdrop-blur-xl border border-white/[0.06] rounded-2xl;
+  background-color: rgb(var(--navy-850) / 0.7);
 }
 html.light .glass {
-  @apply bg-white border-navy-700/70 shadow-card;
+  @apply bg-white shadow-card;
+  border-color: rgb(var(--navy-700) / 0.7);
   backdrop-filter: none;
 }
 
 .glass-hover {
-  @apply transition-all duration-200 hover:border-violet-500/30 hover:shadow-glow hover:-translate-y-0.5;
+  @apply transition-all duration-200 hover:shadow-glow hover:-translate-y-0.5;
 }
+.glass-hover:hover { border-color: rgb(var(--violet-500) / 0.3); }
 html.light .glass-hover:hover { box-shadow: 0 0 0 1px rgba(14,165,164,0.18), 0 8px 20px -6px rgba(14,165,164,0.16); }
 
 .gm-input {
-  @apply bg-navy-800/80 border border-white/[0.08] rounded-xl px-3.5 py-2.5 text-sm
-         focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500/40
-         placeholder:text-slate-400/60 transition-all;
+  @apply border border-white/[0.08] rounded-xl px-3.5 py-2.5 text-sm
+         focus:outline-none focus:ring-2 transition-all;
+  background-color: rgb(var(--navy-800) / 0.8);
 }
+.gm-input:focus { --tw-ring-color: rgb(var(--violet-500) / 0.5); border-color: rgb(var(--violet-500) / 0.4); }
+.gm-input::placeholder { color: rgb(var(--slate-400) / 0.6); }
 html.light .gm-input { @apply bg-white border-navy-700 text-brand-navy; }
 
 .gm-btn-primary {
@@ -201,7 +222,7 @@ html.light .gm-input { @apply bg-white border-navy-700 text-brand-navy; }
 .gm-prose table { @apply w-full text-xs border-collapse mb-3; }
 .gm-prose th, .gm-prose td { @apply border border-white/[0.08] px-2 py-1.5 text-left; }
 .gm-prose th { @apply bg-white/[0.04] text-slate-300; }
-.gm-prose blockquote { @apply border-l-2 border-violet-500/50 pl-3 text-slate-400 italic mb-3; }
+.gm-prose blockquote { border-left: 2px solid rgb(var(--violet-500) / 0.5); @apply pl-3 text-slate-400 italic mb-3; }
 
 @media print {
   @page {

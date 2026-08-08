@@ -2732,6 +2732,52 @@ scoped).
 
 ---
 
+79. **Real bug found: .glass cards rendering flat gray instead of the intended theme
+    colors, 8 Aug 2026.** Raahi sent a reference mockup (polished dark cards) next to a
+    live mobile screenshot (every card -- stat cards, Recent Activity panel -- a uniform
+    flat gray box, low-contrast text, on a pale minty-light background) and asked why the
+    live site looked "ajeeb" (weird) next to the reference. Confirmed this was AFTER the
+    #78 mobile-nav fix was already deployed, so not a stale-deploy issue this time --
+    a real, separate bug.
+    - **Root cause:** `.glass` (and a few other composite classes -- `.gm-input`,
+      `.glass-hover`, `.gm-prose blockquote`) set their background/border/ring colors via
+      `@apply bg-navy-850/70` etc inside `index.css` -- an opacity-modifier (`/70`) on a
+      CUSTOM CSS-variable-based color (`navy-850` resolves to
+      `rgb(var(--navy-850) / <alpha-value>)` per `tailwind.config.js`). Tailwind's
+      `<alpha-value>` substitution for custom CSS-variable colors is unreliable when the
+      opacity-modified utility is used inside an `@apply` block in a plain CSS file
+      (as opposed to directly as a JSX className) -- a known category of Tailwind/PostCSS
+      gotcha. This produced invalid/unresolved CSS that fell back to flat gray, while
+      plain full-opacity utilities elsewhere (`body`'s `bg-navy-950`, no `/opacity`
+      suffix) worked fine -- exactly matching what Raahi's screenshots showed.
+    - **Fix:** rewrote every affected declaration in `index.css` as literal
+      `background-color: rgb(var(--navy-850) / 0.7)` CSS instead of the `@apply
+      bg-navy-850/70` shorthand -- sidesteps Tailwind's `<alpha-value>` resolution
+      entirely, always works regardless of the `@apply`-vs-JSX gotcha. Touched: `.glass`
+      + `html.light .glass` (background/border), `.glass-hover:hover` (border),
+      `.gm-input` + `.gm-input:focus` + `.gm-input::placeholder` (background/ring/border/
+      placeholder color), `.gm-prose blockquote` (border), `::selection`.
+    - **Scope note:** this fixes every `@apply`-based composite class in `index.css` (used
+      app-wide via `.glass`/`.gm-input`/etc, so high impact). It does NOT touch direct
+      opacity-modified custom-color classes used inline in `.tsx` files (18 files use that
+      pattern, e.g. `bg-violet-500/15` directly in a component) -- those go through
+      Tailwind's normal JIT compilation path, not `@apply`, and aren't confirmed broken by
+      any of Raahi's screenshots so far. Left a comment in `index.css` explaining the
+      pattern to avoid, in case a *future* `@apply` rule reintroduces this.
+    - **Verified:** brace-balance sanity check on the edited CSS (57 open / 57 close,
+      matched). Could NOT run an actual Tailwind build to visually confirm the fix
+      (no `node_modules`/network in the sandbox) -- **this is reasoned from how Tailwind's
+      `<alpha-value>` substitution is documented to behave, not empirically confirmed
+      against a real build.** Treat the next deploy as the real test.
+    - **Action needed from Raahi**: after deploying, check the Dashboard on both light and
+      dark mode -- cards should be a clean white (light) or translucent dark navy (dark),
+      not flat gray. If they're STILL gray after this deploys, that's important new
+      information -- it would mean the direct-JSX usages (not just `@apply`) are also
+      affected, and the fix needs to widen to those 18 files too.
+    - `frontend/` only changed this round (`index.css` only).
+
+---
+
 ## How to give Raahi an update (workflow reminder for whoever's helping)
 
 1. Make code changes in your own sandbox, verify with `python3 -m py_compile` (backend,
