@@ -2833,6 +2833,59 @@ scoped).
 
 ---
 
+81. **Dark theme: 3-tier surface hierarchy + amber/gold accent, 8 Aug 2026.** Raahi
+    sent a detailed written brief (sidebar/dashboard/card must be 3 visually distinct
+    dark navy surfaces, not flat-on-flat) plus a reference image (for color hierarchy
+    only -- explicitly NOT to copy its logo). **Only the DARK theme was touched** --
+    light theme (`html.light` block in `index.css`) is untouched line-for-line.
+    - **Root cause of the "flat" look:** the dashboard body (`bg-navy-950`) and the
+      sidebar/mobile-nav (`.force-dark-scope`, which forces its own navy values
+      regardless of light/dark toggle) both resolved to the exact same navy-950
+      value (`15 23 42`) in dark mode -- only `.glass` cards stood out at all, so
+      sidebar and main content read as one flat surface.
+    - **Fix -- 3-tier ladder, dark mode only:**
+      - Sidebar / mobile-nav (`.force-dark-scope`, dark-mode default): `#050B14`
+        (darkest). A new `html.light .force-dark-scope` override was added right
+        after it that pins the OLD values (`15 23 42` family) for light theme, so
+        light mode's sidebar renders pixel-identical to before this change.
+      - Main dashboard (`:root --navy-950`, i.e. `body`): `#0A1422`.
+      - Cards (`:root --navy-900/850`, i.e. `.glass`): `#101E2D`. Also bumped
+        `.glass`'s background alpha from 0.7 -> 0.92 in the dark-mode base rule
+        (light's `.glass` override is a separate rule, untouched) -- at the new,
+        darker body color, 0.7 alpha was undershooting the target hex.
+      - Card hover / inputs (`:root --navy-800`): `#14263A`.
+    - **Accent switch, dark mode only:** primary accent (`--violet-*` slot) changed
+      from the teal family to amber/gold (`#F59E0B` family, 300->700 kept bright-
+      >dark so existing gradient classes like `from-violet-600 to-violet-500` still
+      read as a sensible ramp). This flows through to every dark-mode primary
+      button, active nav-item highlight, and accent-colored heading/icon that
+      already used the `violet-*` classes -- no component files touched, pure CSS-
+      variable re-skin (that's the whole point of this file's variable
+      architecture, see the header comment). Also added a matching dark-mode-only
+      `.shadow-glow` override (`html:not(.light)`) since `tailwind.config.js`'s
+      `boxShadow.glow` is a hardcoded teal rgba shared by both themes -- without
+      this, dark buttons would've had an amber gradient but a leftover teal glow
+      under it. Light theme's teal accent and teal glow are both untouched.
+      Secondary accent (`cyan`, steel-blue) was deliberately left alone per the
+      brief ("teal/cyan only as secondary").
+    - **Logo:** not touched at all -- `Logo` component/asset wasn't part of this
+      CSS-only change, so it renders exactly as before, per the brief's explicit
+      "don't touch the logo" instruction.
+    - **Scope respected from the brief:** no layout, routes, APIs, calculations,
+      responsive breakpoints, or component files were changed -- this is a CSS
+      variable re-skin in `index.css` only (2 files if you count this doc).
+    - **Not yet verified:** could not run an actual Vite build or render the app
+      in this sandbox (no `node_modules`/network) -- brace-balance checked
+      (59 open / 59 close, matched) and every new value reasoned out by hand
+      against the brief's exact hex targets, but **not seen on a real screen**.
+      Treat the next deploy as the actual test -- check Dashboard, a calculator
+      page, and the mobile drawer nav in dark mode; sidebar should look
+      noticeably darker/blacker than the page behind it, and buttons/active nav
+      should be amber/gold instead of teal.
+    - `frontend/` only changed this round (`src/index.css` only).
+
+---
+
 ## How to give Raahi an update (workflow reminder for whoever's helping)
 
 1. Make code changes in your own sandbox, verify with `python3 -m py_compile` (backend,

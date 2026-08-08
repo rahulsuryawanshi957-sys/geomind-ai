@@ -12,26 +12,43 @@
    with no per-page edits needed.
    html.light = default app theme: light enterprise workspace
      (bg #F6F8FA, white cards, #E2E8F0 borders, #0F172A text,
-     #0EA5A4 teal accent) -- per the 4 Aug 2026 UI brief.
-   :root = dark mode (toggle in Settings): same palette family,
-     inverted for a dark professional workspace.
-   "violet" slot = PRIMARY ACCENT (teal, #0EA5A4 family).
+     #0EA5A4 teal accent) -- per the 4 Aug 2026 UI brief. UNCHANGED by the
+     8 Aug 2026 dark-theme pass below -- this file only re-skins :root/
+     .force-dark-scope's DARK values; every html.light rule is left as-is.
+   :root = dark mode (toggle in Settings). Redone 8 Aug 2026 to a proper
+     3-tier surface hierarchy (previously the dashboard body and the
+     sidebar/mobile-nav both resolved to the same navy-950 -- "dark on
+     dark", per Raahi's brief -- only .glass cards stood out):
+       MAIN DASHBOARD (body/navy-950) #0A1422  <- deep navy, page bg
+       CARD (navy-900/850, .glass)     #101E2D  <- one step lighter
+       CARD HOVER (navy-800)           #14263A  <- lighter still
+     Sidebar/mobile-nav are a SEPARATE, always-on-dark surface (see
+     .force-dark-scope below) and go one step DARKER than the dashboard
+     (#050B14), not part of this :root ladder -- that's what makes
+     sidebar / dashboard / card read as three distinct surfaces instead
+     of two-tone.
+   "violet" slot = PRIMARY ACCENT. Dark theme = amber/gold #F59E0B family
+     (per 8 Aug 2026 brief -- was teal here previously; light theme's
+     teal accent is untouched, see html.light below). 300->700 goes
+     bright->dark so existing gradient/hover utility classes (e.g.
+     `from-violet-600 to-violet-500`) still read as a sensible ramp.
    "cyan" slot   = SECONDARY ACCENT (steel-blue, unchanged family --
-     used for water-table/informational highlights, complements teal).
+     used for water-table/informational highlights; brief says keep
+     teal/cyan as secondary only, so left as the existing steel-blue).
    ============================================================ */
 :root {
-  /* Primary #0F172A (page bg) / Secondary #1E293B (card surface) */
-  --navy-950: 15 23 42;    --navy-900: 30 41 59;    --navy-850: 30 41 59;
-  --navy-800: 41 55 79;    --navy-700: 51 65 85;    --navy-600: 71 85 105;
+  /* Main dashboard #0A1422 / Card #101E2D / Card hover #14263A */
+  --navy-950: 10 20 34;    --navy-900: 16 30 45;    --navy-850: 16 30 45;
+  --navy-800: 20 38 58;    --navy-700: 28 45 66;    --navy-600: 40 58 82;
 
   --slate-50: 248 250 252;  --slate-100: 241 245 249; --slate-200: 226 232 240;
   --slate-300: 174 180 199; --slate-400: 139 147 168; --slate-500: 100 116 139;
   --slate-600: 71 85 105;   --slate-800: 30 41 59;    --slate-900: 15 23 42;
   --slate-950: 2 6 23;
 
-  /* Accent: teal #0EA5A4 family (bright enough for text/icons on dark bg) */
-  --violet-300: 94 234 212; --violet-400: 45 212 191; --violet-500: 14 165 164;
-  --violet-600: 13 148 136; --violet-700: 15 118 110;
+  /* Accent: amber/gold #F59E0B family (bright enough for text/icons on dark bg) */
+  --violet-300: 252 211 77; --violet-400: 251 191 36; --violet-500: 245 158 11;
+  --violet-600: 217 119 6;  --violet-700: 180 83 9;
 
   /* Secondary accent: steel-blue (informational / water-table highlights) */
   --cyan-300: 103 232 249; --cyan-400: 34 211 238; --cyan-500: 6 182 212;
@@ -60,18 +77,28 @@ html.light {
 }
 
 /* Sidebar (desktop) + mobile header/bottom-nav are given this class so they stay a
-   fixed dark rail (Primary #0F172A / Secondary #1E293B) regardless of the light/dark
-   toggle -- enterprise engineering-software convention (Bentley OpenGround / PLAXIS /
-   GeoStudio style: persistent dark nav rail against a light workspace). Only
-   navy/slate are reset here -- violet/cyan (the teal/steel-blue accents) are
-   deliberately left alone so active-state highlights stay on-brand inside the rail. */
+   fixed dark rail regardless of the light/dark toggle -- enterprise engineering-
+   software convention (Bentley OpenGround / PLAXIS / GeoStudio style: persistent
+   dark nav rail against a light workspace). Only navy/slate are reset here --
+   violet/cyan (the accent colors) are deliberately left alone so active-state
+   highlights stay on-brand inside the rail.
+   8 Aug 2026: this block is now the DARK-THEME rail color (#050B14 -- one step
+   darker than the :root dashboard's #0A1422, so sidebar/dashboard/card read as
+   three distinct surfaces). The html.light override right after restores the
+   exact old rail color (#0F172A family) for light theme, since that theme wasn't
+   part of this brief and should render pixel-identical to before. */
 .force-dark-scope {
-  --navy-950: 15 23 42;   --navy-900: 30 41 59;    --navy-850: 30 41 59;
-  --navy-800: 41 55 79;   --navy-700: 51 65 85;    --navy-600: 71 85 105;
+  --navy-950: 5 11 20;    --navy-900: 9 16 28;      --navy-850: 9 16 28;
+  --navy-800: 15 23 36;   --navy-700: 22 37 54;     --navy-600: 32 48 68;
   --slate-50: 248 250 252;  --slate-100: 241 245 249; --slate-200: 226 232 240;
   --slate-300: 174 180 199; --slate-400: 139 147 168; --slate-500: 100 116 139;
   --slate-600: 71 85 105;   --slate-800: 30 41 59;    --slate-900: 15 23 42;
   --slate-950: 2 6 23;
+}
+html.light .force-dark-scope {
+  /* Unchanged from before this pass -- keeps light theme's sidebar exactly as-is. */
+  --navy-950: 15 23 42;   --navy-900: 30 41 59;    --navy-850: 30 41 59;
+  --navy-800: 41 55 79;   --navy-700: 51 65 85;    --navy-600: 71 85 105;
 }
 /* the generic white/[x]-overlay re-tint (below) must not touch the forced-dark chrome
    (Sidebar/MobileNav) -- excluded at the selector level so their original translucent-
@@ -112,6 +139,13 @@ html.light [class*="divide-white/"]:not(.force-dark-scope):not(.force-dark-scope
 html.light .shadow-glow { box-shadow: 0 0 0 1px rgba(14,165,164,0.16), 0 8px 30px -8px rgba(14,165,164,0.20); }
 html.light .shadow-glow-cyan { box-shadow: 0 0 0 1px rgba(39,98,145,0.16), 0 8px 30px -8px rgba(39,98,145,0.18); }
 html.light ::selection { background: rgba(14,165,164,0.22); }
+
+/* Dark theme (8 Aug 2026): tailwind.config.js's `shadow-glow` utility is a hardcoded
+   teal rgba shared by both themes -- without this override, dark-mode primary
+   buttons would show an amber gradient (from the --violet-* var change above) but a
+   leftover teal glow underneath it. This re-matches the glow to amber for dark only;
+   html.light's teal .shadow-glow rule above is untouched. */
+html:not(.light) .shadow-glow { box-shadow: 0 0 0 1px rgba(245,158,11,0.18), 0 8px 30px -8px rgba(245,158,11,0.28); }
 
 html.light body { @apply bg-navy-950; }
 
@@ -159,7 +193,11 @@ body {
    suffix, use literal `rgb(var(--x) / N)` instead, not `@apply`. */
 .glass {
   @apply backdrop-blur-xl border border-white/[0.06] rounded-2xl;
-  background-color: rgb(var(--navy-850) / 0.7);
+  /* 0.92 (was 0.7) -- with the new, darker #0A1422 dashboard body behind it, 0.7
+     alpha undershot the spec's #101E2D card color; 0.92 lands on it almost exactly
+     while keeping a touch of the backdrop-blur glass feel. Dark-mode path only --
+     html.light .glass right below is a separate opaque-white rule, untouched. */
+  background-color: rgb(var(--navy-850) / 0.92);
 }
 html.light .glass {
   @apply bg-white shadow-card;
