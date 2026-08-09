@@ -2918,6 +2918,45 @@ scoped).
 
 ---
 
+83. **Login page redesign -- premium geotechnical-consulting look, 8 Aug 2026.** Raahi
+    sent a detailed written brief + a reference image asking the Login page to read
+    as a professional geotechnical consulting platform (dark navy, orange accents,
+    blueprint engineering motifs) instead of a plain login form.
+    - **Files changed:** `frontend/src/pages/Login.tsx` (rewritten) and a new
+      `frontend/src/components/LoginBackground.tsx` (decorative SVG blueprint
+      backdrop: faint grid, a foundation-footing load diagram, topographic contour
+      lines -- all `pointer-events-none`/`aria-hidden`, purely visual).
+    - **Auth logic untouched, verified by inspection:** `handleSubmit`, `api.login`,
+      `localStorage.setItem('raahigeo_auth_token', ...)`, `onLoggedIn()`, and the
+      `mailtoHref` are byte-for-byte the same logic as before -- only JSX/styling
+      changed around them. One small UI-only addition: a show/hide password toggle
+      (local `showPassword` state, toggles `input type`) -- doesn't touch the auth
+      flow.
+    - **Brand colors used `brand-orange` (#F97316) / `brand-navy`** -- these were
+      already defined in `tailwind.config.js` for exactly this kind of brand-locked
+      (not theme-variable) UI. Login intentionally does NOT follow the app's
+      light/dark toggle (same as before this change) -- it's always the dark
+      navy+orange brand treatment, per the brief.
+    - **Logo:** unchanged asset, `variant="icon"` (just the hexagon mark) used at
+      60px -- the "RaahiGeo" wordmark on this page is now live styled text (not
+      part of the logo image) so "Geo" can be colored orange per the brief; this
+      does NOT touch or replace the actual logo file/component.
+    - **Responsive:** single-column stack with background graphics reduced (footing
+      diagram/contour lines are `hidden` below `md`/`lg`) up to `xl`, where it
+      becomes the two-column branding+card layout from the reference. Service strip
+      wraps 2 → 3 → 6 columns by breakpoint.
+    - **Verified:** compiled clean with `esbuild` (real TSX/JSX parse, zero syntax
+      errors) in the sandbox -- but **not rendered on a real screen or actually
+      logged in with** (no `node_modules`/dev server available here). Treat the
+      next deploy as the real test: check desktop AND mobile, confirm the actual
+      login flow still works (wrong password shows the error message, correct
+      credentials logs in), and confirm no horizontal scroll on a small phone
+      screen.
+    - `frontend/` only changed this round (`src/pages/Login.tsx` +
+      `src/components/LoginBackground.tsx`, new file).
+
+---
+
 ## How to give Raahi an update (workflow reminder for whoever's helping)
 
 1. Make code changes in your own sandbox, verify with `python3 -m py_compile` (backend,
