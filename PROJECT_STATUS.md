@@ -2957,6 +2957,52 @@ scoped).
 
 ---
 
+84. **Login page: fixed mobile dead-space bug + closer match to reference image,
+    8 Aug 2026.** Raahi sent a mobile screenshot of #83's result showing a large
+    empty dark gap above AND below the content, and asked for the background to
+    match the reference image more closely.
+    - **Dead-space bug, root cause:** the outer wrapper used
+      `min-h-screen flex ... justify-center`, which vertically centers content
+      inside the FULL viewport height. On a tall phone viewport where the content
+      is shorter than the screen, that put equal empty space above and below
+      instead of the content starting near the top. **Fix:** dropped
+      `justify-center`, switched to top-anchored padding
+      (`pt-8 pb-14 sm:pt-12 sm:pb-16`) so content now starts near the top on every
+      screen size.
+    - **Layout restructured to match the reference more closely:** the login card
+      now sits stacked BELOW the branding/features in the same left column
+      (previously it sat beside the branding as a separate column) -- this matches
+      the reference's actual composition. A new right-hand column
+      (`xl:` breakpoint only, i.e. desktop) now holds the decorative
+      diagram/data panels from the reference: a foundation footing load diagram, a
+      "SOIL CLASSIFICATION" table panel, an "SPT N-VALUE vs DEPTH" chart panel, and
+      a smaller secondary structural sketch -- all in
+      `frontend/src/components/LoginSidePanels.tsx` (new file). Table rows and
+      chart values are illustrative/decorative, not real data (same as the
+      reference's own mockup).
+    - **One honest limitation:** the reference image's top-left corner is an actual
+      PHOTOGRAPH (an elevated highway/flyover bridge at dusk). This sandbox has no
+      network access to source or license a real photo, so `LoginBackground.tsx`
+      now has an ILLUSTRATED line-art substitute (bridge deck + piers + a hillside
+      curve, same blueprint style as the rest of the page) instead -- not a photo.
+      If Raahi specifically wants the literal photographic look, that needs an
+      actual licensed image file dropped into `frontend/public/` and referenced by
+      filename -- flag this back if so, since it can't be generated/fetched from
+      here.
+    - Contour lines (bottom-left) made slightly more visible (opacity 0.14 ->
+      0.20) with more orange node dots, matching the reference's more prominent
+      treatment there.
+    - **Verified:** all 3 changed/new files compiled clean with `esbuild` (real
+      TSX/JSX parse). **Not seen on a real screen** -- same sandbox limitation as
+      #83. Treat the next deploy as the real test, on both mobile (confirm the
+      dead-space gap is gone) and desktop (confirm the new right-side panel column
+      shows up at wide widths and doesn't overlap/clip anything).
+    - `frontend/` only changed this round: `src/pages/Login.tsx` (restructured),
+      `src/components/LoginBackground.tsx` (bridge illustration swap-in, dedup),
+      `src/components/LoginSidePanels.tsx` (new file).
+
+---
+
 ## How to give Raahi an update (workflow reminder for whoever's helping)
 
 1. Make code changes in your own sandbox, verify with `python3 -m py_compile` (backend,

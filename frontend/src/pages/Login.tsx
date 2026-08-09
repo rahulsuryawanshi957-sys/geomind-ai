@@ -7,6 +7,7 @@ import {
 import { api } from '../api/client'
 import Logo from '../components/Logo'
 import LoginBackground from '../components/LoginBackground'
+import { FootingDiagramPanel, SoilClassificationPanel, SptChartPanel, SecondaryDiagramPanel } from '../components/LoginSidePanels'
 
 const FEATURES = [
   { icon: ShieldCheck, label: 'Code Compliant', sub: 'IS Standards' },
@@ -65,11 +66,14 @@ export default function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
     <div className="relative min-h-screen bg-[#050B14] overflow-hidden">
       <LoginBackground />
 
-      <div className="relative z-10 min-h-screen flex flex-col items-center justify-center px-4 py-10 md:py-16">
+      {/* Top-anchored (not vertically centered) -- centering caused a large empty gap
+          above AND below the content on tall phone viewports. Content now starts near
+          the top on every screen size, matching the reference's dense, edge-to-edge feel. */}
+      <div className="relative z-10 flex flex-col items-center px-4 pt-8 pb-14 sm:pt-12 sm:pb-16">
         <div className="w-full max-w-6xl mx-auto flex flex-col gap-12 md:gap-16">
-          {/* Branding + login card */}
-          <div className="flex flex-col xl:flex-row items-center xl:items-start gap-10 xl:gap-20">
-            {/* Left: branding */}
+          {/* Branding + login card (left) / diagram-panel sidebar (right, xl+ only) */}
+          <div className="flex flex-col xl:flex-row items-center xl:items-start gap-10 xl:gap-16">
+            {/* Left column: branding, features, login card -- all stacked, matches reference */}
             <div className="w-full xl:flex-1 flex flex-col items-center xl:items-start text-center xl:text-left">
               <Logo variant="icon" size={60} className="mb-6" />
 
@@ -91,10 +95,10 @@ export default function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
                 solutions — accurate, reliable, and code-compliant.
               </p>
 
-              <div className="mt-9 grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-4 gap-5 sm:gap-6 w-full max-w-md xl:max-w-none">
+              <div className="mt-9 grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-4 gap-x-5 gap-y-6 sm:gap-6 w-full max-w-md xl:max-w-none">
                 {FEATURES.map(({ icon: Icon, label, sub }) => (
                   <div key={label} className="flex flex-col items-center xl:items-start gap-2">
-                    <div className="h-10 w-10 rounded-lg border border-brand-orange/30 flex items-center justify-center text-brand-orange">
+                    <div className="h-10 w-10 rounded-lg border border-brand-orange/30 flex items-center justify-center text-brand-orange shrink-0">
                       <Icon size={18} />
                     </div>
                     <div className="text-xs text-slate-300 leading-tight text-center xl:text-left">
@@ -104,74 +108,84 @@ export default function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
                   </div>
                 ))}
               </div>
+
+              {/* Login card -- stacked below branding, same column, matching reference */}
+              <div className="w-full max-w-sm mt-9">
+                <form
+                  onSubmit={handleSubmit}
+                  className="rounded-2xl border border-white/10 bg-[#0B1626]/85 backdrop-blur-xl p-6 sm:p-7 shadow-[0_25px_70px_-20px_rgba(0,0,0,0.65)]"
+                >
+                  <h2 className="text-lg font-semibold text-white text-center">Sign In to Your Account</h2>
+                  <div className="mx-auto mt-2 mb-6 h-0.5 w-10 rounded-full bg-brand-orange" />
+
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-xs text-slate-400 mb-1.5 block text-left">Username</label>
+                      <div className="relative">
+                        <User size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
+                        <input
+                          className={inputClass}
+                          placeholder="Enter your username"
+                          value={username}
+                          onChange={(e) => setUsername(e.target.value)}
+                          autoFocus
+                          autoCapitalize="none"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-xs text-slate-400 mb-1.5 block text-left">Password</label>
+                      <div className="relative">
+                        <Lock size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
+                        <input
+                          type={showPassword ? 'text' : 'password'}
+                          className={inputClass + ' pr-10'}
+                          placeholder="Enter your password"
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword((v) => !v)}
+                          aria-label={showPassword ? 'Hide password' : 'Show password'}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                        >
+                          {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                      </div>
+                    </div>
+
+                    {error && <div className="text-sm text-rose-400 text-left">{error}</div>}
+
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand-orange to-orange-500 hover:from-orange-600 hover:to-orange-500 text-white font-semibold py-[11px] shadow-[0_10px_30px_-10px_rgba(249,115,22,0.55)] transition disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      {loading ? <><Loader2 size={15} className="animate-spin" /> Signing in...</> : 'Sign In'}
+                    </button>
+                  </div>
+                </form>
+
+                <a
+                  href={mailtoHref}
+                  className="mt-4 flex items-center justify-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                >
+                  <Mail size={13} /> Don't have access? Request it from{' '}
+                  <span className="text-brand-orange">raahigeo@gmail.com</span>
+                </a>
+              </div>
             </div>
 
-            {/* Right: login card */}
-            <div className="w-full max-w-sm xl:w-[380px] xl:shrink-0 xl:pt-2">
-              <form
-                onSubmit={handleSubmit}
-                className="rounded-2xl border border-white/10 bg-[#0B1626]/85 backdrop-blur-xl p-6 sm:p-7 shadow-[0_25px_70px_-20px_rgba(0,0,0,0.65)]"
-              >
-                <h2 className="text-lg font-semibold text-white text-center">Sign In to Your Account</h2>
-                <div className="mx-auto mt-2 mb-6 h-0.5 w-10 rounded-full bg-brand-orange" />
-
-                <div className="space-y-4">
-                  <div>
-                    <label className="text-xs text-slate-400 mb-1.5 block">Username</label>
-                    <div className="relative">
-                      <User size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
-                      <input
-                        className={inputClass}
-                        placeholder="Enter your username"
-                        value={username}
-                        onChange={(e) => setUsername(e.target.value)}
-                        autoFocus
-                        autoCapitalize="none"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="text-xs text-slate-400 mb-1.5 block">Password</label>
-                    <div className="relative">
-                      <Lock size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
-                      <input
-                        type={showPassword ? 'text' : 'password'}
-                        className={inputClass + ' pr-10'}
-                        placeholder="Enter your password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword((v) => !v)}
-                        aria-label={showPassword ? 'Hide password' : 'Show password'}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
-                      >
-                        {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                      </button>
-                    </div>
-                  </div>
-
-                  {error && <div className="text-sm text-rose-400">{error}</div>}
-
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand-orange to-orange-500 hover:from-orange-600 hover:to-orange-500 text-white font-semibold py-[11px] shadow-[0_10px_30px_-10px_rgba(249,115,22,0.55)] transition disabled:opacity-60 disabled:cursor-not-allowed"
-                  >
-                    {loading ? <><Loader2 size={15} className="animate-spin" /> Signing in...</> : 'Sign In'}
-                  </button>
-                </div>
-              </form>
-
-              <a
-                href={mailtoHref}
-                className="mt-4 flex items-center justify-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors"
-              >
-                <Mail size={13} /> Don't have access? Request it from{' '}
-                <span className="text-brand-orange">raahigeo@gmail.com</span>
-              </a>
+            {/* Right column: diagram panels -- desktop only, matches reference's sidebar */}
+            <div className="hidden xl:flex w-[300px] shrink-0 flex-col items-center gap-6 pt-2">
+              <FootingDiagramPanel />
+              <SoilClassificationPanel />
+              <SptChartPanel />
+              <div className="self-end pr-2 opacity-80">
+                <SecondaryDiagramPanel />
+              </div>
             </div>
           </div>
 
