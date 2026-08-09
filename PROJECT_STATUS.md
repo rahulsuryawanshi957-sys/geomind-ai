@@ -3003,6 +3003,62 @@ scoped).
 
 ---
 
+85. **Login page: newest "final direction" brief -- card back beside branding,
+    diagrams blended into background (no cards), new exact color palette,
+    8 Aug 2026.** Raahi sent a much more detailed, explicit brief + a full
+    reference board (mobile mock, desktop mock, and a grid of individual
+    geotechnical diagram references). Several things in it explicitly reverse
+    choices made in #84 earlier today:
+    - **Login card moved back beside the branding on desktop** (`xl:flex-row`,
+      card as a separate right-hand column) -- #84 had stacked it below the
+      branding in the same column; this brief explicitly says "LEFT/CENTER:
+      branding. RIGHT: login card," so that's reverted.
+    - **Removed the bordered "card" panels from #84** (soil classification table,
+      SPT chart panel, secondary diagram -- `LoginSidePanels.tsx`, deleted) because
+      this brief explicitly says the diagrams "must NOT appear as separate cards"
+      and should blend into the background instead. `LoginBackground.tsx` was
+      rewritten to add more diagram types (SPT line, settlement curve, pile
+      sketch, retaining wall) as low-opacity ambient SVG layers instead of boxed
+      panels.
+    - **Mobile background is no longer fully hidden.** #84's version hid most
+      diagrams below `lg`/`xl`; this brief has an explicit "MOBILE BACKGROUND"
+      section listing exactly which simplified visuals should stay visible on
+      phones: small foundation section, contour lines, soil strata, a small SPT
+      graph, a settlement curve, and a subtle pile sketch. All six are now
+      present at every breakpoint (smaller/fainter on mobile, larger on desktop)
+      instead of appearing only above `lg`.
+    - **Exact color palette applied**, given explicitly in this brief: page
+      background `#020817` (was `#050B14`), card background `#0D1B2A`/85% (was
+      `#0B1626`), button gradient now `brand-orange -> #FFAA2B`. `brand-orange`
+      itself was updated project-wide in `tailwind.config.js` from `#F97316` to
+      the brief's exact `#FF8A00` (see that file's comment) -- an imperceptibly
+      small shift that also touches a handful of Dashboard.tsx icon/link accents
+      that reuse the same token; not a functional change anywhere.
+    - **Mobile card width** changed to `w-[90%]` (was a fixed `max-w-sm`), per the
+      brief's explicit "85-92% of screen width" instruction.
+    - **Capability trust-row (Code Compliant / Reliable Analysis / Engineering
+      Excellence / Data Driven) now hidden below `md`** -- the brief's mobile
+      content order goes straight from the tagline to the login card, without
+      this row, to avoid the mobile page feeling overloaded. The 6-item service
+      strip (Geotechnical Investigations, Foundation Design, etc.) stays visible
+      on mobile as before.
+    - **Bridge/hillside corner motif is still an illustration, not a photo** --
+      same sandbox limitation as #83/#84 (no network access here to source/
+      license a real photo). Flag it back if the literal photo is wanted; needs
+      a real image file dropped into `frontend/public/`.
+    - **Verified:** both changed files compiled clean with `esbuild`, and
+      confirmed no leftover import of the now-deleted `LoginSidePanels.tsx`.
+      **Not seen on a real screen** -- same sandbox limitation as every round of
+      this login redesign. Treat the next deploy as the real test, at minimum at
+      375px/390px/430px (phone) and a normal laptop width, per the brief's own
+      "Quality Check" section.
+    - `frontend/` only changed this round: `src/pages/Login.tsx` (layout
+      reverted/adjusted), `src/components/LoginBackground.tsx` (rewritten),
+      `src/components/LoginSidePanels.tsx` (deleted -- no longer used),
+      `tailwind.config.js` (`brand.orange` hex updated).
+
+---
+
 ## How to give Raahi an update (workflow reminder for whoever's helping)
 
 1. Make code changes in your own sandbox, verify with `python3 -m py_compile` (backend,

@@ -8,9 +8,13 @@ export default {
         // Official RaahiGeo brand palette (logo colors) -- use `brand-navy` /
         // `brand-orange` when building brand-consistent UI (header, buttons, links,
         // active states) alongside the existing workspace palette below.
+        // 8 Aug 2026: brand-orange updated to #FF8A00 (was #F97316) per Raahi's
+        // "final" login-page brief, which pins this exact hex as the primary
+        // orange. Very close to the old value -- the few Dashboard.tsx accents
+        // that also use this token shift by an imperceptible amount.
         brand: {
           navy: '#0B2A5B',
-          orange: '#F97316',
+          orange: '#FF8A00',
         },
         // Premium engineering-workspace palette: deep navy base, slate surfaces,
         // purple + cyan dual accent (purple = AI/intelligence, cyan = data/precision).
