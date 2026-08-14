@@ -148,10 +148,7 @@ export const api = {
     liquefaction_depth_m?: number | null; critical_depth_factor?: number | null
     fos_compression?: number; fos_uplift?: number
     overrides?: Record<string, any>
-    settlement_soil_type?: string | null
-    settlement_es_t_m2?: number | null; settlement_mu?: number | null
-    settlement_cc?: number | null; settlement_e0?: number | null
-    settlement_h_m?: number | null; settlement_sigma0_kpa?: number | null
+    run_settlement?: boolean; settlement_influence_multiplier?: number
   }) => request<any>('/api/calculators/pile-group', { method: 'POST', body: JSON.stringify(payload) }),
 
   runLateralCapacity: (payload: {

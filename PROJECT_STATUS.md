@@ -3137,6 +3137,65 @@ scoped).
       (new), `src/pages/planned/PileGroup.tsx` (deleted), `src/App.tsx`,
       `src/components/Sidebar.tsx`, `src/api/client.ts`.
 
+87. **Pile Group Analysis -- fixed per Raahi's feedback, 14 Aug 2026.** Raahi
+    flagged 3 real problems with changelog #86's first version, all now fixed:
+    1. **Settlement was single-soil-type manual entry -- WRONG, soil is never
+       one type through the depth.** Replaced with a genuinely LAYER-WISE
+       equivalent-raft settlement: new `_group_settlement_layerwise()` walks
+       the borehole's real layers within the influence zone below the raft,
+       computing each sub-layer's own settlement contribution (Boussinesq
+       rectangular-load stress attenuation + IS:8009 consolidation for
+       clay/silt or the Fig-9 chart for sand/gravel, Fox depth-corrected) --
+       same formulas as the app's Bearing Capacity & Settlement multi-layer
+       tool, just applied at the group's equivalent raft instead of a single
+       footing. `PileGroupRequest`'s manual `settlement_soil_type` /
+       `settlement_cc` / `settlement_e0` / `settlement_es_t_m2` / `settlement_mu`
+       fields are GONE -- replaced by a simple `run_settlement: bool` +
+       `settlement_influence_multiplier: float` (default 1.5).
+    2. **Block failure's per-segment working wasn't shown on the frontend --
+       no transparency.** The backend was already computing it; the
+       `layer_report` (skin friction, per segment: c, φ, σ'v, α, cohesion/
+       friction terms) and `end_bearing_candidates` (per zone: Nc/Nq/Nγ,
+       cohesion/surcharge/weight terms) are now BOTH enriched to match the
+       single-pile calculator's own level of detail, and the frontend renders
+       full tables for both -- same as the existing Pile Capacity page's
+       skin-friction and end-bearing tables.
+    3. **No theory/diagram explanation -- added.** All 4 sections (group
+       efficiency, block failure, cap load distribution, settlement) now have
+       their own `TheorySection` (same collapsible "Theory / How this was
+       calculated" component used elsewhere in the app) with a plain-language
+       "why it exists" note, the exact formula for every step, a small SVG
+       diagram (pile grid + envelope for efficiency/block-failure, a rigid-cap
+       load diagram for cap distribution, a raft-depth + stress-bulb diagram
+       for settlement), and an honest-scope closing note.
+    - **Manual overrides kept, extended:** the borehole-wide `overrides` dict
+      (bulk density, cohesion, φ) already covered group efficiency/block
+      failure; two new override fields -- N-value and Cc/e0 -- now also let
+      settlement be overridden per the same convention, without needing to
+      edit the borehole itself. Nothing is a dead-end manual-only field
+      anymore -- automatic-from-borehole is the default, override is optional,
+      everywhere.
+    - **Verified:** `python3 -m py_compile` clean on all changed backend
+      files. Ran `run_pile_group_analysis()` directly with mock 3-layer
+      (clay/sand/clay) `SimpleNamespace` boreholes -- confirmed the layer-wise
+      settlement correctly splits across BOTH a sand sub-layer (Fig-9 chart)
+      and a clay sub-layer (NCS consolidation) in the same run, with sane P0/
+      Iz/Δσ numbers and a sensible total; confirmed the enriched block-failure
+      layer_report and end_bearing_candidates now carry every field the
+      frontend table needs. Frontend: `tsc --noEmit` clean (no TS1xxx syntax
+      errors). **Still not seen on a real screen or against Raahi's own
+      borehole data** -- same as changelog #86, treat the next deploy as the
+      real test.
+    - `backend/` changed: `app/services/pile_calculator.py` (new
+      `_group_settlement_layerwise()`, enriched `_block_failure_capacity()`,
+      reworked `run_pile_group_analysis()` signature), `app/schemas.py`
+      (`PileGroupRequest` settlement fields replaced), `app/routers/
+      calculators.py` (endpoint call updated). `frontend/` changed:
+      `src/pages/PileGroup.tsx` (rewritten -- settlement UI simplified to a
+      checkbox + influence multiplier, block-failure tables added, 4 theory/
+      diagram sections added, 2 new override fields), `src/api/client.ts`
+      (`runPileGroup` payload type updated).
+
 ---
 
 ## How to give Raahi an update (workflow reminder for whoever's helping)

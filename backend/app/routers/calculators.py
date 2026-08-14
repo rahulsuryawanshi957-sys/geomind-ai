@@ -215,13 +215,8 @@ def run_pile_group(req: PileGroupRequest, db: Session = Depends(get_db)):
             fos_compression=req.fos_compression,
             fos_uplift=req.fos_uplift,
             overrides=req.overrides,
-            settlement_soil_type=req.settlement_soil_type,
-            settlement_es_t_m2=req.settlement_es_t_m2,
-            settlement_mu=req.settlement_mu,
-            settlement_cc=req.settlement_cc,
-            settlement_e0=req.settlement_e0,
-            settlement_h_m=req.settlement_h_m,
-            settlement_sigma0_kpa=req.settlement_sigma0_kpa,
+            run_settlement=req.run_settlement,
+            settlement_influence_multiplier=req.settlement_influence_multiplier,
         )
     except ValueError as e:
         raise HTTPException(422, str(e))

@@ -145,14 +145,11 @@ class PileGroupRequest(BaseModel):
     fos_compression: float = 2.5
     fos_uplift: float = 2.5
     overrides: dict = {}
-    # Settlement -- optional; leave settlement_soil_type blank to skip
-    settlement_soil_type: str | None = None  # "granular" or "clay"
-    settlement_es_t_m2: float | None = None
-    settlement_mu: float | None = None
-    settlement_cc: float | None = None
-    settlement_e0: float | None = None
-    settlement_h_m: float | None = None
-    settlement_sigma0_kpa: float | None = None
+    # Settlement -- optional; leave run_settlement False to skip. When on, computed
+    # LAYER-WISE against the borehole's real layers (like the Bearing Capacity &
+    # Settlement multi-layer tool), not a single manually-entered soil type.
+    run_settlement: bool = False
+    settlement_influence_multiplier: float = 1.5  # influence zone = raft_depth + multiplier * min(Lg, Bg)
 
 
 class LateralCapacityRequest(BaseModel):

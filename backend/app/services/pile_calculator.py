@@ -40,7 +40,9 @@ NOT YET COVERED (documented, not silently skipped -- see PROJECT_STATUS.md):
 """
 import math
 
-from app.services.calculators import _founding_layer, _resolve_field, immediate_settlement, consolidation_settlement
+from app.services.calculators import (
+    _founding_layer, _resolve_field, _cumulative_overburden_stress, _fox_depth_correction_factor,
+)
 
 
 PILE_CODES = {"IS_2911", "IRC_78"}
@@ -378,13 +380,15 @@ def run_pile_capacity(
 #      as the single pile, just with the group's outer perimeter/base area
 #      instead of one pile's circumference/cross-section
 #   3. Pile cap load distribution -- rigid-cap elastic method (P/n +- M.x/Sum(x^2))
-#   4. Settlement of pile groups -- simplified EQUIVALENT RAFT method: a
-#      footing of the group's own plan size, placed at 2/3 pile length (friction
-#      piles) or at the pile toe (end-bearing piles), reusing the existing
-#      immediate_settlement()/consolidation_settlement() functions from
-#      calculators.py with manually-entered Es/mu or Cc/e0/H (same convention as
-#      the app's standalone Settlement calculator, which is also manual-entry,
-#      not multi-layer -- see PROJECT_STATUS.md known limitations).
+#   4. Settlement of pile groups -- LAYER-WISE equivalent raft (reworked 14 Aug
+#      2026, see _group_settlement_layerwise()'s own docstring): a footing of
+#      the group's own plan size, placed at 2/3 pile length (friction piles)
+#      or the pile toe (end-bearing piles), settlement summed sub-layer by
+#      sub-layer against the REAL borehole layers (Boussinesq rectangular-load
+#      stress attenuation + IS:8009 consolidation/Fig-9 chart per sub-layer,
+#      same formulas as the app's Bearing Capacity & Settlement multi-layer
+#      tool) -- NOT a single manually-entered soil type/Cc/e0 the way the
+#      first version of this feature worked.
 #
 # HONEST SCOPE NOTE: the equivalent-raft settlement here does NOT widen the
 # raft outward with depth (a common refinement, load spread at some angle
@@ -489,6 +493,7 @@ def _block_failure_capacity(
         ignored = ineffective_depth_m is not None and bottom <= ineffective_depth_m
         alpha = None
         qs_seg = 0.0
+        cohesion_term_t = friction_term_t = 0.0
         if not ignored:
             alpha = _alpha_is2911(cohesion) if code == "IS_2911" else _alpha_irc78(n_value)
             cohesion_term_t = alpha * cohesion * perimeter * thickness
@@ -500,8 +505,16 @@ def _block_failure_capacity(
             "from_m": round(top, 2), "to_m": round(bottom, 2), "thickness_m": round(thickness, 2),
             "founding_layer_classification": getattr(founding, "classification", None) or "n/a",
             "below_water_table": below_water_table,
+            "cohesion_t_m2": round(cohesion, 3), "phi_deg": round(phi, 2),
+            "n_value_used": round(n_value, 1) if (code == "IRC_78" and n_value is not None) else None,
+            "gamma_bulk_t_m3": round(gamma_bulk, 3), "gamma_eff_t_m3": round(gamma_eff, 3),
+            "sigma_v_start_t_m2": round(sigma_start, 3), "sigma_v_end_t_m2": round(sigma_end, 3),
+            "sigma_v_avg_t_m2": round(sigma_avg, 3),
             "overburden_capped_here": was_capped,
+            "K_used": K, "tan_phi": round(tan_phi, 4),
             "alpha": round(alpha, 3) if alpha is not None else None,
+            "cohesion_term_t": round(cohesion_term_t, 2),
+            "friction_term_t": round(friction_term_t, 2),
             "skin_friction_t": round(qs_seg, 2),
             "running_skin_friction_t": round(total_qs, 2),
             "ignored_scour_or_liquefaction": ignored,
@@ -527,7 +540,11 @@ def _block_failure_capacity(
         surcharge_term = base_area * sigma_v_toe * Nq
         weight_term = base_area * 0.5 * gamma_eff * width_for_ny * Ny
         Qp = cohesion_term + surcharge_term + weight_term
-        candidates.append({"at": label, "depth_m": round(d, 2), "cohesion_term_t": round(cohesion_term, 2),
+        candidates.append({"at": label, "depth_m": round(d, 2), "cohesion_t_m2": round(c, 3),
+                            "phi_deg": round(phi, 2), "gamma_eff_t_m3": round(gamma_eff, 3),
+                            "sigma_v_toe_t_m2": round(sigma_v_toe, 3), "base_area_m2": round(base_area, 3),
+                            "Nc": Nc, "Nq": round(Nq, 2), "Ny": round(Ny, 2),
+                            "cohesion_term_t": round(cohesion_term, 2),
                             "surcharge_term_t": round(surcharge_term, 2), "weight_term_t": round(weight_term, 2),
                             "end_bearing_t": round(Qp, 2)})
         for field, note in (("cohesion_t_m2", c_note), ("friction_angle_deg", phi_note), ("bulk_density_t_m3", g_note)):
@@ -555,6 +572,161 @@ def _block_failure_capacity(
     }
 
 
+def _group_settlement_layerwise(
+    layers: list, water_table_depth_m: float | None, Lg: float, Bg: float,
+    raft_depth_m: float, q_net_t_m2: float, influence_multiplier: float, overrides: dict,
+) -> dict:
+    """Equivalent-raft settlement, but LAYER-WISE against the borehole's real
+    layers (not a single manually-entered soil type) -- added 14 Aug 2026 in
+    response to Raahi's feedback that soil is never really "one type" through
+    the depth. Mirrors calculators.py's run_settlement_multilayer() (same
+    Boussinesq rectangular-load influence factor, same IS:8009 Fig-9 granular
+    formula, same NCS consolidation formula, same water-table Aw correction,
+    same Fox depth-correction, same Cc-from-void-ratio fallback) but computes
+    settlement for a GIVEN pressure directly instead of solving for the
+    pressure that produces a target settlement -- that inverse (bisection)
+    solve doesn't apply here since the group's applied pressure is already
+    fixed (cap_load_t / raft area).
+
+    NOT re-using run_settlement_multilayer() itself (its pressure-solve is
+    baked into that function via a closure) -- this is a parallel, simpler
+    forward version so the well-tested SBC-solving function isn't touched.
+
+    Still simplified vs a full raft analysis: no outward load-spread widening
+    of the raft with depth (flagged in the result's warnings), and no
+    Steinbrenner elastic component (off, same default as the SBC settlement
+    tool). Manual overrides (n_value, compression_index_cc,
+    initial_void_ratio_e0, bulk_density_t_m3) work exactly like every other
+    calculator in this app -- borehole-wide, always win over recorded data.
+    """
+    layers = sorted(layers, key=lambda l: l.from_m)
+    influence_depth = raft_depth_m + influence_multiplier * min(Lg, Bg)
+
+    def _iz_rect(z: float) -> float:
+        if z <= 0:
+            return 1.0
+        F = math.sqrt((Lg / 2) ** 2 + z ** 2)
+        G = math.sqrt((Bg / 2) ** 2 + z ** 2)
+        Hc = math.sqrt((Lg / 2) ** 2 + (Bg / 2) ** 2 + z ** 2)
+        return (4 / (2 * math.pi)) * (
+            math.atan((0.25 * Lg * Bg) / (z * Hc)) + (0.25 * Lg * Bg * z / Hc) * (1 / F ** 2 + 1 / G ** 2)
+        )
+
+    if water_table_depth_m is None:
+        Aw, aw_note = 1.0, "No water table given -- Aw = 1.0"
+    elif water_table_depth_m <= raft_depth_m:
+        Aw, aw_note = 0.5, f"Water table at/above raft depth -- Aw = 0.5"
+    elif water_table_depth_m >= influence_depth:
+        Aw, aw_note = 1.0, f"Water table below the influence zone -- Aw = 1.0"
+    else:
+        Aw = 0.5 + 0.5 * (water_table_depth_m - raft_depth_m) / (influence_depth - raft_depth_m)
+        aw_note = f"Water table within the influence zone -- Aw = {Aw:.3f}"
+
+    sub_layers = []
+    for l in layers:
+        top, bottom = max(l.from_m, raft_depth_m), min(l.to_m, influence_depth)
+        if bottom <= top:
+            continue
+        sub_layers.append({"layer": l, "top": top, "bottom": bottom, "thickness": bottom - top})
+    sub_layers.sort(key=lambda s: s["top"])
+    filled, cursor = [], raft_depth_m
+    for sl in sub_layers:
+        if sl["top"] > cursor:
+            filled.append({"layer": _founding_layer(layers, (cursor + sl["top"]) / 2), "top": cursor,
+                            "bottom": sl["top"], "thickness": sl["top"] - cursor, "gap_filled": True})
+        cursor = max(cursor, sl["bottom"])
+    if cursor < influence_depth:
+        filled.append({"layer": _founding_layer(layers, (cursor + influence_depth) / 2), "top": cursor,
+                        "bottom": influence_depth, "thickness": influence_depth - cursor, "gap_filled": True})
+    sub_layers = sorted(sub_layers + filled, key=lambda s: s["top"])
+    if not sub_layers:
+        raise ValueError(f"No soil layer data found within the settlement influence zone ({raft_depth_m:.2f}m to {influence_depth:.2f}m).")
+
+    fox = _fox_depth_correction_factor(Lg, Bg, raft_depth_m)
+    layer_report = []
+    running = 0.0
+    for sl in sub_layers:
+        l, H = sl["layer"], sl["thickness"]
+        z_mid = sl["top"] + H / 2
+        classification = (getattr(l, "classification", None) or "").strip().upper()
+        is_cohesive = classification[0] in ("C", "M") if classification else (overrides.get("compression_index_cc") is not None or getattr(l, "compression_index_cc", None) is not None)
+
+        Iz = _iz_rect(z_mid - raft_depth_m)
+        P0 = _cumulative_overburden_stress(layers, z_mid, overrides)
+        if P0 <= 0:
+            raise ValueError(f"Layer {l.from_m}-{l.to_m}m: overburden stress works out to zero or negative -- check bulk densities above it.")
+        dp = Iz * q_net_t_m2
+
+        if is_cohesive:
+            e0 = overrides.get("initial_void_ratio_e0")
+            if e0 is None:
+                e0, _ = _resolve_field(layers, l, "initial_void_ratio_e0")
+            if e0 is None:
+                raise ValueError(f"Layer {l.from_m}-{l.to_m}m: no initial_void_ratio_e0 anywhere in this borehole to fall back on.")
+            cc = overrides.get("compression_index_cc")
+            cc_source = "manual override" if cc is not None else None
+            if cc is None:
+                cc, cc_source = _resolve_field(layers, l, "compression_index_cc")
+            if cc is None:
+                cc = 0.3 * (e0 - 0.27)
+                cc_source = f"estimated from void ratio (Cc=0.3\u00b7(e0-0.27), e0={e0:.3f})"
+            raw_mm = (H / (1 + e0)) * cc * math.log10((P0 + dp) / P0) * 1000
+            method = "Clay/Silt consolidation (NCS)"
+            working = f"Sc = (H/(1+e0))\u00b7Cc\u00b7log10((P0+\u0394\u03c3)/P0)\u00b71000 = ({H:.2f}/(1+{e0:.3f}))\u00b7{cc:.4f}\u00b7log10(({P0:.2f}+{dp:.3f})/{P0:.2f})\u00b71000 = {raw_mm:.2f} mm"
+            detail = {"soil_type": "Cohesive (incl. Silt)", "cc": round(cc, 4), "cc_source": cc_source, "e0": round(e0, 3)}
+        else:
+            n_val = overrides.get("n_value")
+            n_source = "manual override" if n_val is not None else None
+            if n_val is None:
+                n_val, n_source = _resolve_field(layers, l, "n_value")
+            if n_val is None:
+                raise ValueError(f"Layer {l.from_m}-{l.to_m}m: no n_value anywhere in this borehole to fall back on (needed for the granular settlement chart).")
+            if n_val <= 3:
+                raise ValueError(f"Layer {l.from_m}-{l.to_m}m: N-value ({n_val}) must be > 3 for the IS:8009 Fig-9 chart to apply.")
+            width_for_chart = min(Lg, Bg)
+            settlement_at_10t = 10 / (0.1385 * (n_val - 3) * ((width_for_chart + 0.3) / (2 * width_for_chart)) ** 2)
+            raw_mm = settlement_at_10t * dp / (10 * Aw)
+            method = "Sand/Gravel -- IS:8009 Fig-9 chart"
+            working = f"Sc = (Settlement-at-10t/m\u00b2 \u00d7 \u0394\u03c3)/(10\u00d7Aw) = ({settlement_at_10t:.3f}\u00d7{dp:.3f})/(10\u00d7{Aw:.3f}) = {raw_mm:.2f} mm"
+            detail = {"soil_type": "Non-cohesive (granular)", "n_value_used": round(n_val, 1), "n_value_source": n_source}
+
+        layer_settlement_mm = raw_mm * fox
+        running += layer_settlement_mm
+        working += f" -> \u00d7Fox({fox:.3f}) = {layer_settlement_mm:.2f} mm"
+        layer_report.append({
+            "from_m": round(sl["top"], 2), "to_m": round(sl["bottom"], 2), "thickness_m": round(H, 2),
+            "classification": getattr(l, "classification", None) or "n/a",
+            "gap_filled": sl.get("gap_filled", False),
+            "settlement_method": method, **detail,
+            "P0_t_m2": round(P0, 3), "Iz": round(Iz, 4), "stress_increase_t_m2": round(dp, 3),
+            "layer_settlement_mm": round(layer_settlement_mm, 3), "running_settlement_mm": round(running, 3),
+            "working": working,
+        })
+
+    return {
+        "result": round(running, 2), "unit": "mm",
+        "raft_depth_m": round(raft_depth_m, 2), "influence_zone_to_m": round(influence_depth, 2),
+        "influence_multiplier": influence_multiplier,
+        "net_pressure_t_m2": round(q_net_t_m2, 3),
+        "fox_depth_correction_factor": round(fox, 3),
+        "water_table_correction_note": aw_note,
+        "sub_layer_count": len(sub_layers),
+        "layer_report": layer_report,
+        "formula": "Per-sublayer IS:8009 consolidation (clay/silt) or Fig-9 chart (sand/gravel), Boussinesq rectangular-load "
+                   "stress attenuation, summed and Fox-corrected -- same method as the Bearing Capacity & Settlement calculator's "
+                   "multi-layer settlement, applied here at the equivalent raft.",
+        "warnings": [
+            f"Equivalent raft: {Lg}m \u00d7 {Bg}m plan (group envelope, no outward load-spread widening with depth), "
+            f"placed {raft_depth_m:.2f}m below ground.",
+            f"Influence zone: {raft_depth_m:.2f}m to {influence_depth:.2f}m below ground, split across {len(sub_layers)} "
+            f"real borehole sub-layer(s).",
+            "Elastic (immediate) settlement component is not included -- consolidation/chart settlement only, same "
+            "default as the app's other settlement calculators.",
+            "Silt (MI/MH/ML) is treated as COHESIVE, same convention as the rest of this app.",
+        ],
+    }
+
+
 def run_pile_group_analysis(
     layers: list,
     water_table_depth_m: float | None,
@@ -575,13 +747,8 @@ def run_pile_group_analysis(
     fos_compression: float = 2.5,
     fos_uplift: float = 2.5,
     overrides: dict | None = None,
-    settlement_soil_type: str | None = None,
-    settlement_es_t_m2: float | None = None,
-    settlement_mu: float | None = None,
-    settlement_cc: float | None = None,
-    settlement_e0: float | None = None,
-    settlement_h_m: float | None = None,
-    settlement_sigma0_kpa: float | None = None,
+    run_settlement: bool = False,
+    settlement_influence_multiplier: float = 1.5,
 ) -> dict:
     overrides = overrides or {}
     pile_behaviour = pile_behaviour.lower()
@@ -651,36 +818,17 @@ def run_pile_group_analysis(
         "formula": "Qi = P/n \u00b1 My\u00b7xi/\u03a3xi\u00b2 \u00b1 Mx\u00b7yi/\u03a3yi\u00b2  (rigid pile cap, elastic method)",
     }
 
-    # ---------- Settlement (equivalent raft, simplified -- see module note) ----------
+    # ---------- Settlement (equivalent raft, layer-wise -- see function docstring) ----------
     settlement_result = None
-    if settlement_soil_type:
-        settlement_soil_type = settlement_soil_type.lower()
+    if run_settlement:
         raft_depth_below_cap = pile_length_m if pile_behaviour == "end_bearing" else (2 / 3) * pile_length_m
         raft_depth_total = cutoff_depth_m + raft_depth_below_cap
-        q_t_m2 = cap_load_t / (Lg * Bg)
-        q_kpa = q_t_m2 * 9.81
-        raft_warnings = [
-            f"Equivalent raft placed {raft_depth_total:.2f} m below ground "
-            f"({'pile toe, end-bearing group' if pile_behaviour == 'end_bearing' else '2/3 of pile length below cutoff, friction group'}), "
-            f"plan size = group envelope {Lg}m \u00d7 {Bg}m -- SIMPLIFIED: no outward load-spread widening "
-            f"with depth is applied here.",
-        ]
-        if settlement_soil_type == "granular":
-            if settlement_es_t_m2 is None or settlement_mu is None:
-                raise ValueError("Granular-soil group settlement needs settlement_es_t_m2 and settlement_mu.")
-            raw = immediate_settlement(q_kpa=q_kpa, width_m=min(Lg, Bg), es_kpa=settlement_es_t_m2 * 9.81, mu=settlement_mu)
-        elif settlement_soil_type == "clay":
-            if None in (settlement_cc, settlement_e0, settlement_h_m, settlement_sigma0_kpa):
-                raise ValueError("Clay group settlement needs settlement_cc, settlement_e0, settlement_h_m and settlement_sigma0_kpa.")
-            raw = consolidation_settlement(cc=settlement_cc, e0=settlement_e0, h_m=settlement_h_m,
-                                            sigma0_kpa=settlement_sigma0_kpa, delta_sigma_kpa=q_kpa)
-        else:
-            raise ValueError("settlement_soil_type must be 'granular' or 'clay'.")
-        raw["warnings"] = raw.get("warnings", []) + raft_warnings
-        raw["equivalent_raft_depth_m"] = round(raft_depth_total, 2)
-        raw["equivalent_raft_size_m"] = f"{Lg} \u00d7 {Bg}"
-        raw["net_pressure_kpa"] = round(q_kpa, 2)
-        settlement_result = raw
+        q_net_t_m2 = cap_load_t / (Lg * Bg)
+        settlement_result = _group_settlement_layerwise(
+            layers=layers, water_table_depth_m=water_table_depth_m, Lg=Lg, Bg=Bg,
+            raft_depth_m=raft_depth_total, q_net_t_m2=q_net_t_m2,
+            influence_multiplier=settlement_influence_multiplier, overrides=overrides,
+        )
 
     return {
         "code": single["code"],
