@@ -40,7 +40,7 @@ NOT YET COVERED (documented, not silently skipped -- see PROJECT_STATUS.md):
 """
 import math
 
-from app.services.calculators import _founding_layer, _resolve_field
+from app.services.calculators import _founding_layer, _resolve_field, immediate_settlement, consolidation_settlement
 
 
 PILE_CODES = {"IS_2911", "IRC_78"}
@@ -363,6 +363,346 @@ def run_pile_capacity(
         "unit": "t (tonnes)",
         "formula": "Qu = Qs + Qp;  Qs = Sum[(alpha.c + K.sigma'v.tanphi).perimeter.dL];  "
                    "Qp = Ap.(c.Nc + sigma'v.Nq + 0.5.gamma.D.Ny)",
+        "warnings": warnings,
+    }
+
+
+# ==================== PILE GROUP ANALYSIS ====================
+# Added 14 Aug 2026, per Raahi's request (screenshot of the "Pile Group Analysis"
+# Coming Soon page). Builds entirely on the single-pile engine above -- no new
+# soil-property machinery needed. Covers exactly the 4 items listed on that
+# placeholder page:
+#   1. Group efficiency -- Converse-Labarre formula (IS 2911)
+#   2. Block failure -- group treated as one large equivalent pier, using the
+#      SAME skin-friction (alpha/K method) + end-bearing (Nc/Nq/Ny) machinery
+#      as the single pile, just with the group's outer perimeter/base area
+#      instead of one pile's circumference/cross-section
+#   3. Pile cap load distribution -- rigid-cap elastic method (P/n +- M.x/Sum(x^2))
+#   4. Settlement of pile groups -- simplified EQUIVALENT RAFT method: a
+#      footing of the group's own plan size, placed at 2/3 pile length (friction
+#      piles) or at the pile toe (end-bearing piles), reusing the existing
+#      immediate_settlement()/consolidation_settlement() functions from
+#      calculators.py with manually-entered Es/mu or Cc/e0/H (same convention as
+#      the app's standalone Settlement calculator, which is also manual-entry,
+#      not multi-layer -- see PROJECT_STATUS.md known limitations).
+#
+# HONEST SCOPE NOTE: the equivalent-raft settlement here does NOT widen the
+# raft outward with depth (a common refinement, load spread at some angle
+# below the group perimeter) -- it's the plain group-envelope-size raft. This
+# is flagged in the result's own warnings every time settlement is requested.
+# Block failure's "critical depth" cap reuses the single pile's xD rule but
+# with D replaced by the group's average plan dimension (Lg+Bg)/2, since a
+# rectangular block has no single diameter -- also flagged as an assumption.
+
+
+def _group_geometry(num_rows: int, num_cols: int, spacing_m: float, diameter_m: float) -> dict:
+    if num_rows < 1 or num_cols < 1:
+        raise ValueError("Number of rows and columns must each be at least 1.")
+    if num_rows * num_cols < 2:
+        raise ValueError("A pile group needs at least 2 piles -- use the single Pile Capacity calculator for one pile.")
+    if spacing_m <= diameter_m:
+        raise ValueError("Pile spacing (centre-to-centre) must be greater than the pile diameter.")
+
+    positions = []
+    for r in range(num_rows):
+        for c in range(num_cols):
+            positions.append((c * spacing_m, r * spacing_m))
+    cx = (num_cols - 1) * spacing_m / 2
+    cy = (num_rows - 1) * spacing_m / 2
+    positions = [(round(x - cx, 4), round(y - cy, 4)) for x, y in positions]
+
+    Lg = (num_cols - 1) * spacing_m + diameter_m
+    Bg = (num_rows - 1) * spacing_m + diameter_m
+    return {"n_piles": num_rows * num_cols, "positions": positions, "Lg_m": round(Lg, 3), "Bg_m": round(Bg, 3)}
+
+
+def _group_efficiency_converse_labarre(num_rows: int, num_cols: int, spacing_m: float, diameter_m: float) -> dict:
+    theta_deg = math.degrees(math.atan(diameter_m / spacing_m))
+    m, n = num_rows, num_cols
+    Eg = max(1 - theta_deg * ((n - 1) * m + (m - 1) * n) / (90 * m * n), 0.0)
+    return {
+        "theta_deg": round(theta_deg, 3),
+        "efficiency": round(Eg, 4),
+        "formula": "Eg = 1 - \u03b8[(n-1)m + (m-1)n] / (90mn),  \u03b8 = arctan(D/s) in degrees  (Converse-Labarre, IS 2911)",
+    }
+
+
+def _block_failure_capacity(
+    layers: list, water_table_depth_m: float | None, toe_depth: float, code: str,
+    Lg: float, Bg: float, scour_depth_m: float | None, liquefaction_depth_m: float | None,
+    critical_depth_factor: float | None, overrides: dict,
+) -> dict:
+    layers = sorted(layers, key=lambda l: l.from_m)
+    ineffective_depth_m = max(scour_depth_m or 0.0, liquefaction_depth_m or 0.0) or None
+    default_critical_depth_factor = 15.0 if code == "IS_2911" else 20.0
+    critical_depth_factor = critical_depth_factor if critical_depth_factor is not None else default_critical_depth_factor
+    equiv_diameter = (Lg + Bg) / 2  # group has no single "D" -- see module note above
+    critical_depth = critical_depth_factor * equiv_diameter + (ineffective_depth_m or 0.0)
+    K = 1.0 if code == "IS_2911" else 1.5
+
+    perimeter = 2 * (Lg + Bg)
+    base_area = Lg * Bg
+    width_for_ny = min(Lg, Bg)
+
+    boundaries = _segment_boundaries(toe_depth, water_table_depth_m, critical_depth, ineffective_depth_m, layers)
+    running_overburden = 0.0
+    capped_overburden = None
+    layer_report = []
+    total_qs = 0.0
+    estimated_fields = []
+
+    for top, bottom in zip(boundaries[:-1], boundaries[1:]):
+        mid = (top + bottom) / 2
+        thickness = bottom - top
+        if thickness <= 0:
+            continue
+        founding = _founding_layer(layers, mid)
+        cohesion, c_note = _resolve(layers, founding, "cohesion_t_m2", overrides)
+        phi, phi_note = _resolve(layers, founding, "friction_angle_deg", overrides)
+        gamma_bulk, g_note = _resolve(layers, founding, "bulk_density_t_m3", overrides)
+        n_value, n_note = _resolve(layers, founding, "n_value", overrides)
+        if cohesion is None or phi is None or gamma_bulk is None:
+            raise ValueError(
+                f"No cohesion/phi/density available for the {top:.2f}-{bottom:.2f}m segment (block failure) -- "
+                f"add a manual override to run this calculation."
+            )
+        for field, note in (("cohesion_t_m2", c_note), ("friction_angle_deg", phi_note), ("bulk_density_t_m3", g_note)):
+            if "this layer" not in note:
+                estimated_fields.append(f"{field} for {top:.2f}-{bottom:.2f}m (block): {note}")
+
+        gamma_eff = gamma_bulk - 1.0 if water_table_depth_m is not None and top >= water_table_depth_m else gamma_bulk
+        gamma_eff = max(gamma_eff, 0.1)
+        below_water_table = water_table_depth_m is not None and top >= water_table_depth_m
+
+        was_capped = capped_overburden is not None
+        if capped_overburden is None:
+            sigma_start = running_overburden
+            running_overburden += gamma_eff * thickness
+            sigma_end = running_overburden
+            if bottom >= critical_depth:
+                capped_overburden = sigma_start + gamma_eff * max(critical_depth - top, 0)
+        else:
+            sigma_start = sigma_end = capped_overburden
+        sigma_avg = (sigma_start + sigma_end) / 2
+
+        tan_phi = math.tan(math.radians(phi))
+        ignored = ineffective_depth_m is not None and bottom <= ineffective_depth_m
+        alpha = None
+        qs_seg = 0.0
+        if not ignored:
+            alpha = _alpha_is2911(cohesion) if code == "IS_2911" else _alpha_irc78(n_value)
+            cohesion_term_t = alpha * cohesion * perimeter * thickness
+            friction_term_t = K * sigma_avg * tan_phi * perimeter * thickness
+            qs_seg = max(cohesion_term_t + friction_term_t, 0.0)
+            total_qs += qs_seg
+
+        layer_report.append({
+            "from_m": round(top, 2), "to_m": round(bottom, 2), "thickness_m": round(thickness, 2),
+            "founding_layer_classification": getattr(founding, "classification", None) or "n/a",
+            "below_water_table": below_water_table,
+            "overburden_capped_here": was_capped,
+            "alpha": round(alpha, 3) if alpha is not None else None,
+            "skin_friction_t": round(qs_seg, 2),
+            "running_skin_friction_t": round(total_qs, 2),
+            "ignored_scour_or_liquefaction": ignored,
+        })
+
+    if capped_overburden is None:
+        capped_overburden = running_overburden
+    sigma_v_toe = capped_overburden
+
+    candidates = []
+    for label, d in (("toe - 2\u00d7Deq", toe_depth - 2 * equiv_diameter), ("toe", toe_depth), ("toe + 2\u00d7Deq", toe_depth + 2 * equiv_diameter)):
+        d = max(d, 0.0)
+        founding = _founding_layer(layers, d)
+        c, c_note = _resolve(layers, founding, "cohesion_t_m2", overrides)
+        phi, phi_note = _resolve(layers, founding, "friction_angle_deg", overrides)
+        gamma_bulk, g_note = _resolve(layers, founding, "bulk_density_t_m3", overrides)
+        if c is None or phi is None or gamma_bulk is None:
+            continue
+        gamma_eff = gamma_bulk - 1.0 if water_table_depth_m is not None and d >= water_table_depth_m else gamma_bulk
+        gamma_eff = max(gamma_eff, 0.1)
+        Nc, Nq, Ny = _nc_nq_ny(phi)
+        cohesion_term = base_area * c * Nc
+        surcharge_term = base_area * sigma_v_toe * Nq
+        weight_term = base_area * 0.5 * gamma_eff * width_for_ny * Ny
+        Qp = cohesion_term + surcharge_term + weight_term
+        candidates.append({"at": label, "depth_m": round(d, 2), "cohesion_term_t": round(cohesion_term, 2),
+                            "surcharge_term_t": round(surcharge_term, 2), "weight_term_t": round(weight_term, 2),
+                            "end_bearing_t": round(Qp, 2)})
+        for field, note in (("cohesion_t_m2", c_note), ("friction_angle_deg", phi_note), ("bulk_density_t_m3", g_note)):
+            if "this layer" not in note:
+                estimated_fields.append(f"{field} near block base ({label}, {d:.2f}m): {note}")
+
+    if not candidates:
+        raise ValueError("Could not resolve soil properties near the block base -- add manual overrides.")
+    governing = min(candidates, key=lambda x: x["end_bearing_t"])
+    Qp_block = governing["end_bearing_t"]
+    Qu_block = total_qs + Qp_block
+
+    return {
+        "perimeter_m": round(perimeter, 3), "base_area_m2": round(base_area, 3),
+        "critical_depth_factor_used": critical_depth_factor,
+        "ultimate_skin_friction_t": round(total_qs, 2),
+        "ultimate_end_bearing_t": round(Qp_block, 2),
+        "governing_end_bearing_zone": governing["at"],
+        "end_bearing_candidates": candidates,
+        "ultimate_block_capacity_t": round(Qu_block, 2),
+        "layer_report": layer_report,
+        "estimated_fields": estimated_fields,
+        "formula": "Qu(block) = perimeter\u00d7\u03a3[(\u03b1\u00b7c + K\u00b7\u03c3'v\u00b7tan\u03c6)\u00b7thickness] + base_area\u00d7(c\u00b7Nc + \u03c3'v\u00b7Nq + 0.5\u00b7\u03b3\u00b7B\u00b7N\u03b3) "
+                   "-- group treated as one large equivalent pier/pile",
+    }
+
+
+def run_pile_group_analysis(
+    layers: list,
+    water_table_depth_m: float | None,
+    diameter_m: float,
+    pile_length_m: float,
+    cutoff_depth_m: float,
+    code: str,
+    num_rows: int,
+    num_cols: int,
+    spacing_m: float,
+    cap_load_t: float,
+    moment_x_t_m: float = 0.0,
+    moment_y_t_m: float = 0.0,
+    pile_behaviour: str = "friction",
+    scour_depth_m: float | None = None,
+    liquefaction_depth_m: float | None = None,
+    critical_depth_factor: float | None = None,
+    fos_compression: float = 2.5,
+    fos_uplift: float = 2.5,
+    overrides: dict | None = None,
+    settlement_soil_type: str | None = None,
+    settlement_es_t_m2: float | None = None,
+    settlement_mu: float | None = None,
+    settlement_cc: float | None = None,
+    settlement_e0: float | None = None,
+    settlement_h_m: float | None = None,
+    settlement_sigma0_kpa: float | None = None,
+) -> dict:
+    overrides = overrides or {}
+    pile_behaviour = pile_behaviour.lower()
+    if pile_behaviour not in ("friction", "end_bearing"):
+        raise ValueError("pile_behaviour must be 'friction' or 'end_bearing'.")
+
+    geom = _group_geometry(num_rows, num_cols, spacing_m, diameter_m)
+    n_piles = geom["n_piles"]
+    Lg, Bg = geom["Lg_m"], geom["Bg_m"]
+
+    single = run_pile_capacity(
+        layers=layers, water_table_depth_m=water_table_depth_m, diameter_m=diameter_m,
+        pile_length_m=pile_length_m, cutoff_depth_m=cutoff_depth_m, code=code,
+        scour_depth_m=scour_depth_m, liquefaction_depth_m=liquefaction_depth_m,
+        critical_depth_factor=critical_depth_factor, fos_compression=fos_compression,
+        fos_uplift=fos_uplift, overrides=overrides,
+    )
+
+    eff = _group_efficiency_converse_labarre(num_rows, num_cols, spacing_m, diameter_m)
+    Eg = eff["efficiency"]
+    Qu_group_efficiency = Eg * n_piles * single["ultimate_compression_capacity_t"]
+    Qa_group_efficiency = Qu_group_efficiency / fos_compression
+
+    toe_depth = cutoff_depth_m + pile_length_m
+    block = _block_failure_capacity(
+        layers=layers, water_table_depth_m=water_table_depth_m, toe_depth=toe_depth, code=code,
+        Lg=Lg, Bg=Bg, scour_depth_m=scour_depth_m, liquefaction_depth_m=liquefaction_depth_m,
+        critical_depth_factor=critical_depth_factor, overrides=overrides,
+    )
+    Qa_block = block["ultimate_block_capacity_t"] / fos_compression
+
+    if Qa_group_efficiency <= Qa_block:
+        governing_mode = "group_efficiency"
+        Qa_group = Qa_group_efficiency
+    else:
+        governing_mode = "block_failure"
+        Qa_group = Qa_block
+
+    warnings = [
+        "Governing group capacity is the LOWER of the group-efficiency method and the block-failure "
+        "method, per standard practice (IS 2911 commentary) -- widely spaced groups in sand are "
+        "usually governed by group efficiency, closely spaced groups in clay by block failure.",
+        "Group efficiency (Converse-Labarre) is an empirical reduction, not a formula given inside "
+        "IS 2911 itself, but is the standard method used alongside it -- treat as indicative.",
+        "Block failure's critical-depth cap reuses the single-pile xD rule with D replaced by the "
+        "group's average plan dimension (Lg+Bg)/2, since a rectangular block has no single diameter.",
+    ]
+
+    # ---------- Pile cap load distribution (rigid cap, elastic method) ----------
+    positions = geom["positions"]
+    sum_x2 = sum(x * x for x, y in positions) or 1e-9
+    sum_y2 = sum(y * y for x, y in positions) or 1e-9
+    pile_loads = []
+    for i, (x, y) in enumerate(positions):
+        q = cap_load_t / n_piles + moment_y_t_m * x / sum_x2 + moment_x_t_m * y / sum_y2
+        pile_loads.append({"pile": i + 1, "x_m": x, "y_m": y, "load_t": round(q, 2)})
+    max_pile = max(pile_loads, key=lambda p: p["load_t"])
+    min_pile = min(pile_loads, key=lambda p: p["load_t"])
+    allowable_per_pile_t = round(Eg * single["allowable_compression_capacity_t"], 2)
+
+    cap_result = {
+        "positions": pile_loads,
+        "max_pile_load_t": max_pile["load_t"], "max_pile_position_m": [max_pile["x_m"], max_pile["y_m"]],
+        "min_pile_load_t": min_pile["load_t"], "min_pile_position_m": [min_pile["x_m"], min_pile["y_m"]],
+        "allowable_per_pile_t": allowable_per_pile_t,
+        "within_capacity": max_pile["load_t"] <= allowable_per_pile_t,
+        "formula": "Qi = P/n \u00b1 My\u00b7xi/\u03a3xi\u00b2 \u00b1 Mx\u00b7yi/\u03a3yi\u00b2  (rigid pile cap, elastic method)",
+    }
+
+    # ---------- Settlement (equivalent raft, simplified -- see module note) ----------
+    settlement_result = None
+    if settlement_soil_type:
+        settlement_soil_type = settlement_soil_type.lower()
+        raft_depth_below_cap = pile_length_m if pile_behaviour == "end_bearing" else (2 / 3) * pile_length_m
+        raft_depth_total = cutoff_depth_m + raft_depth_below_cap
+        q_t_m2 = cap_load_t / (Lg * Bg)
+        q_kpa = q_t_m2 * 9.81
+        raft_warnings = [
+            f"Equivalent raft placed {raft_depth_total:.2f} m below ground "
+            f"({'pile toe, end-bearing group' if pile_behaviour == 'end_bearing' else '2/3 of pile length below cutoff, friction group'}), "
+            f"plan size = group envelope {Lg}m \u00d7 {Bg}m -- SIMPLIFIED: no outward load-spread widening "
+            f"with depth is applied here.",
+        ]
+        if settlement_soil_type == "granular":
+            if settlement_es_t_m2 is None or settlement_mu is None:
+                raise ValueError("Granular-soil group settlement needs settlement_es_t_m2 and settlement_mu.")
+            raw = immediate_settlement(q_kpa=q_kpa, width_m=min(Lg, Bg), es_kpa=settlement_es_t_m2 * 9.81, mu=settlement_mu)
+        elif settlement_soil_type == "clay":
+            if None in (settlement_cc, settlement_e0, settlement_h_m, settlement_sigma0_kpa):
+                raise ValueError("Clay group settlement needs settlement_cc, settlement_e0, settlement_h_m and settlement_sigma0_kpa.")
+            raw = consolidation_settlement(cc=settlement_cc, e0=settlement_e0, h_m=settlement_h_m,
+                                            sigma0_kpa=settlement_sigma0_kpa, delta_sigma_kpa=q_kpa)
+        else:
+            raise ValueError("settlement_soil_type must be 'granular' or 'clay'.")
+        raw["warnings"] = raw.get("warnings", []) + raft_warnings
+        raw["equivalent_raft_depth_m"] = round(raft_depth_total, 2)
+        raw["equivalent_raft_size_m"] = f"{Lg} \u00d7 {Bg}"
+        raw["net_pressure_kpa"] = round(q_kpa, 2)
+        settlement_result = raw
+
+    return {
+        "code": single["code"],
+        "n_piles": n_piles, "layout": f"{num_rows} \u00d7 {num_cols}",
+        "group_length_m": Lg, "group_width_m": Bg,
+        "pile_positions_m": positions,
+        "single_pile": {
+            "ultimate_compression_capacity_t": single["ultimate_compression_capacity_t"],
+            "allowable_compression_capacity_t": single["allowable_compression_capacity_t"],
+            "ultimate_uplift_capacity_t": single["ultimate_uplift_capacity_t"],
+            "allowable_uplift_capacity_t": single["allowable_uplift_capacity_t"],
+        },
+        "group_efficiency": eff,
+        "group_capacity_efficiency_method": {"ultimate_t": round(Qu_group_efficiency, 2), "allowable_t": round(Qa_group_efficiency, 2)},
+        "block_failure": block,
+        "group_capacity_block_method": {"ultimate_t": block["ultimate_block_capacity_t"], "allowable_t": round(Qa_block, 2)},
+        "governing_group_capacity_t": round(Qa_group, 2),
+        "governing_mode": governing_mode,
+        "fos_compression": fos_compression,
+        "cap_load_distribution": cap_result,
+        "settlement": settlement_result,
+        "unit": "t (tonnes)",
         "warnings": warnings,
     }
 

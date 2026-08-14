@@ -37,7 +37,7 @@ export const NAV_SECTIONS: { label: string | null; items: NavItem[] }[] = [
       { to: '/rock-socket-pile', label: 'Rock Socket Pile', icon: Gem },
       { to: '/well-foundation', label: 'Well Foundation', icon: Waves },
       { to: '/pile-capacity', label: 'Pile Capacity', icon: Milestone },
-      { to: '/pile-group', label: 'Pile Group', icon: Network, soon: true },
+      { to: '/pile-group', label: 'Pile Group', icon: Network },
       { to: '/raft-foundation', label: 'Raft Foundation', icon: Grid3x3, soon: true },
       { to: '/retaining-wall', label: 'Retaining Wall', icon: Boxes },
       { to: '/lateral-capacity', label: 'Lateral Capacity', icon: ArrowLeftRight },

@@ -3,9 +3,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import CalculationLog, BoreholeProfile
-from app.schemas import CalculatorRequest, BatchRunRequest, LiquefactionRequest, PileCapacityRequest, PileCommandRequest, LateralCapacityRequest, RetainingWallRequest, RockBearingCapacityRequest, GroundImprovementRequest, RockSocketPileRequest
+from app.schemas import CalculatorRequest, BatchRunRequest, LiquefactionRequest, PileCapacityRequest, PileCommandRequest, LateralCapacityRequest, RetainingWallRequest, RockBearingCapacityRequest, GroundImprovementRequest, RockSocketPileRequest, PileGroupRequest
 from app.services.calculators import CALCULATOR_REGISTRY, run_batch_matrix, run_liquefaction_analysis
-from app.services.pile_calculator import run_pile_capacity, parse_pile_command, run_lateral_capacity
+from app.services.pile_calculator import run_pile_capacity, parse_pile_command, run_lateral_capacity, run_pile_group_analysis
 from app.services.retaining_wall_calculator import run_retaining_wall_analysis
 from app.services.rock_bearing_capacity import run_rock_bearing_capacity
 from app.services.ground_improvement import run_ground_improvement
@@ -24,10 +24,13 @@ router = APIRouter(prefix="/api/calculators", tags=["calculators"])
 # retaining_wall_calculator.py's module docstring for exact scope.
 # rock_bearing_capacity moved OUT (4 Aug 2026) -- own /rock-sbc endpoint
 # below, see rock_bearing_capacity.py's module docstring.
-# Driven piles / rock sockets / pile groups are still not implemented -- see
+# Driven piles and rock sockets are still not implemented -- see
 # pile_calculator.py's module docstring for exactly what Phase 1 covers.
+# pile group analysis (group_efficiency + block failure + cap load distribution +
+# settlement) moved OUT of this list (14 Aug 2026) -- own dedicated /pile-group
+# endpoint below, same pattern as /pile and /lateral.
 PLANNED_CALCULATORS = [
-    "raft_foundation", "isolated_footing", "group_efficiency",
+    "raft_foundation", "isolated_footing",
     "lateral_pile", "plate_load_test",
     "safe_bearing_capacity", "modulus_subgrade_reaction",
 ]
@@ -169,6 +172,62 @@ def run_pile(req: PileCapacityRequest, db: Session = Depends(get_db)):
 
     log = CalculationLog(
         calculator_type="pile_capacity",
+        inputs_json=json.dumps(req.model_dump()),
+        result_json=json.dumps(result),
+    )
+    db.add(log)
+    db.commit()
+
+    result["borehole_id"] = profile.borehole_id
+    return result
+
+
+@router.post("/pile-group")
+def run_pile_group(req: PileGroupRequest, db: Session = Depends(get_db)):
+    """Pile Group Analysis -- group efficiency (Converse-Labarre), block failure
+    (equivalent pier), pile cap load distribution, and optional equivalent-raft
+    settlement. Reuses the same BoreholeProfile as /pile. See
+    run_pile_group_analysis()'s module section in pile_calculator.py for scope."""
+    profile = db.query(BoreholeProfile).filter(BoreholeProfile.id == req.borehole_id).first()
+    if not profile:
+        raise HTTPException(404, "Borehole profile not found.")
+    if not profile.layers:
+        raise HTTPException(422, "This borehole has no soil layers recorded.")
+
+    try:
+        result = run_pile_group_analysis(
+            layers=list(profile.layers),
+            water_table_depth_m=req.water_table_depth_m if req.water_table_depth_m is not None else profile.water_table_depth_m,
+            diameter_m=req.diameter_m,
+            pile_length_m=req.pile_length_m,
+            cutoff_depth_m=req.cutoff_depth_m,
+            code=req.code,
+            num_rows=req.num_rows,
+            num_cols=req.num_cols,
+            spacing_m=req.spacing_m,
+            cap_load_t=req.cap_load_t,
+            moment_x_t_m=req.moment_x_t_m,
+            moment_y_t_m=req.moment_y_t_m,
+            pile_behaviour=req.pile_behaviour,
+            scour_depth_m=req.scour_depth_m,
+            liquefaction_depth_m=req.liquefaction_depth_m,
+            critical_depth_factor=req.critical_depth_factor,
+            fos_compression=req.fos_compression,
+            fos_uplift=req.fos_uplift,
+            overrides=req.overrides,
+            settlement_soil_type=req.settlement_soil_type,
+            settlement_es_t_m2=req.settlement_es_t_m2,
+            settlement_mu=req.settlement_mu,
+            settlement_cc=req.settlement_cc,
+            settlement_e0=req.settlement_e0,
+            settlement_h_m=req.settlement_h_m,
+            settlement_sigma0_kpa=req.settlement_sigma0_kpa,
+        )
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+
+    log = CalculationLog(
+        calculator_type="pile_group_analysis",
         inputs_json=json.dumps(req.model_dump()),
         result_json=json.dumps(result),
     )

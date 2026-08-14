@@ -86,8 +86,9 @@ frontend/          React + TypeScript + Vite + Tailwind. Enterprise geotech-plat
                       BoreholeLogs, etc.)
   src/pages/planned/  Features that started as "Coming Soon" placeholders -- some have
                       since been built out for real (BoreholeLogs.tsx, LabReports.tsx,
-                      SoilProfile.tsx). Still-placeholder: Projects, PdfChat, Bookmarks,
-                      PileGroup, RaftFoundation (added 4 Aug 2026). GroundImprovement was
+                      SoilProfile.tsx, and PileGroup.tsx -- moved OUT to src/pages/
+                      PileGroup.tsx, 14 Aug 2026, see changelog #86). Still-placeholder:
+                      Projects, PdfChat, Bookmarks, RaftFoundation (added 4 Aug 2026). GroundImprovement was
                       also added 4 Aug 2026 as a placeholder but is now a REAL module
                       (built out 5 Aug 2026, see PROJECT_STATUS #60).
   src/components/    Sidebar, MobileNav, ComingSoon, ReferenceBlock, SourcesPanel
@@ -238,6 +239,10 @@ reading the same data — one looks at the ground, the other sizes a foundation.
   (`/api/calculators/liquefaction`, `/pile`, `/lateral` in `pile_calculator.py`/
   `calculators.py`). This doc's Roadmap section below was not kept in sync with actual
   code -- see the Roadmap correction note.
+- ~~No pile group analysis~~ -- **stale as of 14 Aug 2026:** Pile Group Analysis (group
+  efficiency, block failure, pile cap load distribution, equivalent-raft settlement) is now
+  fully built -- see changelog #86. Driven piles, rock-socketed lateral resistance, negative
+  skin friction, and group behaviour under lateral/seismic load are still NOT covered.
 - Batch Analysis settlement IS true multi-layer now (see debugging playbook #8) -- but the
   single Calculators.tsx page's standalone Settlement calculator still is NOT (playbook
   #11). Also: no submerged/buoyant unit weight adjustment anywhere yet when the water
@@ -302,6 +307,14 @@ foundation combinations, in ~1 hour instead of a full day. Phases:
    the first real run after deploying as the actual test. PDF export of this combined
    report is NOT included (DOCX only) — the original manual Reports page still covers
    anything more freeform.
+6. **✅ DONE — Pile Group Analysis, 14 Aug 2026.** Group efficiency (Converse-Labarre),
+   block failure (equivalent pier), pile cap load distribution, and equivalent-raft
+   settlement. `POST /api/calculators/pile-group`, new "Pile Group" page (no longer a
+   Coming Soon placeholder). See changelog #86 for full build/verification notes and its
+   honest scope note (no load-spread widening in the settlement raft, no negative skin
+   friction / lateral-seismic group behaviour yet). **Not yet tested against a real saved
+   borehole or Raahi's own numbers** — treat the first real run after deploying as the
+   actual test.
 
 If you're picking this up fresh: **ask Raahi which phase they're on** before assuming:
 they may have skipped ahead or asked for something adjacent (this has happened before —
@@ -3056,6 +3069,73 @@ scoped).
       reverted/adjusted), `src/components/LoginBackground.tsx` (rewritten),
       `src/components/LoginSidePanels.tsx` (deleted -- no longer used),
       `tailwind.config.js` (`brand.orange` hex updated).
+
+---
+
+86. **Pile Group Analysis -- built out from Coming Soon placeholder, 14 Aug 2026.**
+    Raahi sent a screenshot of the `/pile-group` Coming Soon page and asked for it
+    to be added. Built exactly the 4 items listed on that placeholder, all on top
+    of the existing single-pile engine (`run_pile_capacity`) -- no new soil-data
+    machinery needed:
+    - **Group efficiency** -- Converse-Labarre formula (IS 2911): Eg = 1 -
+      θ[(n-1)m + (m-1)n]/(90mn), θ = arctan(D/s). Group ultimate capacity =
+      Eg × n × Qu(single pile).
+    - **Block failure** -- group treated as one large equivalent pier: SAME
+      skin-friction (α/K method) + end-bearing (Nc/Nq/Ny, checked at
+      toe∓2×Deq) machinery as the single pile, just walked with the group's
+      outer perimeter (2×(Lg+Bg)) and base area (Lg×Bg) instead of one pile's
+      circumference/cross-section. Governing group capacity = the LOWER of the
+      efficiency method and the block method (standard practice).
+    - **Pile cap load distribution** -- rigid-cap elastic method, Qi = P/n ±
+      My·xi/Σxi² ± Mx·yi/Σyi², reported per pile with the critical (max-loaded)
+      pile flagged and checked against the efficiency-reduced allowable per-pile
+      load.
+    - **Settlement of pile groups** -- simplified EQUIVALENT RAFT: a footing of
+      the group's own plan size (no outward load-spread widening -- flagged),
+      placed at 2/3 pile length (friction piles) or the pile toe (end-bearing
+      piles), reusing the existing `immediate_settlement()` /
+      `consolidation_settlement()` functions with manually-entered Es/μ or
+      Cc/e0/H/σ0' -- same manual-entry convention as the app's standalone
+      Settlement calculator (see Known Limitations).
+    - New backend: `run_pile_group_analysis()` + helpers `_group_geometry()`,
+      `_group_efficiency_converse_labarre()`, `_block_failure_capacity()`, all
+      in `pile_calculator.py`. New `PileGroupRequest` schema, new
+      `POST /api/calculators/pile-group` endpoint in `calculators.py` (same
+      pattern as `/pile`). `group_efficiency` removed from the stale
+      `PLANNED_CALCULATORS` list.
+    - New frontend: `frontend/src/pages/PileGroup.tsx` (real page, replaces
+      `pages/planned/PileGroup.tsx` which is now deleted) -- borehole select,
+      single-pile inputs, group layout (rows/cols/spacing), cap load + moments,
+      pile-behaviour toggle, optional settlement inputs, and a results view
+      (group summary, efficiency vs block capacity side-by-side, governing
+      capacity, per-pile load table with the critical pile flagged, settlement
+      card if run, warnings). `App.tsx` now imports it from `./pages/PileGroup`
+      instead of `./pages/planned/PileGroup`; `Sidebar.tsx`'s `soon: true` flag
+      removed for this item.
+    - **Verified:** `python3 -m py_compile` clean on all 3 changed/new backend
+      files. Ran `run_pile_group_analysis()` directly with mock
+      `SimpleNamespace` layers (no DB/FastAPI needed) -- a 3×3 group in a
+      sand-ish layer correctly came out group-efficiency-governed (block
+      capacity much larger, as expected for widely-spaced piles in granular
+      soil), cap load distribution and both granular/clay settlement paths ran
+      and returned sane numbers, and the spacing-too-small validation error
+      fired correctly. Frontend: `tsc --noEmit` clean (no TS1xxx syntax
+      errors) on the new page + all 3 touched files. **Not seen on a real
+      screen or against Raahi's own borehole data** -- treat the next deploy
+      as the real test: run it against a real saved borehole, sanity-check the
+      numbers against hand calculation for at least one case, and confirm the
+      per-pile load table + settlement card render correctly on mobile.
+    - **Honest scope note:** equivalent-raft settlement does not widen the
+      raft outward with depth (a common refinement); block failure's
+      critical-depth cap reuses the single-pile xD rule with D replaced by the
+      group's average plan dimension (Lg+Bg)/2, since a rectangular block has
+      no single diameter. Both are flagged in the result's own warnings.
+      Negative skin friction, group interaction under lateral/seismic load,
+      and non-rectangular (irregular) pile layouts are still NOT covered.
+    - `backend/` changed: `app/services/pile_calculator.py`, `app/schemas.py`,
+      `app/routers/calculators.py`. `frontend/` changed: `src/pages/PileGroup.tsx`
+      (new), `src/pages/planned/PileGroup.tsx` (deleted), `src/App.tsx`,
+      `src/components/Sidebar.tsx`, `src/api/client.ts`.
 
 ---
 

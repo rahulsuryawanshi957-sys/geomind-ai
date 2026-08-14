@@ -118,6 +118,43 @@ class PileCapacityRequest(BaseModel):
     overrides: dict = {}
 
 
+class PileGroupRequest(BaseModel):
+    """
+    Pile Group Analysis (added 14 Aug 2026) -- group efficiency (Converse-Labarre),
+    block failure (equivalent pier), pile cap load distribution (rigid cap elastic
+    method), and equivalent-raft settlement. Builds on the single-pile engine
+    (run_pile_capacity) -- reads the same BoreholeProfile. See
+    pile_calculator.py's "PILE GROUP ANALYSIS" section docstring for exact scope.
+    """
+    borehole_id: str
+    diameter_m: float
+    pile_length_m: float
+    cutoff_depth_m: float = 0.0
+    code: str = "IS_2911"
+    num_rows: int
+    num_cols: int
+    spacing_m: float  # centre-to-centre, same in both directions
+    cap_load_t: float  # total vertical load on the pile cap
+    moment_x_t_m: float = 0.0  # moment about X (varies pile load along Y)
+    moment_y_t_m: float = 0.0  # moment about Y (varies pile load along X)
+    pile_behaviour: str = "friction"  # "friction" or "end_bearing" -- affects equivalent-raft depth for settlement
+    water_table_depth_m: float | None = None
+    scour_depth_m: float | None = None
+    liquefaction_depth_m: float | None = None
+    critical_depth_factor: float | None = None
+    fos_compression: float = 2.5
+    fos_uplift: float = 2.5
+    overrides: dict = {}
+    # Settlement -- optional; leave settlement_soil_type blank to skip
+    settlement_soil_type: str | None = None  # "granular" or "clay"
+    settlement_es_t_m2: float | None = None
+    settlement_mu: float | None = None
+    settlement_cc: float | None = None
+    settlement_e0: float | None = None
+    settlement_h_m: float | None = None
+    settlement_sigma0_kpa: float | None = None
+
+
 class LateralCapacityRequest(BaseModel):
     """
     Lateral Pile Capacity (IS:2911 Part 1/Sec 1:2010, Annex C, 1%-diameter

@@ -138,6 +138,22 @@ export const api = {
   parsePileCommand: (text: string, borehole_id?: string | null) =>
     request<any>('/api/calculators/pile/parse-command', { method: 'POST', body: JSON.stringify({ text, borehole_id }) }),
 
+  runPileGroup: (payload: {
+    borehole_id: string
+    diameter_m: number; pile_length_m: number; cutoff_depth_m?: number; code?: string
+    num_rows: number; num_cols: number; spacing_m: number
+    cap_load_t: number; moment_x_t_m?: number; moment_y_t_m?: number
+    pile_behaviour?: string
+    water_table_depth_m?: number | null; scour_depth_m?: number | null
+    liquefaction_depth_m?: number | null; critical_depth_factor?: number | null
+    fos_compression?: number; fos_uplift?: number
+    overrides?: Record<string, any>
+    settlement_soil_type?: string | null
+    settlement_es_t_m2?: number | null; settlement_mu?: number | null
+    settlement_cc?: number | null; settlement_e0?: number | null
+    settlement_h_m?: number | null; settlement_sigma0_kpa?: number | null
+  }) => request<any>('/api/calculators/pile-group', { method: 'POST', body: JSON.stringify(payload) }),
+
   runLateralCapacity: (payload: {
     borehole_id: string
     width_m: number; embedded_length_m: number; free_length_above_ground_m?: number
