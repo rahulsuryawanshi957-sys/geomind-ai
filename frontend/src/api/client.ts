@@ -192,6 +192,15 @@ export const api = {
   calculationHistory: (calculator_type?: string, limit?: number) =>
     request<any[]>(`/api/calculators/history${calculator_type ? `?calculator_type=${encodeURIComponent(calculator_type)}${limit ? `&limit=${limit}` : ''}` : (limit ? `?limit=${limit}` : '')}`),
 
+  deleteCalculation: (log_id: string) =>
+    request<any>(`/api/calculators/history/${log_id}`, { method: 'DELETE' }),
+
+  deleteCalculationsBulk: (log_ids: string[]) =>
+    request<any>('/api/calculators/history/delete-bulk', { method: 'POST', body: JSON.stringify({ log_ids }) }),
+
+  deleteAllCalculations: (calculator_type?: string) =>
+    request<any>(`/api/calculators/history?confirm=true${calculator_type ? `&calculator_type=${encodeURIComponent(calculator_type)}` : ''}`, { method: 'DELETE' }),
+
   generateCombinedReport: async (payload: {
     title?: string; project_name?: string; site_location?: string
     log_ids: string[]; write_ai_summary?: boolean

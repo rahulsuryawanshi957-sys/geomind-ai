@@ -3272,6 +3272,43 @@ scoped).
       CombinedReport.tsx` (new), `src/App.tsx`, `src/components/Sidebar.tsx`,
       `src/api/client.ts`.
 
+89. **Delete saved calculations, from the Combined Report page -- 14 Aug 2026.**
+    Raahi asked for a place to see every saved calculation across every
+    borehole in one place, with a delete option. The "Combined Report" page
+    (changelog #88) already listed every calculation via `GET /api/
+    calculators/history` -- this just adds delete on top of that same list,
+    so it's now also the "browse and manage saved calculations" screen, not
+    just a report-building picker.
+    - **Backend**, 3 new endpoints in `routers/calculators.py`: `DELETE
+      /api/calculators/history/{log_id}` (one), `POST /api/calculators/
+      history/delete-bulk` (body `{log_ids: [...]}`, several at once),
+      `DELETE /api/calculators/history?confirm=true` (everything -- the
+      `confirm=true` requirement is deliberate, this is irreversible and
+      the endpoint refuses to fire without it; optional `&calculator_type=`
+      to wipe just one type instead of all).
+    - **Frontend**, `CombinedReport.tsx`: a trash icon appears on hover next
+      to every calculation in the list (deletes that one, `window.confirm`
+      first); a "Delete selected (n)" button appears next to Generate
+      Report whenever anything is checked; a "Delete all" link at the top
+      (double-confirms, since it's everything). `client.ts` gained
+      `deleteCalculation()`, `deleteCalculationsBulk()`,
+      `deleteAllCalculations()`.
+    - **Verified:** `python3 -m py_compile` clean on the router.
+      `tsc --ignoreConfig --noEmit --skipLibCheck` clean on the changed
+      frontend files. **Could NOT run a live SQLAlchemy delete test in this
+      session** (sandbox has no sqlalchemy installed to exercise a real DB
+      session against) -- the query patterns used
+      (`.filter(...).delete(synchronize_session=False)`, single-row
+      `db.delete(obj)`) are standard SQLAlchemy ORM idioms already used
+      elsewhere in this codebase's style, but this is lower-confidence than
+      the usual "ran it and read the result back" verification in this doc.
+      **Treat the first real delete after deploying as the actual test** --
+      delete one calculation, confirm it's gone from the list and doesn't
+      reappear on refresh, before trusting "Delete all" on anything that
+      matters.
+    - `backend/` changed: `app/routers/calculators.py`. `frontend/` changed:
+      `src/pages/CombinedReport.tsx`, `src/api/client.ts`.
+
 ---
 
 ## How to give Raahi an update (workflow reminder for whoever's helping)

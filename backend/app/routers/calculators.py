@@ -50,6 +50,45 @@ def calculation_history(calculator_type: str | None = None, limit: int = 100, db
         })
     return out
 
+
+@router.delete("/history/{log_id}")
+def delete_calculation(log_id: str, db: Session = Depends(get_db)):
+    """Delete a single saved calculation. Added 14 Aug 2026, per Raahi's
+    request for a place to see every saved calculation and clear out ones
+    no longer needed."""
+    log = db.query(CalculationLog).filter(CalculationLog.id == log_id).first()
+    if not log:
+        raise HTTPException(404, "That calculation was not found -- it may already be deleted.")
+    db.delete(log)
+    db.commit()
+    return {"deleted": 1}
+
+
+@router.post("/history/delete-bulk")
+def delete_calculations_bulk(body: dict, db: Session = Depends(get_db)):
+    """Delete several saved calculations at once. Body: {"log_ids": ["...", "..."]}."""
+    log_ids = body.get("log_ids") or []
+    if not log_ids:
+        raise HTTPException(422, "Provide at least one log_id to delete.")
+    deleted = db.query(CalculationLog).filter(CalculationLog.id.in_(log_ids)).delete(synchronize_session=False)
+    db.commit()
+    return {"deleted": deleted}
+
+
+@router.delete("/history")
+def delete_calculations_all(confirm: bool = False, calculator_type: str | None = None, db: Session = Depends(get_db)):
+    """Delete ALL saved calculations (optionally scoped to one calculator_type).
+    Requires ?confirm=true -- this is a destructive, irreversible action, so it
+    deliberately doesn't fire on a bare call with no query params."""
+    if not confirm:
+        raise HTTPException(422, "Pass ?confirm=true to delete all saved calculations -- this cannot be undone.")
+    query = db.query(CalculationLog)
+    if calculator_type:
+        query = query.filter(CalculationLog.calculator_type == calculator_type)
+    deleted = query.delete(synchronize_session=False)
+    db.commit()
+    return {"deleted": deleted}
+
 # Calculators requested in the spec that aren't fully implemented with formulas yet.
 # Listed explicitly (rather than silently 404ing) so the frontend can show
 # "coming soon" instead of pretending the feature exists.
