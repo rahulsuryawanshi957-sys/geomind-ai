@@ -21,6 +21,7 @@ import RockBearingCapacity from './pages/RockBearingCapacity'
 import FormulaLibrary from './pages/FormulaLibrary'
 import ClauseFinder from './pages/ClauseFinder'
 import Reports from './pages/Reports'
+import CombinedReport from './pages/CombinedReport'
 import HistoryPage from './pages/HistoryPage'
 import SettingsPage from './pages/SettingsPage'
 import Projects from './pages/planned/Projects'
@@ -102,6 +103,7 @@ export default function App() {
             <Route path="/lab-reports" element={<LabReports />} />
             <Route path="/soil-profile" element={<SoilProfile />} />
             <Route path="/reports" element={<Reports />} />
+            <Route path="/combined-report" element={<CombinedReport />} />
             <Route path="/history" element={<HistoryPage />} />
             <Route path="/bookmarks" element={<Bookmarks />} />
             <Route path="/settings" element={<SettingsPage dark={dark} onToggleDark={() => setDark((d) => !d)} />} />

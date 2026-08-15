@@ -189,6 +189,23 @@ export const api = {
     return res.blob()
   },
 
+  calculationHistory: (calculator_type?: string, limit?: number) =>
+    request<any[]>(`/api/calculators/history${calculator_type ? `?calculator_type=${encodeURIComponent(calculator_type)}${limit ? `&limit=${limit}` : ''}` : (limit ? `?limit=${limit}` : '')}`),
+
+  generateCombinedReport: async (payload: {
+    title?: string; project_name?: string; site_location?: string
+    log_ids: string[]; write_ai_summary?: boolean
+  }): Promise<Blob> => {
+    const res = await fetch(`${BASE_URL}/api/reports/combined-generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(payload),
+    })
+    if (res.status === 401) { handleUnauthorized(); throw new Error('Not authenticated.') }
+    if (!res.ok) throw new Error(`Combined report generation failed (${res.status}): ${await res.text()}`)
+    return res.blob()
+  },
+
   listConversations: (q?: string) =>
     request<any[]>(`/api/history/conversations${q ? `?q=${encodeURIComponent(q)}` : ''}`),
 

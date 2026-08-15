@@ -203,6 +203,17 @@ class AutoReportRequest(BaseModel):
     batch_result: dict
 
 
+class CombinedReportRequest(BaseModel):
+    """Combined Project Report -- picks any set of past calculation runs
+    (by CalculationLog id, from GET /api/calculators/history) and assembles
+    them into one DOCX. See combined_report_builder.py's module docstring."""
+    title: str = "Combined Geotechnical Engineering Report"
+    project_name: str | None = None
+    site_location: str | None = None
+    log_ids: list[str]
+    write_ai_summary: bool = True
+
+
 class SoilLayerOut(BaseModel):
     id: str
     from_m: float

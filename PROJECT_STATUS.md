@@ -3196,6 +3196,82 @@ scoped).
       diagram sections added, 2 new override fields), `src/api/client.ts`
       (`runPileGroup` payload type updated).
 
+88. **Combined Project Report -- every calculator "connected", 14 Aug 2026.**
+    Raahi asked for automation: batch matrix, pile, rock, wall calculators
+    all connected so a final report can be produced combining whichever
+    results are relevant to a given project. What "connecting" them actually
+    meant: every calculator endpoint already writes a `CalculationLog` row on
+    every run (calculator_type, inputs, result, timestamp) -- that table was
+    write-only, nothing ever read it back. Built the read side + a report
+    that combines any subset of those past runs:
+    - `GET /api/calculators/history` (new, in `routers/calculators.py`) --
+      every past calculation, most recent first, with a one-line headline
+      per entry and the borehole_id when that calculator type has one.
+    - `backend/app/services/combined_report_builder.py` (new) --
+      `build_combined_report_docx()` takes a list of `{calculator_type,
+      created_at, inputs, result}` entries (in the order picked) and builds
+      one DOCX: an "Included Calculations" index, one section per entry, and
+      an optional AI-written "Overall Engineering Conclusion" tying them
+      together. **Two levels of detail, deliberately:** pile_capacity,
+      pile_group_analysis, and batch_matrix (calculators built/verified in
+      this project's own recent sessions) get hand-built sections matching
+      what their own in-app pages show; every OTHER calculator type (rock
+      bearing, retaining wall, liquefaction, lateral capacity, rock-socketed
+      pile, ground improvement, and any future type) gets a GENERIC
+      auto-tabulated section (every top-level scalar result/input field,
+      dumped honestly) rather than hand-guessed field names for calculators
+      not touched this session -- flagged in the module's own docstring as
+      the reason, with hand-built sections for the rest planned as each one
+      gets used for a real report and gaps show up.
+    - `POST /api/reports/combined-generate` (new, in `routers/reports.py`) --
+      `{title, project_name, site_location, log_ids, write_ai_summary}` in,
+      streams the DOCX back. New `CombinedReportRequest` schema.
+    - `frontend/src/pages/CombinedReport.tsx` (new) -- lists every past
+      calculation (grouped by calculator type, with its headline and
+      timestamp), checkboxes to pick any combination, title/project/site
+      fields, an AI-summary toggle, and a "Generate Combined Report" button
+      that downloads the DOCX. New sidebar entry "Combined Report" (Reporting
+      section, next to Engineering Reports) and `/combined-report` route.
+      `client.ts` gained `calculationHistory()` and `generateCombinedReport()`.
+    - **Deliberately separate** from the existing "Auto Report Generation"
+      feature (changelog #72, `report_builder.py` -- one borehole chart + one
+      batch result + AI summary) -- that one is untouched. This is a second,
+      broader report path for combining ANY set of past runs across ANY
+      calculators, not specifically borehole-chart-centric.
+    - **NOT covered** (flagged, not silently dropped): PDF export of this
+      combined report (DOCX only); full layer-by-layer working tables inside
+      this report (skin friction segments, settlement sub-layers, full batch
+      grid) -- only headline/summary figures per calculation, the in-app
+      pages remain where full working lives; in-app editing (one-shot
+      download, edit in Word after); a calculator's history entries surviving
+      a database reset (CalculationLog isn't currently pruned, but nothing
+      backs it up either -- same durability as everything else in the DB).
+    - **Verified:** `python3 -m py_compile` clean on all 4 changed/new
+      backend files. Ran `build_combined_report_docx()` directly with 5 mock
+      entries covering all 3 hand-built types (pile_capacity,
+      pile_group_analysis, batch_matrix), a generic-fallback known type
+      (rock_bearing_capacity), AND a made-up unknown calculator_type never
+      seen before -- confirmed the DOCX builds cleanly in every case (no
+      crash on the unknown type), read the DOCX back programmatically and
+      confirmed the index list, all 5 sections, both hand-built tables and
+      the generic auto-table, warnings bullets, and the AI-conclusion section
+      all render with correct content. Caught and fixed one real bug in this
+      process (`_add_kv_table` wasn't converting numeric values to strings
+      before writing into python-docx table cells -- crashed on any float).
+      `tsc --ignoreConfig --noEmit --skipLibCheck --jsx react-jsx` on all 4
+      changed frontend files -- zero real errors.
+    - **Not yet tested against a live Render deploy or Raahi's own real
+      calculation history** (only mock CalculationLog-shaped data) -- treat
+      the next deploy as the real test: run a few different calculators for
+      real, then open Combined Report and confirm they show up with sensible
+      headlines and the generated DOCX looks right end-to-end.
+    - `backend/` changed: `app/services/combined_report_builder.py` (new),
+      `app/routers/calculators.py` (`/history` endpoint), `app/routers/
+      reports.py` (`/combined-generate` endpoint), `app/schemas.py`
+      (`CombinedReportRequest`). `frontend/` changed: `src/pages/
+      CombinedReport.tsx` (new), `src/App.tsx`, `src/components/Sidebar.tsx`,
+      `src/api/client.ts`.
+
 ---
 
 ## How to give Raahi an update (workflow reminder for whoever's helping)

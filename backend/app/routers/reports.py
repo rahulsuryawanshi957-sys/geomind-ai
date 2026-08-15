@@ -1,4 +1,5 @@
 import io
+import json
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -6,12 +7,13 @@ from docx import Document as DocxDocument
 from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
-from app.schemas import ReportSectionRequest, AutoReportRequest
+from app.schemas import ReportSectionRequest, AutoReportRequest, CombinedReportRequest
 from app.rag.retrieval import retrieve
 from app.services.llm import generate_report_section
 from app.services.report_builder import build_batch_report_docx
+from app.services.combined_report_builder import build_combined_report_docx, _headline
 from app.database import get_db
-from app.models import BoreholeProfile
+from app.models import BoreholeProfile, CalculationLog
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 
@@ -107,4 +109,58 @@ def auto_generate(req: AutoReportRequest, db: Session = Depends(get_db)):
         io.BytesIO(docx_bytes),
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": f"attachment; filename=raahigeo_batch_report_{borehole.borehole_id}.docx"},
+    )
+
+
+@router.post("/combined-generate")
+def combined_generate(req: CombinedReportRequest, db: Session = Depends(get_db)):
+    """Combined Project Report -- picks any set of past calculator runs
+    (by CalculationLog id) and assembles them into one DOCX. See
+    combined_report_builder.py's module docstring for exactly how each
+    calculator type is rendered (hand-built for pile_capacity/
+    pile_group_analysis/batch_matrix, generic auto-table for everything
+    else)."""
+    if not req.log_ids:
+        raise HTTPException(422, "Select at least one calculation to include.")
+    logs = db.query(CalculationLog).filter(CalculationLog.id.in_(req.log_ids)).all()
+    if not logs:
+        raise HTTPException(404, "None of the selected calculations were found -- they may have been logged before a database reset.")
+    logs_by_id = {l.id: l for l in logs}
+
+    entries = []
+    for lid in req.log_ids:  # preserve the order the person picked them in
+        log = logs_by_id.get(lid)
+        if not log:
+            continue
+        try:
+            inputs = json.loads(log.inputs_json) if log.inputs_json else {}
+        except Exception:
+            inputs = {}
+        try:
+            result = json.loads(log.result_json) if log.result_json else {}
+        except Exception:
+            result = {}
+        entries.append({"calculator_type": log.calculator_type, "created_at": str(log.created_at), "inputs": inputs, "result": result})
+
+    if not entries:
+        raise HTTPException(404, "None of the selected calculations could be loaded.")
+
+    ai_summary = None
+    if req.write_ai_summary:
+        digest = {
+            "project_name": req.project_name,
+            "site_location": req.site_location,
+            "calculations_included": [
+                {"type": e["calculator_type"], "headline": _headline(e["calculator_type"], e["result"])}
+                for e in entries
+            ],
+        }
+        chunks = retrieve(f"engineering conclusion foundation recommendation {req.project_name or ''}")
+        ai_summary = generate_report_section("Engineering Conclusion", digest, chunks)
+
+    docx_bytes = build_combined_report_docx(entries, req.title, req.project_name, req.site_location, ai_summary)
+    return StreamingResponse(
+        io.BytesIO(docx_bytes),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": "attachment; filename=raahigeo_combined_report.docx"},
     )

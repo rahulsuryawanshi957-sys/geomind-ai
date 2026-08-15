@@ -5,7 +5,7 @@ import {
   Calculator, ScanSearch, FileSearch, Layers3, FlaskConical, Mountain, Gem,
   FileText, History, Bookmark, Settings, ChevronsLeft, ChevronsRight,
   Sun, Moon, LayoutGrid, Waves, Milestone, ArrowLeftRight, Boxes, Network,
-  Grid3x3, Wind,
+  Grid3x3, Wind, Layers,
 } from 'lucide-react'
 import Logo from './Logo'
 
@@ -67,6 +67,7 @@ export const NAV_SECTIONS: { label: string | null; items: NavItem[] }[] = [
     label: null,
     items: [
       { to: '/reports', label: 'Engineering Reports', icon: FileText },
+      { to: '/combined-report', label: 'Combined Report', icon: Layers },
       { to: '/history', label: 'History', icon: History },
       { to: '/bookmarks', label: 'Bookmarks', icon: Bookmark, soon: true },
       { to: '/settings', label: 'Settings', icon: Settings },

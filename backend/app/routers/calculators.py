@@ -11,8 +11,44 @@ from app.services.rock_bearing_capacity import run_rock_bearing_capacity
 from app.services.ground_improvement import run_ground_improvement
 from app.services.rock_socket_pile import run_rock_socket_pile
 from app.services.calculators import _founding_layer, _resolve_field
+from app.services.combined_report_builder import _headline as _history_headline, CALC_TYPE_TITLES
 
 router = APIRouter(prefix="/api/calculators", tags=["calculators"])
+
+
+@router.get("/history")
+def calculation_history(calculator_type: str | None = None, limit: int = 100, db: Session = Depends(get_db)):
+    """Every past calculator run (batch matrix, pile, rock, wall, etc), most
+    recent first -- the read side of the CalculationLog every /run-style
+    endpoint below already writes to. Added 14 Aug 2026 so runs can be
+    picked for a Combined Project Report (see /api/reports/combined-generate)
+    without re-running anything. `borehole_id` is pulled from the request
+    inputs when that calculator type is borehole-aware (pile/batch/
+    liquefaction/lateral/pile-group); calculators that take standalone soil
+    inputs (rock bearing, retaining wall) simply won't have one."""
+    query = db.query(CalculationLog).order_by(CalculationLog.created_at.desc())
+    if calculator_type:
+        query = query.filter(CalculationLog.calculator_type == calculator_type)
+    logs = query.limit(min(limit, 200)).all()
+    out = []
+    for log in logs:
+        try:
+            inputs = json.loads(log.inputs_json) if log.inputs_json else {}
+        except Exception:
+            inputs = {}
+        try:
+            result = json.loads(log.result_json) if log.result_json else {}
+        except Exception:
+            result = {}
+        out.append({
+            "id": log.id,
+            "calculator_type": log.calculator_type,
+            "calculator_title": CALC_TYPE_TITLES.get(log.calculator_type, log.calculator_type),
+            "created_at": log.created_at,
+            "borehole_id": inputs.get("borehole_id"),
+            "headline": _history_headline(log.calculator_type, result),
+        })
+    return out
 
 # Calculators requested in the spec that aren't fully implemented with formulas yet.
 # Listed explicitly (rather than silently 404ing) so the frontend can show
