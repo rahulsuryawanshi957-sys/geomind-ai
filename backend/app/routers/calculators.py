@@ -171,6 +171,7 @@ def run_batch(req: BatchRunRequest, db: Session = Depends(get_db)):
             consolidation_type=req.consolidation_type,
             rigidity_factor=req.rigidity_factor,
             overrides=req.overrides,
+            replacement=req.replacement.model_dump() if req.replacement else None,
         )
     except ValueError as e:
         raise HTTPException(422, str(e))

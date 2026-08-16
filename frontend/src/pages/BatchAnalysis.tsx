@@ -55,12 +55,25 @@ function parseNumberList(input: string): number[] {
 // "practical bulk-entry method" the brief asked for instead of a
 // click-Add-Case-100-times UI, kept as a plain textarea consistent with how
 // widths/depths are already entered as comma lists elsewhere on this page.
-function parseCases(input: string): { case_id: string; width_m: number; depth_m: number }[] {
+//
+// Soil Replacement (Step 3, Aug 2026) -- an OPTIONAL trailing block after a
+// "|" lets a single line carry its own independent replacement config, so
+// different cases can use different replacement depths in one paste, e.g.:
+//   C001, 1.5, 1.5
+//   C002, 1.5, 1.5 | 1.0, 2.0, 0.5, 35
+//   C003, 2.0, 2.0 | 1.5, 2.0, 0.5, 35
+// "| ReplDepth, ReplGamma, ReplCohesion, ReplPhi" -- ReplDepth and
+// ReplGamma are required if the "|" is present at all (matches the
+// backend's required-field validation); ReplCohesion/ReplPhi may be left
+// blank but at least one of the two must be given. A line with no "|" gets
+// no replacement (replacement stays undefined, same as before Step 3).
+function parseCases(input: string): { case_id: string; width_m: number; depth_m: number; replacement?: any }[] {
   const lines = input.split('\n').map((l) => l.trim()).filter(Boolean)
-  const cases: { case_id: string; width_m: number; depth_m: number }[] = []
+  const cases: { case_id: string; width_m: number; depth_m: number; replacement?: any }[] = []
   let autoIdx = 1
-  for (const line of lines) {
-    const parts = line.split(/[,\t]/).map((p) => p.trim()).filter((p) => p !== '')
+  for (const rawLine of lines) {
+    const [linePart, replPart] = rawLine.split('|').map((s) => s.trim())
+    const parts = linePart.split(/[,\t]/).map((p) => p.trim()).filter((p) => p !== '')
     if (parts.length < 2) continue
     let case_id: string, width_m: number, depth_m: number
     if (parts.length >= 3 && isNaN(parseFloat(parts[0]))) {
@@ -74,7 +87,24 @@ function parseCases(input: string): { case_id: string; width_m: number; depth_m:
     }
     autoIdx++
     if (!isNaN(width_m) && !isNaN(depth_m) && width_m > 0 && depth_m > 0) {
-      cases.push({ case_id, width_m, depth_m })
+      const entry: { case_id: string; width_m: number; depth_m: number; replacement?: any } = { case_id, width_m, depth_m }
+      if (replPart) {
+        const rp = replPart.split(',').map((p) => p.trim())
+        const depth = parseFloat(rp[0])
+        const gamma = parseFloat(rp[1])
+        const cohesion = rp[2] !== undefined && rp[2] !== '' ? parseFloat(rp[2]) : undefined
+        const phi = rp[3] !== undefined && rp[3] !== '' ? parseFloat(rp[3]) : undefined
+        if (!isNaN(depth) && !isNaN(gamma)) {
+          entry.replacement = {
+            enabled: true,
+            replacement_depth_m: depth,
+            bulk_density_t_m3: gamma,
+            ...(cohesion !== undefined && !isNaN(cohesion) ? { cohesion_t_m2: cohesion } : {}),
+            ...(phi !== undefined && !isNaN(phi) ? { friction_angle_deg: phi } : {}),
+          }
+        }
+      }
+      cases.push(entry)
     }
   }
   return cases
@@ -128,6 +158,16 @@ export default function BatchAnalysis() {
   const [overrides, setOverrides] = useState<Record<string, string>>({})
   const [clayLambdaType, setClayLambdaType] = useState('')
   const [showOverrides, setShowOverrides] = useState(false)
+  // Soil Replacement (Step 3, Aug 2026) -- Grid mode only, applies to EVERY
+  // combination in the grid (batch-level; grid has no per-combination case
+  // concept -- see run_batch_matrix's docstring). Exact B×D mode gets
+  // per-case replacement instead, via the "| depth, γ, c, φ" line syntax
+  // (see parseCases below) -- independent per case, as the brief required.
+  const [replacementEnabled, setReplacementEnabled] = useState(false)
+  const [replDepth, setReplDepth] = useState('')
+  const [replGamma, setReplGamma] = useState('')
+  const [replCohesion, setReplCohesion] = useState('')
+  const [replPhi, setReplPhi] = useState('')
   const [loading, setLoading] = useState(false)
   const [progress, setProgress] = useState(0)
   const [progressLabel, setProgressLabel] = useState('')
@@ -196,6 +236,22 @@ export default function BatchAnalysis() {
     return out
   }
 
+  // Soil Replacement payload (Step 3, Aug 2026) -- Grid mode only; returns
+  // undefined when the toggle is off (backend then behaves exactly as
+  // before Step 3 -- no key sent at all). replacement_depth_m and
+  // bulk_density_t_m3 are required by the backend when enabled; cohesion/phi
+  // are sent only if filled in (at least one of the two is still required
+  // server-side -- validated there with a clear per-case error if missing).
+  function buildReplacementPayload(): any {
+    if (!replacementEnabled) return undefined
+    const payload: Record<string, any> = { enabled: true }
+    if (replDepth !== '' && !isNaN(parseFloat(replDepth))) payload.replacement_depth_m = parseFloat(replDepth)
+    if (replGamma !== '' && !isNaN(parseFloat(replGamma))) payload.bulk_density_t_m3 = parseFloat(replGamma)
+    if (replCohesion !== '' && !isNaN(parseFloat(replCohesion))) payload.cohesion_t_m2 = parseFloat(replCohesion)
+    if (replPhi !== '' && !isNaN(parseFloat(replPhi))) payload.friction_angle_deg = parseFloat(replPhi)
+    return payload
+  }
+
   async function runBatch() {
     setError(''); setResult(null); setProgress(0)
     if (!selectedBoreholeId) { setError('Select a borehole first.'); return }
@@ -223,6 +279,7 @@ export default function BatchAnalysis() {
           consolidation_type: consolidationType,
           rigidity_factor: parseFloat(rigidityFactor) || 1,
           overrides: overridesPayload,
+          replacement: buildReplacementPayload(),
         } as any)
         allCombos.push(...r.combinations)
         meta = r
@@ -375,6 +432,50 @@ export default function BatchAnalysis() {
                   <p className="text-[11px] text-slate-500">
                     {comboCount > 0 ? `${widths.length} widths × ${depths.length} depths = ${comboCount} combination${comboCount !== 1 ? 's' : ''}` : 'Enter at least one width and one depth.'} (max 400 at once)
                   </p>
+
+                  {/* Soil Replacement (Step 3, Aug 2026) -- batch-level: applies to
+                      EVERY combination in this grid. Grid mode has no per-combination
+                      case concept, so a per-combination version isn't offered here --
+                      use Exact B×D pairs mode (with the "| depth, γ, c, φ" line syntax)
+                      for cases that need different replacement depths. */}
+                  <div className="rounded-lg border border-white/[0.06] p-3 space-y-2">
+                    <label className="flex items-center gap-2 text-xs text-slate-300">
+                      <input
+                        type="checkbox"
+                        checked={replacementEnabled}
+                        onChange={(e) => setReplacementEnabled(e.target.checked)}
+                        className="accent-violet-500"
+                      />
+                      Soil Replacement (applies to every combination above)
+                    </label>
+                    {replacementEnabled && (
+                      <>
+                        <p className="text-[11px] text-slate-500">
+                          Replaces the top part of the soil profile (from ground level down) with an
+                          engineered material, for calculation only — the recorded borehole data is never changed.
+                        </p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-[11px] text-slate-400 mb-0.5 block">Replacement depth (m) *</label>
+                            <input type="number" step="any" className="gm-input w-full" value={replDepth} onChange={(e) => setReplDepth(e.target.value)} placeholder="e.g. 1.5" />
+                          </div>
+                          <div>
+                            <label className="text-[11px] text-slate-400 mb-0.5 block">Bulk density γ (t/m³) *</label>
+                            <input type="number" step="any" className="gm-input w-full" value={replGamma} onChange={(e) => setReplGamma(e.target.value)} placeholder="e.g. 2.0" />
+                          </div>
+                          <div>
+                            <label className="text-[11px] text-slate-400 mb-0.5 block">Cohesion c (t/m²)</label>
+                            <input type="number" step="any" className="gm-input w-full" value={replCohesion} onChange={(e) => setReplCohesion(e.target.value)} placeholder="e.g. 0" />
+                          </div>
+                          <div>
+                            <label className="text-[11px] text-slate-400 mb-0.5 block">Friction angle φ (°)</label>
+                            <input type="number" step="any" className="gm-input w-full" value={replPhi} onChange={(e) => setReplPhi(e.target.value)} placeholder="e.g. 35" />
+                          </div>
+                        </div>
+                        <p className="text-[11px] text-slate-500">* Required. At least one of cohesion or friction angle is also required. Any other property (specific gravity, moisture content, N-value, etc.) is auto-sourced from the nearest original layer, same as any other missing field.</p>
+                      </>
+                    )}
+                  </div>
                 </>
               ) : (
                 <>
@@ -396,6 +497,11 @@ export default function BatchAnalysis() {
                   {exactDuplicateIds.length > 0 && (
                     <p className="text-[11px] text-rose-400">Duplicate case ID(s): {exactDuplicateIds.join(', ')} — must be unique.</p>
                   )}
+                  <p className="text-[11px] text-slate-500">
+                    Optional per-case Soil Replacement: add <span className="font-mono">| depth, γ, c, φ</span> after a line
+                    to replace soil down to that depth for JUST that case (original data untouched). c and φ can be left blank but at least one is needed. Example:{' '}
+                    <span className="font-mono">C002, 1.5, 1.5 | 1.0, 2.0, 0.5, 35</span>
+                  </p>
                 </>
               )}
 
@@ -639,7 +745,7 @@ export default function BatchAnalysis() {
                             ? c.case_id === result.critical_combination.case_id
                             : (c.width_m === result.critical_combination.width_m && c.depth_m === result.critical_combination.depth_m)
                         )
-                        const hasDetail = !c.error && (c.settlement_layer_report?.length > 0 || c.shear_steps?.length > 0)
+                        const hasDetail = !c.error && (c.settlement_layer_report?.length > 0 || c.shear_steps?.length > 0 || c.replacement_enabled)
                         const isExpanded = expandedRows.has(rowKey)
                         const toggleExpanded = () => {
                           setExpandedRows(prev => {
@@ -655,7 +761,12 @@ export default function BatchAnalysis() {
                             <td className="py-1.5 pr-3 text-slate-300 whitespace-nowrap">{c.width_m}</td>
                             <td className="py-1.5 pr-3 text-slate-300 whitespace-nowrap">{c.length_m}</td>
                             <td className="py-1.5 pr-3 text-slate-300 whitespace-nowrap">{c.depth_m}</td>
-                            <td className="py-1.5 pr-3 text-slate-400 whitespace-nowrap" title="Raw layer boundaries -- the calculation itself always starts at D, not necessarily this layer's own top">{c.founding_layer ?? '—'}</td>
+                            <td className="py-1.5 pr-3 text-slate-400 whitespace-nowrap" title="Raw layer boundaries -- the calculation itself always starts at D, not necessarily this layer's own top">
+                              {c.founding_layer ?? '—'}
+                              {c.replacement_enabled && (
+                                <span className="ml-1 px-1 py-0.5 rounded text-[9px] bg-teal-500/20 text-teal-300" title={`Soil replaced 0–${c.replacement_depth_m}m for this case`}>Replaced</span>
+                              )}
+                            </td>
                             {c.error ? (
                               <td colSpan={errorColSpan} className="py-1.5 text-rose-400">{c.error}</td>
                             ) : (
@@ -684,6 +795,25 @@ export default function BatchAnalysis() {
                                 )}
                                 {c.water_table_correction_note && (
                                   <div className="mb-2"><span className="text-slate-500 print:text-black font-medium">Water table correction:</span> {c.water_table_correction_note}</div>
+                                )}
+
+                                {c.replacement_enabled && (
+                                  <div className="mb-3">
+                                    <div className="uppercase tracking-wide text-slate-500 print:text-black mb-1">Soil Replacement</div>
+                                    <div className="mb-1">
+                                      Replaced 0–{c.replacement_depth_m}m with: γ={c.replacement_soil_properties?.bulk_density_t_m3} t/m³,
+                                      {' '}c={c.replacement_soil_properties?.cohesion_t_m2 ?? '—'} t/m², φ={c.replacement_soil_properties?.friction_angle_deg ?? '—'}°
+                                      {c.replacement_soil_properties?.classification ? `, ${c.replacement_soil_properties.classification}` : ''}
+                                      {' '}(other properties auto-sourced from the nearest original layer where not given).
+                                    </div>
+                                    {c.effective_soil_profile?.length > 0 && (
+                                      <div>
+                                        Effective profile used for this case: {c.effective_soil_profile.map((l: any, li: number) =>
+                                          `${l.from_m}–${l.to_m}m (${l.source === 'replacement' ? 'replacement' : 'original'})`
+                                        ).join(', ')}
+                                      </div>
+                                    )}
+                                  </div>
                                 )}
 
                                 {c.shear_steps?.length > 0 && (

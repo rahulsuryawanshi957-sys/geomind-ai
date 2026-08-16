@@ -116,11 +116,12 @@ export const api = {
     shape?: string; fos?: number; allowable_settlement_mm?: number
     consolidation_type?: string; rigidity_factor?: number
     overrides?: Record<string, number | string>
+    replacement?: Record<string, number | string | boolean> | null
   }) => request<any>('/api/calculators/batch', { method: 'POST', body: JSON.stringify(payload) }),
 
   runBatchCases: (payload: {
     borehole_id: string
-    cases: { case_id: string; width_m: number; depth_m: number; length_m?: number | null; overrides?: Record<string, number | string> }[]
+    cases: { case_id: string; width_m: number; depth_m: number; length_m?: number | null; overrides?: Record<string, number | string>; replacement?: Record<string, number | string | boolean> | null }[]
     shape?: string; fos?: number; allowable_settlement_mm?: number
     consolidation_type?: string; rigidity_factor?: number
     overrides?: Record<string, number | string>

@@ -161,6 +161,21 @@ Cc, e0, elastic modulus, or force soil_type — any filled field skips auto-sour
 that field across the whole batch. This is the escape hatch when the auto-picked value
 isn't trusted or a what-if scenario is being tested.
 
+**Soil Replacement (Step 3, 16 Aug 2026).** Tests "what if the weak top soil is dug out
+and replaced with an engineered material down to depth X" without ever touching the
+recorded borehole/lab data. Exact-pairs mode: per-case, independent (`case["replacement"]`
+— see the "| depth, γ, c, φ" line syntax on the frontend). Grid mode: one config applied
+to every combination in the grid (batch-level only — grid has no per-combination case
+concept in the existing architecture). Required fields when enabled: replacement depth
+and bulk density; at least one of cohesion/friction angle. Everything else (specific
+gravity, moisture content, N-value, Cc, e0, classification) is optional and falls back
+to the nearest original layer/borehole average exactly like any other missing field.
+Reuses the exact same shear (IS:6403) and settlement (IS:8009) engines unchanged — only
+the soil profile handed to them differs. See changelog #91 for the full build/
+verification trace, including the documented engineering behavior that a replacement
+entirely above the footing base affects the shear overburden term but NOT settlement
+(settlement's influence zone only starts at the footing base).
+
 Backend: `run_batch_matrix()` + helpers `_founding_layer()`, `_resolve_field()`,
 `_weighted_overburden()` in `services/calculators.py` (reuses the exact same
 `bearing_capacity_is6403_shear` / `settlement_sbc_is8009_*` functions — no duplicated
@@ -317,6 +332,11 @@ foundation combinations, in ~1 hour instead of a full day. Phases:
    friction / lateral-seismic group behaviour yet). **Not yet tested against a real saved
    borehole or Raahi's own numbers** — treat the first real run after deploying as the
    actual test.
+7. **✅ DONE — Batch Analysis Step 3: Soil Replacement, 16 Aug 2026.** Case-level (or,
+   in Grid mode, batch-level) soil replacement for testing "what if we dig out the weak
+   top soil and replace it" without touching the recorded borehole data. See changelog
+   #91 for full build/verification notes. **Next step (Step 4) is Batch Result
+   Comparison/Analysis** — not started.
 
 If you're picking this up fresh: **ask Raahi which phase they're on** before assuming:
 they may have skipped ahead or asked for something adjacent (this has happened before —
@@ -3442,6 +3462,170 @@ scoped).
       (`BatchCaseInput`, `BatchCasesRequest`), `app/routers/calculators.py`
       (`/batch-cases` endpoint, shared cap constant), `requirements-dev.txt`
       (new), `tests/test_batch_analysis.py` (new). `frontend/` changed:
+      `src/pages/BatchAnalysis.tsx`, `src/api/client.ts`.
+
+91. **Batch Analysis Step 3 -- Soil Replacement -- 16 Aug 2026.** Continues
+    directly from Step 2 (commit `55d61ac`) per that step's own brief. Lets
+    an engineer test "dig out the weak top soil down to depth X and replace
+    it with an engineered material" for bearing capacity + settlement,
+    without EVER touching the recorded borehole/lab data.
+    - **Core transform -- two new functions in `calculators.py`, nothing
+      else changed.** `_validate_replacement_config()` (pure validation --
+      raises `ValueError` with a clear message on bad input, which the
+      existing per-case `try/except` in `_run_one_batch_case` already turns
+      into a per-case `error`, so bad replacement input can never crash a
+      whole batch) and `_build_effective_profile()` (the actual
+      transform -- returns a NEW layer list: a synthetic replacement layer
+      from 0 to `replacement_depth_m`, then the ORIGINAL layers clipped so
+      none starts above that depth; a layer straddling the boundary is
+      "split" via a NEW copy with a raised `from_m`, never the stored
+      object). `_run_one_batch_case()` now builds this `calc_layers` list
+      once per case and uses it everywhere `layers` used to be used
+      (founding-layer lookup, field resolution/fallback, weighted
+      overburden, and the call into `run_settlement_multilayer`) -- when
+      replacement is disabled, `calc_layers is layers`, the exact same
+      object, so "Replacement OFF" is byte-for-byte identical to pre-Step-3
+      behavior (verified directly, not assumed).
+    - **No new formulas, no duplicated formulas -- verified, not just
+      claimed.** `bearing_capacity_is6403_shear()` and
+      `run_settlement_multilayer()` are called completely unchanged; only
+      the soil profile handed to them differs. Confirmed with a real direct
+      comparison: a case whose founding layer falls inside the replaced
+      zone produces EXACTLY `bearing_capacity_is6403_shear()`'s own result
+      when called directly with the same replacement properties.
+    - **Original data immutability -- verified, not assumed.** Ran
+      replacement cases (single case, and three cases with different
+      replacement depths back-to-back on the SAME borehole object) and
+      confirmed every original `SoilLayer`'s `from_m`/`cohesion_t_m2`
+      were byte-identical before and after -- `_build_effective_profile`
+      only ever reads original layers via `getattr` into fresh
+      `SimpleNamespace` copies, never mutates or reorders the input list.
+    - **Layer-boundary cases -- all verified with real transform output,
+      not just reasoned about.** Replacement inside a layer (correct
+      split), exactly at an existing layer boundary (no spurious extra
+      sliver), and deeper than the first layer (correct clip into the
+      second layer) all checked against exact expected `(from_m, to_m)`
+      tuples. Replacement shallower than / equal to / deeper than the
+      footing depth are all treated as normal, non-error cases (per the
+      brief's own C002/C003 example) -- the transform doesn't care where
+      the footing sits, only the settlement engine's existing influence-
+      zone logic does (see next point). Replacement deeper than the
+      recorded soil profile IS a validation error (case-level, not a
+      whole-batch crash) -- "no original soil data exists below the
+      replacement" isn't something to silently guess past.
+    - **An honest, documented engineering limitation (not a bug) --
+      found and verified with a real before/after comparison.** A
+      replacement zone that sits entirely ABOVE the footing base
+      (`replacement_depth_m < depth_m`) changes the shear formula's
+      overburden term (it's inside the 0→D column) but does NOT reach
+      settlement's influence zone, which the existing (unchanged)
+      settlement engine only starts counting from the footing base
+      downward. This is genuinely how the existing settlement engine
+      works, not a gap Step 3 introduced -- documented here per the
+      brief's explicit instruction to report real limitations rather than
+      invent a workaround.
+    - **Missing/invalid replacement input -- required vs optional,
+      deliberately not arbitrary.** `replacement_depth_m` and
+      `bulk_density_t_m3` are required when replacement is enabled (reuses
+      the same `_validate_positive_finite` as B/D -- no new validation
+      logic); at least one of cohesion/friction angle is required (a "soil"
+      with neither isn't a valid replacement material). Every OTHER
+      property (specific gravity, moisture content, N-value, Cc, e0,
+      classification) is optional and falls back through the SAME
+      `_resolve_field` nearest-layer/borehole-average logic any other
+      missing `SoilLayer` field already uses -- because the replacement
+      layer is just another entry in the effective profile, not a special
+      case. No arbitrary engineering range limits invented anywhere (e.g.
+      phi is not range-checked) per the brief's explicit instruction.
+    - **Grid mode -- batch-level only, documented as a deliberate scope
+      limit, not an oversight.** Grid mode's existing architecture has no
+      per-combination case concept (unlike exact-pairs mode's per-case
+      `overrides`), so `run_batch_matrix()` takes ONE `replacement` config
+      applied identically to every (width, depth) combination in the grid.
+      Exact-pairs mode is the way to mix replacement ON/OFF or different
+      depths across cases in one batch.
+    - **Error isolation -- verified with a real mixed batch, not
+      reasoned about.** A batch of 3 cases where one has an invalid
+      replacement depth: the other two still return full results, the bad
+      one gets a clean per-case `error` string, confirmed directly (no
+      accidental whole-request 500).
+    - **Result shape -- backward compatible, verified against BOTH report
+      builders with real generated files, not just code reading.** New
+      fields (`replacement_enabled`, and when enabled:
+      `replacement_depth_m`, `replacement_soil_properties`,
+      `effective_soil_profile`) added to each result row; every existing
+      field kept as-is. Built an actual `build_batch_report_docx()` DOCX
+      (70KB) and an actual `build_combined_report_docx()` DOCX (37KB) from
+      a real replacement-enabled `run_batch_cases()` result -- both
+      generated with zero errors and zero code changes needed to either
+      report file (both already only read fields via `.get(...)`).
+    - **Frontend (`BatchAnalysis.tsx`).** Grid mode: a new "Soil
+      Replacement" panel (checkbox + depth/γ/c/φ fields) below the
+      width/depth inputs, applied to the whole grid, hidden entirely when
+      unchecked. Exact-pairs mode: extended the existing per-line textarea
+      syntax with an OPTIONAL trailing `| depth, γ, c, φ` block, so
+      different cases in the same paste can use different replacement
+      depths (or none) -- e.g. `C002, 1.5, 1.5 | 1.0, 2.0, 0.5, 35` --
+      without redesigning the page or building a per-case form UI (kept
+      "practical bulk-entry", per the same reasoning Step 2 used for the
+      cases textarea itself). Results table: a small "Replaced" badge next
+      to the founding-layer cell on replaced rows, plus a new "Soil
+      Replacement" block inside the existing expandable "Full calc" row
+      detail (replacement properties used + the effective layer profile).
+      `client.ts`'s `runBatch`/`runBatchCases` payload types gained the
+      optional `replacement` field.
+    - **Tests -- 22 new tests added to `test_batch_analysis.py` (46 total
+      in the file now), all 15 categories the brief asked for covered.**
+      Same situation as Step 2: no live `pytest` in this sandbox (no
+      network to install it) -- ran the real test functions (including all
+      45 pre-existing ones, unchanged) through the same hand-written
+      `pytest.raises`/`pytest.mark.parametrize` stand-in used in Step 2:
+      **46/46 passed**, both the pre-existing 24 (proving zero regression
+      in grid/exact-pairs mode) and the new 22 (replacement ON/OFF, all
+      layer-boundary cases, immutability x2, cross-case independence,
+      shear + settlement integration including the above-footing
+      limitation, invalid depth / missing properties, exact-pairs mixed
+      replacement, grid-mode batch-level, and a 120-case stress test with
+      every-third-case replacement). One test
+      (`test_replacement_above_footing_does_not_affect_settlement`) failed
+      on first run for a real, useful reason -- caught here rather than
+      shipped: it originally used a founding layer at phi=0 (clay), where
+      the overburden term it was trying to detect is invisible by
+      coincidence (multiplied by `Nq-1=0`, the same phi=0 coincidence noted
+      in Step 2's water-table fix) -- fixed by moving the test's founding
+      depth into the phi=30 sand layer, where the term is actually visible.
+      Treat an actual `pytest` run in a real dev/CI environment as the next
+      real check, same standing note as Step 2.
+    - **Verified overall:** `python3 -m py_compile` clean on all changed
+      backend files. Frontend changes checked with a real Node bracket-
+      balance parse (no `tsc`/`npm install` possible in this sandbox --
+      network is disabled here, confirmed by an actual `npm install`
+      attempt returning `403 Forbidden` from the registry) and by directly
+      executing the updated `parseCases()` line-parsing logic in Node
+      against real sample input, confirming the optional `| depth, γ, c, φ`
+      suffix parses correctly (including a blank cohesion field). **Not
+      yet run against `tsc`/a live Render deploy or a real borehole** --
+      treat the next deploy as the real test: try Grid mode with
+      replacement off (confirm nothing changed), Grid mode with
+      replacement on, and an Exact-pairs paste mixing replaced/unreplaced
+      cases, against a real saved borehole.
+    - **Deliberately NOT done this step** (all explicitly out of scope per
+      the brief): formula versioning, formula editor, custom formula
+      database, new calculation methods, Terzaghi method selection for
+      Batch, result comparison redesign, PASS/FAIL against an applied
+      structural load, driven piles, negative skin friction, lateral pile
+      group behaviour, retaining wall changes, rock calculations, a major
+      settlement-engine rewrite, a major UI redesign, or a performance
+      optimization pass.
+    - `backend/` changed: `app/services/calculators.py` (new
+      `_validate_replacement_config`, `_build_effective_profile`,
+      `_finite_or_none`, `_LAYER_COPY_FIELDS`, `_REPLACEMENT_SOIL_ID`;
+      `_run_one_batch_case`/`run_batch_matrix`/`run_batch_cases` all gained
+      a `replacement` parameter), `app/schemas.py` (new
+      `SoilReplacementInput`; `BatchRunRequest`/`BatchCaseInput` gained a
+      `replacement` field), `app/routers/calculators.py` (passes
+      `req.replacement` through to `run_batch_matrix`),
+      `tests/test_batch_analysis.py` (+22 tests). `frontend/` changed:
       `src/pages/BatchAnalysis.tsx`, `src/api/client.ts`.
 
 ---

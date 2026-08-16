@@ -9,6 +9,7 @@ The remaining calculator types are registered as stubs in routers/calculators.py
 clear "not yet implemented" response -- see README "Extending the calculators" section.
 """
 import math
+import types
 
 
 def terzaghi_bearing_capacity(phi_deg: float, cohesion_kpa: float, gamma_kn_m3: float,
@@ -617,12 +618,180 @@ def _validate_positive_finite(name: str, value) -> float:
     return float(value)
 
 
+# Attributes a "layer-like" object needs so it works with every existing
+# calculator function below (_founding_layer, _resolve_field,
+# _weighted_overburden, _cumulative_overburden_stress,
+# run_settlement_multilayer) -- all of them read layers via plain getattr,
+# never a real SQLAlchemy session, so a SimpleNamespace with these fields is
+# a fully valid stand-in (same technique already used by
+# tests/test_batch_analysis.py's make_layer()).
+_LAYER_COPY_FIELDS = [
+    "id", "from_m", "to_m", "description", "classification", "sample_id",
+    "sample_type", "n_value", "bulk_density_t_m3", "specific_gravity",
+    "moisture_content_pct", "cohesion_t_m2", "friction_angle_deg",
+    "compression_index_cc", "initial_void_ratio_e0", "fines_content_pct",
+    "rock_type", "weathering_grade", "core_recovery_pct", "rqd_pct", "ucs_kg_cm2",
+]
+
+_REPLACEMENT_SOIL_ID = "__replacement__"
+
+
+def _finite_or_none(name: str, value):
+    """Like _validate_positive_finite but allows None (field simply wasn't
+    given -- falls back to the existing nearest-layer/average resolution,
+    same as any other missing SoilLayer field) and allows zero/negative
+    (cohesion=0 or phi=0 are legitimate soil properties, e.g. a pure-sand
+    replacement fill has c=0). Only rejects genuinely broken input: wrong
+    type, NaN, or Infinity."""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"Replacement {name} must be a number (got {value!r}).")
+    if math.isnan(value) or math.isinf(value):
+        raise ValueError(f"Replacement {name} must be a finite number (got {value}).")
+    return float(value)
+
+
+def _validate_replacement_config(replacement: dict | None, layers: list) -> dict:
+    """Step 3 (Soil Replacement) -- validates one case's replacement config.
+    Pure validation, does NOT touch the original borehole `layers` and does
+    NOT build the effective profile (see `_build_effective_profile` for
+    that). Returns a normalized dict; raises ValueError with a clear,
+    human-readable message on bad input -- callers (`_run_one_batch_case`)
+    already catch ValueError into a per-case "error" field, so a bad
+    replacement config becomes a per-case error, never a whole-batch crash
+    (same error-isolation guarantee as every other per-case validation).
+
+    Required when enabled: `replacement_depth_m` (must be a positive finite
+    number -- reuses `_validate_positive_finite`, the same validator already
+    used for width/depth) and `bulk_density_t_m3` (also required: this is
+    the one property that directly drives the overburden/surcharge term the
+    replacement is specifically meant to change -- letting it silently fall
+    back to the very soil being replaced would defeat the point of the
+    feature). At least one of `cohesion_t_m2` / `friction_angle_deg` must
+    also be given (a "soil" with neither is not a valid replacement
+    material). Every other property (specific_gravity, moisture_content_pct,
+    classification, compression_index_cc, initial_void_ratio_e0, n_value,
+    fines_content_pct) is OPTIONAL and, if omitted, is resolved the exact
+    same way any other layer's missing field already is -- via
+    `_resolve_field`'s nearest-layer/borehole-average fallback -- since the
+    replacement layer becomes just another entry in the effective profile.
+    No arbitrary engineering range limits are imposed on any value here
+    (e.g. phi is not range-checked) -- only "is this usable as a number".
+    """
+    if not replacement or not replacement.get("enabled"):
+        return {"enabled": False}
+
+    depth = _validate_positive_finite("replacement_depth_m", replacement.get("replacement_depth_m"))
+    gamma = _validate_positive_finite("replacement bulk_density_t_m3", replacement.get("bulk_density_t_m3"))
+    cohesion = _finite_or_none("cohesion_t_m2", replacement.get("cohesion_t_m2"))
+    phi = _finite_or_none("friction_angle_deg", replacement.get("friction_angle_deg"))
+    if cohesion is None and phi is None:
+        raise ValueError(
+            "Replacement soil needs at least cohesion_t_m2 or friction_angle_deg specified."
+        )
+
+    if not layers:
+        raise ValueError("This borehole has no soil layers recorded -- cannot apply soil replacement.")
+    max_profile_depth = max(l.to_m for l in layers)
+    if depth > max_profile_depth:
+        raise ValueError(
+            f"Replacement depth ({depth}m) is beyond the available soil profile "
+            f"(recorded only down to {max_profile_depth}m) -- add deeper borehole data "
+            f"or reduce the replacement depth."
+        )
+
+    optional = {
+        name: _finite_or_none(name, replacement.get(name))
+        for name in (
+            "specific_gravity", "moisture_content_pct", "compression_index_cc",
+            "initial_void_ratio_e0", "n_value", "fines_content_pct",
+        )
+    }
+    classification = replacement.get("classification")
+    if classification is not None and not isinstance(classification, str):
+        raise ValueError(f"Replacement classification must be text (got {classification!r}).")
+
+    return {
+        "enabled": True,
+        "replacement_depth_m": depth,
+        "bulk_density_t_m3": gamma,
+        "cohesion_t_m2": cohesion,
+        "friction_angle_deg": phi,
+        "classification": classification,
+        **optional,
+    }
+
+
+def _build_effective_profile(layers: list, validated_replacement: dict) -> list:
+    """Step 3 (Soil Replacement) -- the ONLY place that turns a validated
+    replacement config into an "effective soil profile" for calculation.
+    Returns a NEW list; the original `layers` list/objects are never
+    mutated, reordered, or removed -- this is what keeps the borehole's
+    recorded lab data immutable no matter how many replacement cases run
+    against it (see tests: original data immutability).
+
+    Transformation (ground level 0m downward):
+        0m .. replacement_depth_m  -> a synthetic replacement-soil layer
+        replacement_depth_m .. end -> the ORIGINAL layers, clipped so none
+                                      of them start above replacement_depth_m
+                                      (a layer straddling the boundary is
+                                      "split" by raising its effective
+                                      from_m -- a NEW copy, never the stored
+                                      object itself; a layer entirely above
+                                      replacement_depth_m is dropped
+                                      entirely, since it's fully replaced)
+
+    This is deliberately the exact same clip-by-top/bottom technique already
+    used elsewhere in this file (see run_settlement_multilayer's sub_layers
+    construction) -- not a new pattern.
+
+    If replacement is disabled, returns `layers` completely unchanged (same
+    object, same order) -- this is what guarantees "Replacement OFF" is
+    byte-for-byte identical to pre-Step-3 behavior.
+    """
+    if not validated_replacement.get("enabled"):
+        return layers
+
+    depth = validated_replacement["replacement_depth_m"]
+    replacement_layer_data = {f: None for f in _LAYER_COPY_FIELDS}
+    replacement_layer_data.update({
+        "id": _REPLACEMENT_SOIL_ID,
+        "from_m": 0.0,
+        "to_m": depth,
+        "description": "Engineered replacement soil (Batch case override -- not recorded borehole data)",
+        "classification": validated_replacement.get("classification"),
+        "n_value": validated_replacement.get("n_value"),
+        "bulk_density_t_m3": validated_replacement["bulk_density_t_m3"],
+        "specific_gravity": validated_replacement.get("specific_gravity"),
+        "moisture_content_pct": validated_replacement.get("moisture_content_pct"),
+        "cohesion_t_m2": validated_replacement.get("cohesion_t_m2"),
+        "friction_angle_deg": validated_replacement.get("friction_angle_deg"),
+        "compression_index_cc": validated_replacement.get("compression_index_cc"),
+        "initial_void_ratio_e0": validated_replacement.get("initial_void_ratio_e0"),
+        "fines_content_pct": validated_replacement.get("fines_content_pct"),
+    })
+    effective = [types.SimpleNamespace(**replacement_layer_data)]
+
+    for l in sorted(layers, key=lambda x: x.from_m):
+        if l.to_m <= depth:
+            continue  # fully within the replaced zone -- dropped from the effective profile
+        new_from = max(l.from_m, depth)
+        if new_from >= l.to_m:
+            continue
+        clipped_data = {f: getattr(l, f, None) for f in _LAYER_COPY_FIELDS}
+        clipped_data["from_m"] = new_from
+        effective.append(types.SimpleNamespace(**clipped_data))
+
+    return effective
+
+
 def _run_one_batch_case(
     layers: list, water_table_depth_m: float | None,
     width_m: float, depth_m: float, length_m: float | None,
     shape: str, fos: float, allowable_settlement_mm: float,
     consolidation_type: str, rigidity_factor: float, overrides: dict,
-    case_id: str | None = None,
+    case_id: str | None = None, replacement: dict | None = None,
 ) -> dict:
     """One (width, depth) case's shear + settlement calculation -- the SHARED
     per-case engine used by both run_batch_matrix (grid/cross-product mode)
@@ -646,19 +815,42 @@ def _run_one_batch_case(
     row = {"width_m": width_m, "depth_m": depth_m}
     if case_id is not None:
         row["case_id"] = case_id
+    row["replacement_enabled"] = bool(replacement and replacement.get("enabled"))
     try:
         width_m = _validate_positive_finite("width_m", width_m)
         depth_m = _validate_positive_finite("depth_m", depth_m)
         L = _validate_positive_finite("length_m", length_m if length_m else width_m)
         row["width_m"], row["depth_m"], row["length_m"] = width_m, depth_m, L
 
-        founding = _founding_layer(layers, depth_m)
+        # Step 3 (Soil Replacement): validate the case's replacement config
+        # (if any) and build the effective calculation profile from it. When
+        # replacement is disabled, `calc_layers is layers` -- the exact same
+        # object, so every calculation below behaves byte-for-byte as it did
+        # before Step 3. The ORIGINAL `layers` list/objects are never
+        # touched by this -- only `calc_layers` (used from here on) reflects
+        # the replacement.
+        validated_replacement = _validate_replacement_config(replacement, layers)
+        calc_layers = _build_effective_profile(layers, validated_replacement)
+        if validated_replacement.get("enabled"):
+            row["replacement_depth_m"] = validated_replacement["replacement_depth_m"]
+            row["replacement_soil_properties"] = {
+                k: v for k, v in validated_replacement.items() if k != "enabled"
+            }
+            row["effective_soil_profile"] = [
+                {
+                    "from_m": l.from_m, "to_m": l.to_m,
+                    "source": "replacement" if getattr(l, "id", None) == _REPLACEMENT_SOIL_ID else "original",
+                }
+                for l in sorted(calc_layers, key=lambda x: x.from_m)
+            ]
+
+        founding = _founding_layer(calc_layers, depth_m)
         row["founding_layer"] = f"{founding.from_m}-{founding.to_m}m" + (f" ({founding.classification})" if founding.classification else "")
 
         def field(name):
             if overrides.get(name) is not None:
                 return overrides[name]
-            val, _ = _resolve_field(layers, founding, name)
+            val, _ = _resolve_field(calc_layers, founding, name)
             if val is None:
                 raise ValueError(f"No layer in this borehole has '{name}' -- add it as a manual override to run this batch.")
             return val
@@ -672,7 +864,7 @@ def _run_one_batch_case(
         if overrides.get("gamma_avg_above_t_m3") is not None:
             gamma_above = overrides["gamma_avg_above_t_m3"]
         else:
-            gamma_above = _weighted_overburden(layers, depth_m, "bulk_density_t_m3") or gamma_base
+            gamma_above = _weighted_overburden(calc_layers, depth_m, "bulk_density_t_m3") or gamma_base
 
         _founding_class = (getattr(founding, "classification", None) or "").strip().upper()
         _layer_forced = (overrides.get("layer_soil_type") or {}).get(str(getattr(founding, "id", None)))
@@ -702,7 +894,7 @@ def _run_one_batch_case(
         )
 
         settlement = run_settlement_multilayer(
-            layers=layers, length_m=L, width_m=width_m, depth_m=depth_m,
+            layers=calc_layers, length_m=L, width_m=width_m, depth_m=depth_m,
             allowable_settlement_mm=allowable_settlement_mm, rigidity_factor=rigidity_factor,
             consolidation_type=consolidation_type,
             include_elastic=bool(overrides.get("include_elastic", False)),
@@ -738,7 +930,7 @@ def run_batch_matrix(
     widths_m: list[float], depths_m: list[float], length_m: float | None,
     shape: str = "square", fos: float = 2.5, allowable_settlement_mm: float = 25,
     consolidation_type: str = "NCS", rigidity_factor: float = 1.0,
-    overrides: dict | None = None,
+    overrides: dict | None = None, replacement: dict | None = None,
 ) -> dict:
     """
     Batch/matrix engine (Phase 3, v2): for every (width, depth) combination,
@@ -770,6 +962,17 @@ def run_batch_matrix(
     `_run_one_batch_case`'s docstring) and per-value validation (B/D must be
     positive, finite numbers -- software validation only, no engineering
     range limits invented).
+
+    `replacement` (Step 3, Aug 2026 -- Soil Replacement): a single BATCH-LEVEL
+    config (enabled/replacement_depth_m/bulk_density_t_m3/cohesion_t_m2/
+    friction_angle_deg/etc, see `_validate_replacement_config`), applied
+    IDENTICALLY to every (width, depth) combination in the grid. Grid mode
+    has no per-combination case concept in its existing architecture (unlike
+    exact-pairs mode's per-case `cases[i]["overrides"]`), so per-combination
+    replacement isn't implemented here -- this is a deliberate, documented
+    scope limit, not an oversight. Use exact-pairs mode (`run_batch_cases`)
+    for a batch that mixes replacement ON/OFF or different replacement
+    depths across cases.
     """
     overrides = overrides or {}
     if not layers:
@@ -788,7 +991,7 @@ def run_batch_matrix(
             width_m=w, depth_m=d, length_m=length_m,
             shape=shape, fos=fos, allowable_settlement_mm=allowable_settlement_mm,
             consolidation_type=consolidation_type, rigidity_factor=rigidity_factor,
-            overrides=overrides,
+            overrides=overrides, replacement=replacement,
         )
         for w in widths_m for d in depths_m
     ]
@@ -844,6 +1047,15 @@ def run_batch_cases(
     becoming a per-case error. Duplicate (width, depth) PAIRS under different
     case IDs are allowed and preserved (not deduplicated) -- that's a
     legitimate use (e.g. re-running one case with a different override).
+
+    Each case may carry its OWN `c["replacement"]` config (Step 3, Aug 2026
+    -- Soil Replacement): {enabled, replacement_depth_m, bulk_density_t_m3,
+    cohesion_t_m2, friction_angle_deg, ...optional fields}, independent of
+    every other case -- one case's replacement never affects another case's
+    result, and never touches the original borehole `layers`. See
+    `_validate_replacement_config`/`_build_effective_profile` for the
+    engine; the actual bearing-capacity and settlement math is 100% reused
+    (unchanged formulas) -- only the soil profile handed to them differs.
     """
     batch_overrides = overrides or {}
     if not layers:
@@ -874,6 +1086,7 @@ def run_batch_cases(
             shape=shape, fos=fos, allowable_settlement_mm=allowable_settlement_mm,
             consolidation_type=consolidation_type, rigidity_factor=rigidity_factor,
             overrides=case_overrides, case_id=c.get("case_id"),
+            replacement=c.get("replacement"),
         ))
 
     valid = [c for c in combos if "error" not in c]
