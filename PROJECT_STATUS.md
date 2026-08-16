@@ -176,6 +176,21 @@ verification trace, including the documented engineering behavior that a replace
 entirely above the footing base affects the shear overburden term but NOT settlement
 (settlement's influence zone only starts at the footing base).
 
+**Result Comparison & Analysis (Step 4, 16 Aug 2026).** The results table gained
+sortable "Replacement" and "Status" columns, a filter bar (status: all/success/error;
+replacement: all/on/off, on top of the existing row search), and a compact summary bar
+above the table (total/successful/error/replacement-on/replacement-off counts, plus
+"highest/lowest recommended SBC" shown ONLY as numerical extremes across the run --
+deliberately never labelled "best"/"safe"/"optimal", since a batch has no structural
+applied load to judge that against). All presentation-only over the SAME result fields
+Step 2/3 already return -- no calculation, schema, or API change. Case detail (inputs,
+replacement config, shear steps, layer-wise settlement) was already available via the
+existing expandable "Full calc" row from Step 2/3 and needed no new UI. See changelog
+#92 for the full build/verification trace, including the honest note that SUCCESS/ERROR
+is a 2-state split (not 3, i.e. no separate "INVALID") because the backend doesn't
+currently distinguish bad input from a genuine calculation failure -- both raise into
+the same `error` field.
+
 Backend: `run_batch_matrix()` + helpers `_founding_layer()`, `_resolve_field()`,
 `_weighted_overburden()` in `services/calculators.py` (reuses the exact same
 `bearing_capacity_is6403_shear` / `settlement_sbc_is8009_*` functions — no duplicated
@@ -279,6 +294,12 @@ reading the same data — one looks at the ground, the other sizes a foundation.
   caution than the other 4 methods until someone checks it. Clause 8 (plate load test) is
   a direct pass-through of a field-read value, not a computed formula — this is
   deliberate (the code itself has no clean closed-form equation here), not a gap to fix.
+- **Batch result Status is SUCCESS/ERROR only, not a 3-state SUCCESS/INVALID/ERROR**
+  (Step 4, 16 Aug 2026) — the backend doesn't currently distinguish bad input (e.g. an
+  invalid replacement depth) from a genuine engineering-calculation failure; both raise
+  into the same `row["error"]` field. A real 3-state split needs a backend change (e.g.
+  a `row["error_type"]` field) — deliberately not done in a presentation-only step. See
+  changelog #92.
 
 ---
 
@@ -335,8 +356,12 @@ foundation combinations, in ~1 hour instead of a full day. Phases:
 7. **✅ DONE — Batch Analysis Step 3: Soil Replacement, 16 Aug 2026.** Case-level (or,
    in Grid mode, batch-level) soil replacement for testing "what if we dig out the weak
    top soil and replace it" without touching the recorded borehole data. See changelog
-   #91 for full build/verification notes. **Next step (Step 4) is Batch Result
-   Comparison/Analysis** — not started.
+   #91 for full build/verification notes.
+8. **✅ DONE — Batch Analysis Step 4: Result Comparison & Analysis, 16 Aug 2026.**
+   Comparison table (Replacement + Status columns), sorting, filtering (status/
+   replacement), search, batch summary (totals, numerical extremes -- explicitly NOT a
+   "best foundation"), all presentation-only over the existing result fields. See
+   changelog #92. **Next step (Step 5) is Calculation Method Selection** — not started.
 
 If you're picking this up fresh: **ask Raahi which phase they're on** before assuming:
 they may have skipped ahead or asked for something adjacent (this has happened before —
@@ -3627,6 +3652,135 @@ scoped).
       `req.replacement` through to `run_batch_matrix`),
       `tests/test_batch_analysis.py` (+22 tests). `frontend/` changed:
       `src/pages/BatchAnalysis.tsx`, `src/api/client.ts`.
+
+92. **Batch Analysis Step 4 -- Result Comparison & Analysis -- 16 Aug 2026.**
+    Continues from Step 3 (commit `fb647fa`). Makes large Batch result sets
+    (100+ cases) practical to compare -- sorting, filtering, search, a
+    summary bar -- with ZERO engineering/calculation changes: this step
+    touches presentation only.
+    - **New pure-logic module, deliberately framework-free --
+      `frontend/src/utils/batchResults.ts`.** `getCaseStatus()`,
+      `buildBatchSummary()`, `SORTABLE_FIELDS`, `sortRows()`,
+      `filterRows()`, `getDisplayedRows()`. No React/JSX, no new
+      engineering values -- every field it reads (`case_id`, `width_m`,
+      `depth_m`, `shear_sbc`, `settlement_sbc`, `recommended_sbc`,
+      `gross_recommended_sbc`, `governing`, `replacement_enabled`,
+      `replacement_depth_m`, `error`) already existed on a result row from
+      Step 2/3. Pulled out of `BatchAnalysis.tsx` specifically so it's
+      testable directly in plain Node without a bundler/tsc (this repo has
+      neither installed in the sandbox -- confirmed again this step: `npm
+      install` still returns `403 Forbidden` from the registry, same as
+      Step 3).
+    - **Status -- SUCCESS/ERROR, not SUCCESS/INVALID/ERROR -- a deliberate,
+      documented scope decision, not an oversight.** The brief asked for a
+      3-state split "where the existing backend provides enough
+      information" -- it currently doesn't: every validation failure (bad
+      B/D, bad replacement config, a truly missing required field) and
+      every genuine engineering-calculation failure both raise into the
+      SAME `except (ValueError, ZeroDivisionError): row["error"] = str(e)`
+      block in `_run_one_batch_case` (see Step 2/3). Guessing INVALID vs
+      ERROR apart by pattern-matching the error STRING would be exactly the
+      kind of fabricated distinction the brief says not to invent, so
+      `getCaseStatus()` only exposes the two states the data actually
+      supports. Documented here and in "Known limitations" below --
+      splitting this for real would need a backend change (e.g. a
+      `row["error_type"]` field), explicitly out of scope for a
+      presentation-only step.
+    - **Summary bar -- counts + numerical extremes, no "best".** Total,
+      successful, error, replacement-on, replacement-off counts, all plain
+      `Array` counts over existing per-row fields. "Highest/lowest
+      recommended SBC" are shown ONLY as numbers-with-a-case-id, titled
+      "Numerical extreme across this batch only -- not an engineering
+      recommendation" on hover -- never the words "best"/"safe"/
+      "optimal"/"recommended [foundation]", per the brief's explicit
+      instruction (there's no structural applied load anywhere in Batch
+      Analysis to judge a foundation "safe" against). `recommended_sbc`
+      itself is Step 2's own pre-existing field name (min of shear/
+      settlement per case) -- Step 4 didn't invent that term, just
+      surfaces its min/max across the batch.
+    - **Table changes.** Two new sortable columns, "Replacement" (ON ·
+      depth, or OFF) and "Status" (Success/Error badge) -- both were
+      previously only visible via a small badge buried in the founding-
+      layer cell (Step 3) or not shown as a column at all; now first-class,
+      sortable, filterable columns. Recomputed `totalCols`/`errorColSpan`
+      for the two new columns (grid: 11→13 cols, exact-pairs: 12→14) --
+      verified the arithmetic directly: pre-cells (case_id?+B+L+D+founding+
+      replacement+status) + either `errorColSpan` cells (error row) or 6
+      cells (soil type/shear/settlement/net/gross/governing, success row) +
+      1 trailing "Full calc" cell = `totalCols` in both branches, both
+      modes.
+    - **Filters + search.** New status filter (all/success/error) and
+      replacement filter (all/on/off) dropdowns next to the existing row
+      search box (Step 2's `tableSearch`, untouched) -- `getDisplayedRows()`
+      applies filters first, then sort, so search results stay in the
+      user's chosen sort order and sorting never has to consider rows
+      that are already filtered out. All three combine (verified: a
+      replacement-on + status-success + text-search combination all apply
+      together, tested against real sample rows).
+    - **Case detail -- already existed, needed no new UI.** Step 2/3's
+      existing expandable "Full calc" row per case (inputs implicit in the
+      row itself, replacement config/effective profile, shear steps,
+      layer-wise settlement, influence-zone/water-table notes) already
+      covers everything the brief's "Case Detail" section (#7) asks for.
+      Did NOT duplicate this into a second modal/panel -- would violate
+      the brief's own instruction not to build unnecessary UI, and its
+      "don't duplicate calculation logic in the frontend" instruction
+      (a second view would just be re-reading the same row object).
+    - **Large-batch UX -- reused the existing pattern, no new library.**
+      Still a plain HTML table with per-row expand-on-demand detail (Step
+      2's existing pattern) -- no cards, no always-rendered detail blocks.
+      Verified with a synthetic 150-row batch (see tests below) that
+      filter+sort stays correct at that scale; did not add virtualization
+      since the existing 400-case cap keeps worst-case row count modest
+      and the brief explicitly says not to add a heavy library unless
+      genuinely necessary.
+    - **Backward compatibility -- verified, not assumed.** Zero backend
+      files touched this step (confirmed via `git`-equivalent diff review
+      of changed files below) -- Grid mode, Exact-pairs mode, overrides,
+      soil replacement, and both report builders are completely unaffected
+      because their result data never changes, only how the SAME data is
+      displayed. Existing Step 2/3 backend test suite re-run unchanged
+      (below) specifically to double-confirm this.
+    - **Tests -- 29 new tests, all pure-logic (no backend touched).**
+      `frontend/src/utils/batchResults.ts` has no test runner available in
+      this sandbox either (same `npm install` 403 as Step 3), so verified
+      the exact same way `parseCases()` was verified in Step 3: mirrored
+      the file's logic 1:1 into a plain Node script and ran it against
+      realistic sample rows (grid + exact-pairs + replacement + error
+      rows) -- **29/29 passed**, covering: status classification, summary
+      counts (including highest/lowest with correct row attribution),
+      empty-result handling, sorting (numeric + string fields, both
+      directions), sort STABILITY on tied keys (explicit test: two equal-
+      width rows keep their original order), replacement/status/search
+      filtering individually and combined, and a 150-row synthetic large
+      batch verifying filter+sort produces no dropped/duplicated/mixed
+      rows and a correctly non-decreasing sort order throughout. One test
+      assertion was wrong on first run (not the logic) -- a search for
+      "2.5" was asserted to match only one row, but two sample rows
+      legitimately contain "2.5" (one in `width_m`, one in `depth_m`) --
+      fixed the test's expected value, re-ran clean.
+      Re-ran the full Step 2/3 backend suite unchanged as a regression
+      check since Step 4 touches presentation only: **46/46 still
+      passing.**
+    - **Verified overall:** `python3 -m py_compile` -- N/A, no backend
+      files changed. Real Node bracket-balance parse clean on both changed/
+      new frontend files (`BatchAnalysis.tsx`, `utils/batchResults.ts`) --
+      same technique as Step 3, `tsc` still unavailable in this sandbox
+      (network disabled). **Not yet run against a live Render deploy or a
+      real borehole with 100+ real cases** -- treat the next deploy as the
+      real test: run a large Exact-pairs batch (100+ cases, mixing
+      replacement on/off) against a real saved borehole, and try every
+      filter/sort/search combination against real data.
+    - **Deliberately NOT done this step** (all explicitly out of scope per
+      the brief): engineering PASS/FAIL based on an applied structural
+      load, an automatic "best"/"optimal" foundation recommendation,
+      formula configuration/versioning, new calculation methods, a
+      genuine 3-state INVALID/ERROR split (would need a backend change),
+      DOCX report redesign, and row virtualization/a new UI library.
+    - `frontend/` changed: `src/utils/batchResults.ts` (new), `src/pages/
+      BatchAnalysis.tsx` (summary bar, filter dropdowns, Replacement/Status
+      columns, sort/filter/search now delegate to the new utils module).
+      `backend/` -- unchanged this step.
 
 ---
 

@@ -4,6 +4,7 @@ import { LayoutGrid, Layers3, Target, Printer, FileDown, Loader2, SlidersHorizon
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import TheorySection from '../components/TheorySection'
+import { getDisplayedRows, buildBatchSummary, type ReplacementFilter, type StatusFilter } from '../utils/batchResults'
 
 // Settlement stress-diagram / influence-zone explainer -- added 5 Aug 2026,
 // same request pattern as the other calculators. Mirrors the actual logic
@@ -177,6 +178,10 @@ export default function BatchAnalysis() {
   const [tableSearch, setTableSearch] = useState('')
   const [sortCol, setSortCol] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+  // Result comparison filters (Step 4, Aug 2026) -- presentation-only, never
+  // touch the underlying result/calculation data. See utils/batchResults.ts.
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [replacementFilter, setReplacementFilter] = useState<ReplacementFilter>('all')
 
   useEffect(() => {
     api.listBoreholes().then(setBoreholes).catch(() => {})
@@ -649,11 +654,73 @@ export default function BatchAnalysis() {
 
               <div className="glass p-5 print:text-black" id="batch-result">
                 {reportError && <div className="text-xs text-rose-400 mb-2">{reportError}</div>}
+
+                {/* Batch summary (Step 4, Aug 2026) -- plain counts over the
+                    existing result rows, no new engineering values. Highest/
+                    lowest recommended SBC are labelled as numerical extremes
+                    ONLY (see buildBatchSummary's own docstring) -- never
+                    "best"/"safe"/"optimal", since there's no structural
+                    applied load in this batch to judge that against. */}
+                {(() => {
+                  const summary = buildBatchSummary(result.combinations)
+                  const Stat = ({ label, value, title }: { label: string; value: any; title?: string }) => (
+                    <div className="px-3 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.06]" title={title}>
+                      <div className="text-[10px] uppercase tracking-wide text-slate-500">{label}</div>
+                      <div className="text-sm font-medium text-slate-200">{value}</div>
+                    </div>
+                  )
+                  return (
+                    <div className="flex flex-wrap gap-2 mb-3 print:hidden">
+                      <Stat label="Total cases" value={summary.total} />
+                      <Stat label="Successful" value={summary.successful} />
+                      <Stat label="Errors" value={summary.errorCount} />
+                      <Stat label="Replacement ON" value={summary.replacementOn} />
+                      <Stat label="Replacement OFF" value={summary.replacementOff} />
+                      {summary.highestRecommendedSbc && (
+                        <Stat
+                          label="Highest recommended SBC"
+                          value={`${summary.highestRecommendedSbc.value} (${summary.highestRecommendedSbc.row.case_id ?? `B=${summary.highestRecommendedSbc.row.width_m}, D=${summary.highestRecommendedSbc.row.depth_m}`})`}
+                          title="Numerical extreme across this batch only -- not an engineering recommendation. No structural applied load is available in this batch to judge 'best'."
+                        />
+                      )}
+                      {summary.lowestRecommendedSbc && (
+                        <Stat
+                          label="Lowest recommended SBC"
+                          value={`${summary.lowestRecommendedSbc.value} (${summary.lowestRecommendedSbc.row.case_id ?? `B=${summary.lowestRecommendedSbc.row.width_m}, D=${summary.lowestRecommendedSbc.row.depth_m}`})`}
+                          title="Numerical extreme across this batch only -- not an engineering recommendation."
+                        />
+                      )}
+                    </div>
+                  )
+                })()}
+
                 <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
                   <div className="text-xs uppercase tracking-wide text-slate-500">
                     {result.successful}/{result.total} combinations · {result.borehole_id}
                   </div>
-                  <div className="flex items-center gap-2 print:hidden">
+                  <div className="flex items-center gap-2 flex-wrap print:hidden">
+                    {/* Filters (Step 4) -- narrow what's DISPLAYED only; never
+                        mutates result.combinations itself. */}
+                    <select
+                      value={statusFilter}
+                      onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+                      className="gm-input text-xs py-1.5 px-2 w-auto"
+                      title="Filter by result status"
+                    >
+                      <option value="all">All statuses</option>
+                      <option value="success">Success only</option>
+                      <option value="error">Errors only</option>
+                    </select>
+                    <select
+                      value={replacementFilter}
+                      onChange={(e) => setReplacementFilter(e.target.value as ReplacementFilter)}
+                      className="gm-input text-xs py-1.5 px-2 w-auto"
+                      title="Filter by soil replacement"
+                    >
+                      <option value="all">Replacement: all</option>
+                      <option value="on">Replacement ON</option>
+                      <option value="off">Replacement OFF</option>
+                    </select>
                     <input
                       value={tableSearch}
                       onChange={(e) => setTableSearch(e.target.value)}
@@ -670,27 +737,11 @@ export default function BatchAnalysis() {
                 </div>
 
                 {(() => {
-                  const SORTABLE: Record<string, (c: any) => number | string> = {
-                    width_m: (c) => c.width_m, length_m: (c) => c.length_m, depth_m: (c) => c.depth_m,
-                    soil_type: (c) => c.soil_type ?? '', shear_sbc: (c) => c.shear_sbc ?? -Infinity,
-                    settlement_sbc: (c) => c.settlement_sbc ?? -Infinity, recommended_sbc: (c) => c.recommended_sbc ?? -Infinity,
-                    gross_recommended_sbc: (c) => c.gross_recommended_sbc ?? -Infinity, governing: (c) => c.governing ?? '',
-                  }
-                  const q = tableSearch.trim().toLowerCase()
-                  let rows: any[] = q
-                    ? result.combinations.filter((c: any) =>
-                        [c.case_id, c.width_m, c.length_m, c.depth_m, c.founding_layer, c.soil_type, c.governing, c.error]
-                          .some((v) => v != null && String(v).toLowerCase().includes(q)))
-                    : result.combinations
-                  if (sortCol && SORTABLE[sortCol]) {
-                    const accessor = SORTABLE[sortCol]
-                    rows = [...rows].sort((a, b) => {
-                      const av = accessor(a), bv = accessor(b)
-                      const cmp = typeof av === 'string' ? av.localeCompare(bv as string) : (av as number) - (bv as number)
-                      return sortDir === 'asc' ? cmp : -cmp
-                    })
-                  }
-                  const displayedCombos = rows
+                  const displayedCombos = getDisplayedRows(
+                    result.combinations,
+                    { status: statusFilter, replacement: replacementFilter, search: tableSearch },
+                    sortCol, sortDir,
+                  )
 
                   function SortTh({ col, children, className = '' }: { col: string; children: any; className?: string }) {
                     const active = sortCol === col
@@ -720,6 +771,8 @@ export default function BatchAnalysis() {
                         <SortTh col="length_m">L (m)</SortTh>
                         <SortTh col="depth_m">D (m)</SortTh>
                         <th className="text-left py-2 pr-3" title="The borehole layer containing depth D, shown with its own full boundaries -- NOT where the settlement calculation starts. Settlement always starts exactly at D; see the effective layer range in 'Full calc' below.">Founding layer (raw)</th>
+                        <SortTh col="replacement_enabled">Replacement</SortTh>
+                        <SortTh col="status">Status</SortTh>
                         <SortTh col="soil_type">Soil type</SortTh>
                         <SortTh col="shear_sbc">Shear SBC</SortTh>
                         <SortTh col="settlement_sbc">Settlement SBC</SortTh>
@@ -731,14 +784,14 @@ export default function BatchAnalysis() {
                     </thead>
                     <tbody>
                       {(() => {
-                        const totalCols = result.mode === 'exact_pairs' ? 12 : 11
+                        const totalCols = result.mode === 'exact_pairs' ? 14 : 13
                         return displayedCombos.length === 0 && (
-                          <tr><td colSpan={totalCols} className="py-6 text-center text-slate-500">No rows match "{tableSearch}".</td></tr>
+                          <tr><td colSpan={totalCols} className="py-6 text-center text-slate-500">No rows match the current search/filters.</td></tr>
                         )
                       })()}
                       {displayedCombos.map((c: any, i: number) => {
-                        const totalCols = result.mode === 'exact_pairs' ? 12 : 11
-                        const errorColSpan = result.mode === 'exact_pairs' ? 8 : 7
+                        const totalCols = result.mode === 'exact_pairs' ? 14 : 13
+                        const errorColSpan = 6
                         const rowKey = c.case_id ?? `${c.width_m}_${c.length_m}_${c.depth_m}`
                         const isCritical = result.critical_combination && !c.error && (
                           c.case_id != null
@@ -763,9 +816,16 @@ export default function BatchAnalysis() {
                             <td className="py-1.5 pr-3 text-slate-300 whitespace-nowrap">{c.depth_m}</td>
                             <td className="py-1.5 pr-3 text-slate-400 whitespace-nowrap" title="Raw layer boundaries -- the calculation itself always starts at D, not necessarily this layer's own top">
                               {c.founding_layer ?? '—'}
-                              {c.replacement_enabled && (
-                                <span className="ml-1 px-1 py-0.5 rounded text-[9px] bg-teal-500/20 text-teal-300" title={`Soil replaced 0–${c.replacement_depth_m}m for this case`}>Replaced</span>
-                              )}
+                            </td>
+                            <td className="py-1.5 pr-3 whitespace-nowrap" title={c.replacement_enabled ? `Soil replaced 0–${c.replacement_depth_m}m for this case` : 'No soil replacement for this case'}>
+                              {c.replacement_enabled
+                                ? <span className="px-1.5 py-0.5 rounded text-[10px] bg-teal-500/20 text-teal-300">ON · {c.replacement_depth_m}m</span>
+                                : <span className="text-slate-500">OFF</span>}
+                            </td>
+                            <td className="py-1.5 pr-3 whitespace-nowrap">
+                              {c.error
+                                ? <span className="px-1.5 py-0.5 rounded text-[10px] bg-rose-500/20 text-rose-300">Error</span>
+                                : <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-300">Success</span>}
                             </td>
                             {c.error ? (
                               <td colSpan={errorColSpan} className="py-1.5 text-rose-400">{c.error}</td>
