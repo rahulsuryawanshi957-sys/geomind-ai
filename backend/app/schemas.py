@@ -110,6 +110,10 @@ class BatchRunRequest(BaseModel):
     # bulk_density_t_m3, gamma_avg_above_t_m3, specific_gravity, moisture_content_pct,
     # n_value, compression_index_cc, initial_void_ratio_e0, elastic_modulus_t_m2, soil_type
     replacement: SoilReplacementInput | None = None  # Step 3 -- applied to EVERY combination in the grid (batch-level; grid mode has no per-combination case concept)
+    method: str | None = None  # Step 5 -- bearing-capacity method for the WHOLE grid. None -> existing
+    # default (IS:6403), so pre-Step-5 requests behave identically. See
+    # services/calculators.py BEARING_METHOD_REGISTRY for the currently supported method(s)
+    # and PROJECT_STATUS.md's Step 5 section for why only IS:6403 is exposed to Batch today.
 
 
 class BatchCaseInput(BaseModel):
@@ -121,6 +125,8 @@ class BatchCaseInput(BaseModel):
     overrides: dict = {}  # case-level -- wins over the request's batch-wide `overrides`
     # for any field both specify; same allowed field names as BatchRunRequest.overrides.
     replacement: SoilReplacementInput | None = None  # Step 3 -- case-specific, independent of every other case
+    method: str | None = None  # Step 5 -- case-level bearing-capacity method override. None ->
+    # falls back to the request's batch-wide `method` (see BatchCasesRequest.method below).
 
 
 class BatchCasesRequest(BaseModel):
@@ -141,6 +147,8 @@ class BatchCasesRequest(BaseModel):
     consolidation_type: str = "NCS"
     rigidity_factor: float = 1.0
     overrides: dict = {}  # batch-wide defaults, same field names as BatchRunRequest.overrides
+    method: str | None = None  # Step 5 -- batch-wide default bearing-capacity method (None -> IS:6403).
+    # A case's own `method` (BatchCaseInput.method) overrides this for that case only.
 
 
 class LiquefactionRequest(BaseModel):

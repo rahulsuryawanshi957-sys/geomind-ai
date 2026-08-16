@@ -786,12 +786,73 @@ def _build_effective_profile(layers: list, validated_replacement: dict) -> list:
     return effective
 
 
+# ---------------------------------------------------------------------------
+# Step 5 (Calculation Method Selection, Aug 2026) -- bearing-capacity method
+# registry for Batch Analysis.
+#
+# AUDIT (done before writing this code, see PROJECT_STATUS.md Step 5 section
+# for the full trace): two bearing-capacity functions exist in this file --
+# `bearing_capacity_is6403_shear` and `terzaghi_bearing_capacity`. Only
+# IS:6403 is wired into the borehole-layer batch architecture (founding-layer
+# auto-sourcing, water-table correction, soil-replacement compatibility,
+# t/m² unit convention shared with the settlement engine's min()/governing
+# comparison). `terzaghi_bearing_capacity` is a genuinely different, standalone
+# calculator: different unit system (kPa/kN/m³ vs t/m²/t/m³), returns GROSS
+# ultimate bearing capacity with NO factor-of-safety division applied inside
+# it (the caller is expected to divide by 2.5-3.0 themselves -- see its own
+# "warnings"), and its own docstring/assumptions say water-table buoyancy is
+# NOT corrected for. Wiring it into Batch would mean either (a) silently
+# passing it a t/m² cohesion as if it were kPa, wrong by a factor of ~9.81,
+# or (b) writing a NEW adapter that converts units, applies an assumed FOS
+# convention, and fabricates a water-table correction it was never given --
+# that's inventing engineering behavior the source function doesn't have,
+# which Step 5 explicitly forbids. So Terzaghi is deliberately NOT in this
+# registry; it remains available standalone via CALCULATOR_REGISTRY /
+# POST /api/calculators/run, just not as a Batch method option.
+#
+# This means, as of Step 5, there is exactly ONE verified batch-safe bearing
+# method. The registry/validation plumbing below is still worth having now
+# (clear "unsupported method" errors, a `method` field on every result row,
+# room for a genuinely second method later) without inventing a second
+# method today.
+BEARING_METHOD_REGISTRY = {
+    "IS_6403": bearing_capacity_is6403_shear,
+}
+BEARING_METHOD_LABELS = {
+    "IS_6403": "IS:6403",
+}
+DEFAULT_BEARING_METHOD = "IS_6403"
+
+
+def _validate_bearing_method(method: str | None) -> str:
+    """Resolve a requested Batch bearing-capacity method name to a supported
+    registry key, or raise ValueError with a clear message (mapped to HTTP
+    422 by the router -- a request-shape error, not a per-case calculation
+    error, so this must be called BEFORE any case starts calculating, never
+    from inside `_run_one_batch_case`'s try/except).
+
+    `None` (method not supplied at all) -> the existing default behavior
+    (IS:6403), so every batch run made before Step 5 continues to behave
+    identically.
+    """
+    if method is None:
+        return DEFAULT_BEARING_METHOD
+    key = str(method).strip().upper().replace("-", "_").replace(" ", "_")
+    if key not in BEARING_METHOD_REGISTRY:
+        supported = ", ".join(sorted(BEARING_METHOD_REGISTRY))
+        raise ValueError(
+            f"Unsupported calculation method '{method}' -- supported methods: {supported}."
+        )
+    return key
+
+
 def _run_one_batch_case(
     layers: list, water_table_depth_m: float | None,
     width_m: float, depth_m: float, length_m: float | None,
     shape: str, fos: float, allowable_settlement_mm: float,
     consolidation_type: str, rigidity_factor: float, overrides: dict,
     case_id: str | None = None, replacement: dict | None = None,
+    method: str = DEFAULT_BEARING_METHOD,
 ) -> dict:
     """One (width, depth) case's shear + settlement calculation -- the SHARED
     per-case engine used by both run_batch_matrix (grid/cross-product mode)
@@ -816,6 +877,12 @@ def _run_one_batch_case(
     if case_id is not None:
         row["case_id"] = case_id
     row["replacement_enabled"] = bool(replacement and replacement.get("enabled"))
+    # Step 5: `method` reaching here is ALREADY validated by the caller
+    # (run_batch_matrix / run_batch_cases, via `_validate_bearing_method`) --
+    # this function only ever sees a known-good registry key, so a plain
+    # dict lookup below is safe and never itself raises for a bad name.
+    row["method"] = method
+    bearing_fn = BEARING_METHOD_REGISTRY[method]
     try:
         width_m = _validate_positive_finite("width_m", width_m)
         depth_m = _validate_positive_finite("depth_m", depth_m)
@@ -885,7 +952,7 @@ def _run_one_batch_case(
         if effective_water_table_depth_m is None:
             raise ValueError("No water table depth available -- provide one on the borehole or as an override.")
 
-        shear = bearing_capacity_is6403_shear(
+        shear = bearing_fn(
             length_m=L, width_m=width_m, depth_m=depth_m,
             cohesion_t_m2=cohesion, phi_deg=phi,
             gamma_avg_above_t_m3=gamma_above, gamma_at_base_t_m3=gamma_base,
@@ -918,7 +985,7 @@ def _run_one_batch_case(
             "recommended_sbc": round(recommended, 2),
             "gross_recommended_sbc": round(recommended + gamma_above * depth_m, 2),
             "shear_steps": shear.get("steps", []),
-            "governing": "shear (IS:6403)" if shear_val <= settlement_val else "settlement (IS:8009)",
+            "governing": f"shear ({BEARING_METHOD_LABELS.get(method, method)})" if shear_val <= settlement_val else "settlement (IS:8009)",
         })
     except (ValueError, ZeroDivisionError) as e:
         row["error"] = str(e)
@@ -931,6 +998,7 @@ def run_batch_matrix(
     shape: str = "square", fos: float = 2.5, allowable_settlement_mm: float = 25,
     consolidation_type: str = "NCS", rigidity_factor: float = 1.0,
     overrides: dict | None = None, replacement: dict | None = None,
+    method: str | None = None,
 ) -> dict:
     """
     Batch/matrix engine (Phase 3, v2): for every (width, depth) combination,
@@ -973,6 +1041,15 @@ def run_batch_matrix(
     scope limit, not an oversight. Use exact-pairs mode (`run_batch_cases`)
     for a batch that mixes replacement ON/OFF or different replacement
     depths across cases.
+
+    `method` (Step 5, Aug 2026 -- Calculation Method Selection): the
+    bearing-capacity method for the WHOLE grid -- `None`/omitted uses the
+    existing default (IS:6403), so every request made before Step 5
+    continues to behave identically. Grid mode has no per-combination case
+    concept (same reasoning as batch-level-only `replacement` above), so
+    there is no per-combination method override here -- use exact-pairs
+    mode for that. An unsupported method name is rejected up front with a
+    ValueError (-> HTTP 422 at the router), before any combination runs.
     """
     overrides = overrides or {}
     if not layers:
@@ -983,6 +1060,7 @@ def run_batch_matrix(
         raise ValueError("This borehole has no water table depth recorded -- required for both SBC methods.")
     if len(widths_m) * len(depths_m) > MAX_BATCH_CASES:
         raise ValueError(f"Grid too large (max {MAX_BATCH_CASES} combinations at once) -- narrow the width/depth lists.")
+    resolved_method = _validate_bearing_method(method)
 
     layers = sorted(layers, key=lambda l: l.from_m)
     combos = [
@@ -991,7 +1069,7 @@ def run_batch_matrix(
             width_m=w, depth_m=d, length_m=length_m,
             shape=shape, fos=fos, allowable_settlement_mm=allowable_settlement_mm,
             consolidation_type=consolidation_type, rigidity_factor=rigidity_factor,
-            overrides=overrides, replacement=replacement,
+            overrides=overrides, replacement=replacement, method=resolved_method,
         )
         for w in widths_m for d in depths_m
     ]
@@ -1024,7 +1102,7 @@ def run_batch_cases(
     layers: list, water_table_depth_m: float | None, cases: list[dict],
     shape: str = "square", fos: float = 2.5, allowable_settlement_mm: float = 25,
     consolidation_type: str = "NCS", rigidity_factor: float = 1.0,
-    overrides: dict | None = None,
+    overrides: dict | None = None, default_method: str | None = None,
 ) -> dict:
     """
     Exact B x D pair mode (Step 2, Aug 2026) -- runs EXACTLY the given cases,
@@ -1056,6 +1134,17 @@ def run_batch_cases(
     `_validate_replacement_config`/`_build_effective_profile` for the
     engine; the actual bearing-capacity and settlement math is 100% reused
     (unchanged formulas) -- only the soil profile handed to them differs.
+
+    `default_method` / per-case `c["method"]` (Step 5, Aug 2026 --
+    Calculation Method Selection): `default_method` is the batch-wide
+    fallback bearing-capacity method (`None` -> existing default, IS:6403,
+    so pre-Step-5 requests behave identically); a case's own `method`, if
+    given, overrides it for that case only -- independent of every other
+    case, same pattern as per-case `replacement`. EVERY case's effective
+    method name (default or override) is validated up front, before any
+    case starts calculating, so an unsupported method name in ANY case
+    fails the whole request with a clear error rather than silently
+    skipping just that case.
     """
     batch_overrides = overrides or {}
     if not layers:
@@ -1066,8 +1155,10 @@ def run_batch_cases(
         raise ValueError("This borehole has no water table depth recorded -- required for both SBC methods.")
     if len(cases) > MAX_BATCH_CASES:
         raise ValueError(f"Too many cases (max {MAX_BATCH_CASES} at once) -- split into smaller batches.")
+    resolved_default_method = _validate_bearing_method(default_method)
 
     seen_ids = set()
+    case_methods = {}
     for c in cases:
         cid = c.get("case_id")
         if not cid:
@@ -1075,6 +1166,10 @@ def run_batch_cases(
         if cid in seen_ids:
             raise ValueError(f"Duplicate case_id '{cid}' -- case IDs must be unique within a batch.")
         seen_ids.add(cid)
+        case_method = c.get("method")
+        case_methods[cid] = (
+            _validate_bearing_method(case_method) if case_method is not None else resolved_default_method
+        )
 
     layers = sorted(layers, key=lambda l: l.from_m)
     combos = []
@@ -1086,7 +1181,7 @@ def run_batch_cases(
             shape=shape, fos=fos, allowable_settlement_mm=allowable_settlement_mm,
             consolidation_type=consolidation_type, rigidity_factor=rigidity_factor,
             overrides=case_overrides, case_id=c.get("case_id"),
-            replacement=c.get("replacement"),
+            replacement=c.get("replacement"), method=case_methods[c.get("case_id")],
         ))
 
     valid = [c for c in combos if "error" not in c]

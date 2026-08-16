@@ -169,6 +169,11 @@ export default function BatchAnalysis() {
   const [replGamma, setReplGamma] = useState('')
   const [replCohesion, setReplCohesion] = useState('')
   const [replPhi, setReplPhi] = useState('')
+  // Step 5 (Calculation Method Selection, Aug 2026) -- batch-wide default
+  // bearing-capacity method, read from GET /api/calculators/batch-methods
+  // rather than hard-coded (so a future second method just appears here).
+  const [availableMethods, setAvailableMethods] = useState<{ key: string; label: string }[]>([])
+  const [batchMethod, setBatchMethod] = useState('IS_6403')
   const [loading, setLoading] = useState(false)
   const [progress, setProgress] = useState(0)
   const [progressLabel, setProgressLabel] = useState('')
@@ -185,6 +190,10 @@ export default function BatchAnalysis() {
 
   useEffect(() => {
     api.listBoreholes().then(setBoreholes).catch(() => {})
+    api.batchMethods().then((r) => {
+      setAvailableMethods(r.methods)
+      setBatchMethod(r.default)
+    }).catch(() => {})
   }, [])
 
   const selectedBorehole = boreholes.find((b) => b.id === selectedBoreholeId)
@@ -216,6 +225,9 @@ export default function BatchAnalysis() {
   const exactDuplicateIds = [...new Set(exactCaseIds.filter((id, i) => exactCaseIds.indexOf(id) !== i))]
   const activeLayerOverrideCount = Object.values(layerSoilTypeOverrides).filter((v) => v).length
   const activeOverrideCount = Object.values(overrides).filter((v) => v !== '' && v != null).length + activeLayerOverrideCount
+  // Step 5 -- key -> display label lookup built from GET /batch-methods, so
+  // the results table never hard-codes a method name either.
+  const methodLabelMap: Record<string, string> = Object.fromEntries(availableMethods.map((m) => [m.key, m.label]))
 
   function setOv(key: string, val: string) {
     setOverrides((prev) => ({ ...prev, [key]: val }))
@@ -285,6 +297,7 @@ export default function BatchAnalysis() {
           rigidity_factor: parseFloat(rigidityFactor) || 1,
           overrides: overridesPayload,
           replacement: buildReplacementPayload(),
+          method: batchMethod,
         } as any)
         allCombos.push(...r.combinations)
         meta = r
@@ -332,6 +345,7 @@ export default function BatchAnalysis() {
         consolidation_type: consolidationType,
         rigidity_factor: parseFloat(rigidityFactor) || 1,
         overrides: overridesPayload,
+        method: batchMethod,
       })
       setResult(r)
     } catch (e: any) {
@@ -510,6 +524,28 @@ export default function BatchAnalysis() {
                 </>
               )}
 
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">
+                  Calculation method
+                  {availableMethods.length <= 1 && (
+                    <span className="text-slate-500 font-normal"> (only one verified method available today)</span>
+                  )}
+                </label>
+                <select
+                  className="gm-input w-full"
+                  value={batchMethod}
+                  onChange={(e) => setBatchMethod(e.target.value)}
+                  disabled={availableMethods.length <= 1}
+                >
+                  {(availableMethods.length ? availableMethods : [{ key: 'IS_6403', label: 'IS:6403' }]).map((m) => (
+                    <option key={m.key} value={m.key}>{m.label} Shear</option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Bearing-capacity method used for shear across this batch. Settlement (IS:8009) always runs
+                  the existing multi-layer engine — it isn't a separate selectable method.
+                </p>
+              </div>
               <div>
                 <label className="text-xs text-slate-400 mb-1 block">Footing length L (blank = square, L=B)</label>
                 <input type="number" step="any" className="gm-input w-full" value={lengthOverride} onChange={(e) => setLengthOverride(e.target.value)} />
@@ -773,6 +809,7 @@ export default function BatchAnalysis() {
                         <th className="text-left py-2 pr-3" title="The borehole layer containing depth D, shown with its own full boundaries -- NOT where the settlement calculation starts. Settlement always starts exactly at D; see the effective layer range in 'Full calc' below.">Founding layer (raw)</th>
                         <SortTh col="replacement_enabled">Replacement</SortTh>
                         <SortTh col="status">Status</SortTh>
+                        <SortTh col="method">Method</SortTh>
                         <SortTh col="soil_type">Soil type</SortTh>
                         <SortTh col="shear_sbc">Shear SBC</SortTh>
                         <SortTh col="settlement_sbc">Settlement SBC</SortTh>
@@ -784,13 +821,20 @@ export default function BatchAnalysis() {
                     </thead>
                     <tbody>
                       {(() => {
-                        const totalCols = result.mode === 'exact_pairs' ? 14 : 13
+                        // Step 5 adds one pre-cell (Method, always shown regardless of
+                        // error/success -- same reasoning as Status) alongside Step 4's
+                        // Replacement/Status: pre-cells = case_id?(exact only)+B+L+D+
+                        // founding+replacement+status+method (8 exact / 7 grid) +
+                        // either errorColSpan(6, error row) or 6 cells (soil_type/
+                        // shear/settlement/net/gross/governing, success row) + 1
+                        // trailing "Full calc" cell.
+                        const totalCols = result.mode === 'exact_pairs' ? 15 : 14
                         return displayedCombos.length === 0 && (
                           <tr><td colSpan={totalCols} className="py-6 text-center text-slate-500">No rows match the current search/filters.</td></tr>
                         )
                       })()}
                       {displayedCombos.map((c: any, i: number) => {
-                        const totalCols = result.mode === 'exact_pairs' ? 14 : 13
+                        const totalCols = result.mode === 'exact_pairs' ? 15 : 14
                         const errorColSpan = 6
                         const rowKey = c.case_id ?? `${c.width_m}_${c.length_m}_${c.depth_m}`
                         const isCritical = result.critical_combination && !c.error && (
@@ -826,6 +870,9 @@ export default function BatchAnalysis() {
                               {c.error
                                 ? <span className="px-1.5 py-0.5 rounded text-[10px] bg-rose-500/20 text-rose-300">Error</span>
                                 : <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-300">Success</span>}
+                            </td>
+                            <td className="py-1.5 pr-3 text-slate-400 whitespace-nowrap" title="Bearing-capacity method used for this case's shear check">
+                              {methodLabelMap[c.method] ?? c.method ?? '—'}
                             </td>
                             {c.error ? (
                               <td colSpan={errorColSpan} className="py-1.5 text-rose-400">{c.error}</td>

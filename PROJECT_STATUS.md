@@ -191,6 +191,16 @@ is a 2-state split (not 3, i.e. no separate "INVALID") because the backend doesn
 currently distinguish bad input from a genuine calculation failure -- both raise into
 the same `error` field.
 
+**Calculation Method Selection (Step 5, 16 Aug 2026).** Batch cases can now explicitly
+select a bearing-capacity method (batch-wide default + per-case override in exact-pairs
+mode) via a real `BEARING_METHOD_REGISTRY` -- but a pre-code audit found only ONE method
+(IS:6403, already what Batch always used) is actually safe to expose: Terzaghi exists in
+`calculators.py` but uses different units, has no FOS division built in, and no
+water-table correction, so wiring it in would mean inventing behavior it doesn't have.
+Settlement has no selectable method either -- the multi-layer engine already picks
+granular/cohesive per layer internally. See changelog #93 for the full audit and the
+16 new tests (62/62 total passing).
+
 Backend: `run_batch_matrix()` + helpers `_founding_layer()`, `_resolve_field()`,
 `_weighted_overburden()` in `services/calculators.py` (reuses the exact same
 `bearing_capacity_is6403_shear` / `settlement_sbc_is8009_*` functions — no duplicated
@@ -300,6 +310,14 @@ reading the same data — one looks at the ground, the other sizes a foundation.
   into the same `row["error"]` field. A real 3-state split needs a backend change (e.g.
   a `row["error_type"]` field) — deliberately not done in a presentation-only step. See
   changelog #92.
+- **Batch Analysis has exactly ONE selectable bearing-capacity method (IS:6403)**
+  (Step 5, 16 Aug 2026) — `terzaghi_bearing_capacity()` exists in `calculators.py` and is
+  usable standalone via `/api/calculators/run`, but is NOT exposed to Batch: different
+  unit system (kPa vs t/m²), no FOS division built in, no water-table correction, no
+  layer-sourcing integration. Exposing it would mean fabricating conversion/correction
+  behavior the function doesn't have. Settlement has no separate selectable method either
+  -- the multi-layer engine already picks granular/cohesive per layer internally. See
+  changelog #93 for the full audit.
 
 ---
 
@@ -361,7 +379,18 @@ foundation combinations, in ~1 hour instead of a full day. Phases:
    Comparison table (Replacement + Status columns), sorting, filtering (status/
    replacement), search, batch summary (totals, numerical extremes -- explicitly NOT a
    "best foundation"), all presentation-only over the existing result fields. See
-   changelog #92. **Next step (Step 5) is Calculation Method Selection** — not started.
+   changelog #92.
+9. **✅ DONE — Batch Analysis Step 5: Calculation Method Selection, 16 Aug 2026.**
+   Batch-level default + case-level (exact-pairs mode only) bearing-capacity method
+   selection, backed by a real `BEARING_METHOD_REGISTRY`. A pre-code audit found only
+   ONE method (IS:6403) is actually wired into the batch/layer architecture --
+   Terzaghi exists but is a genuinely incompatible standalone calculator (different
+   units, no FOS division, no water-table correction), so it was deliberately NOT
+   exposed to Batch. Settlement method selection isn't applicable either -- the
+   multi-layer settlement engine already picks granular/cohesive PER LAYER
+   internally, not once per case. See changelog #93 for the full audit trace, what
+   was and wasn't built, and all 16 new tests (62/62 total passing, zero regression).
+   **Next step (Step 6) is Formula Configuration & Versioning** — not started.
 
 If you're picking this up fresh: **ask Raahi which phase they're on** before assuming:
 they may have skipped ahead or asked for something adjacent (this has happened before —
@@ -3781,6 +3810,154 @@ scoped).
       BatchAnalysis.tsx` (summary bar, filter dropdowns, Replacement/Status
       columns, sort/filter/search now delegate to the new utils module).
       `backend/` -- unchanged this step.
+
+93. **Batch Analysis Step 5 -- Calculation Method Selection -- 16 Aug 2026.**
+    Lets Batch cases explicitly select among calculation methods that are
+    ALREADY implemented and verified -- not a new engineering method.
+    - **Method audit (done first, before any code change).** Inspected
+      every bearing-capacity function in `services/calculators.py`. Two
+      exist: `bearing_capacity_is6403_shear` (the one Batch already calls,
+      via `_run_one_batch_case`) and `terzaghi_bearing_capacity` (used only
+      by the standalone individual calculator, `CALCULATOR_REGISTRY[
+      "bearing_capacity_terzaghi"]`). Only IS:6403 is wired into the
+      borehole-layer batch architecture (founding-layer auto-sourcing,
+      water-table correction, t/m² unit convention shared with the
+      settlement engine's `min()`/governing comparison). Terzaghi is a
+      genuinely incompatible engine for Batch reuse: different units (kPa/
+      kN/m³ vs t/m²/t/m³), returns GROSS ultimate capacity with NO factor-
+      of-safety division built in (caller divides by 2.5-3.0 themselves --
+      see its own "warnings"), and its own assumptions say water-table
+      buoyancy is NOT corrected for. Wiring it in would mean either passing
+      it t/m² values as if they were kPa (wrong by ~9.81x) or writing a new
+      adapter that invents a unit conversion, an assumed FOS convention, and
+      a water-table correction the source function was never given --
+      exactly the kind of fabricated engineering behavior Step 5's brief
+      forbade. **Conclusion: exactly ONE method is exposed to Batch today
+      (IS:6403).** Terzaghi remains available standalone at
+      `POST /api/calculators/run` (`calculator_type=
+      "bearing_capacity_terzaghi"`), unchanged, just not as a Batch option.
+    - **Settlement method selection -- not applicable, documented not
+      built.** `run_settlement_multilayer` is already architecturally
+      multi-method internally (it picks granular vs cohesive settlement
+      PER LAYER as it walks the influence zone, not once per case) -- see
+      "Known limitations" above and playbook #8/#11. There's no single
+      "settlement method" a case could select between without rewriting
+      that per-layer engine, which Step 5's brief explicitly said not to
+      do. Settlement continues to run exactly as before, unconditionally.
+    - **What WAS built, since a real (if small) architecture was still
+      worth having now.** `BEARING_METHOD_REGISTRY` in `services/
+      calculators.py` -- currently `{"IS_6403": bearing_capacity_is6403_
+      shear}` -- plus `_validate_bearing_method()` (resolves a method name
+      to a registry key, or raises a clear `ValueError` for an unsupported
+      one; `None`/missing -> `DEFAULT_BEARING_METHOD` = `"IS_6403"`, so
+      every pre-Step-5 request behaves byte-for-byte identically).
+    - **Batch-level default + case-level override**, per the brief's
+      preferred structure: `run_batch_matrix(method=...)` (grid mode, one
+      method for the whole grid -- grid has no per-combination case
+      concept, same reasoning as Step 3's batch-level-only replacement).
+      `run_batch_cases(default_method=..., ...)` (exact-pairs mode) plus
+      each case dict's own optional `"method"` key, which wins over the
+      batch default for that case only -- independent of every other case,
+      same pattern as per-case `replacement`.
+    - **Validation is request-shape, not per-case.** An unsupported method
+      name (batch-level OR on any one case) raises `ValueError` -- caught by
+      the router as HTTP 422 -- BEFORE any case starts calculating. This is
+      deliberate: `_validate_bearing_method` is called from `run_batch_
+      matrix`/`run_batch_cases`, never from inside `_run_one_batch_case`'s
+      `try/except`, so a bad method name can never be silently swallowed
+      into a per-row `"error"` string the way a genuine calculation failure
+      is. Missing method -> default (silent, expected). Unsupported method
+      -> whole-request validation error (loud, expected). Calculation
+      failure (bad B/D, no layer has a needed field, etc) -> still a
+      per-row `"error"`, unchanged from Step 2/3/4.
+    - **Result field.** Every row (success AND error) now carries
+      `"method"` -- the resolved key used (success) or requested (error;
+      set before the `try` block, same as `case_id`/`replacement_enabled`
+      already were). `"governing"` is now built from
+      `BEARING_METHOD_LABELS.get(method, method)` instead of a hard-coded
+      `"IS:6403"` string, so it stays correct the day a second method is
+      added.
+    - **API/schema.** `BatchRunRequest.method: str | None = None`,
+      `BatchCaseInput.method: str | None = None`, `BatchCasesRequest.
+      method: str | None = None` (used as the batch-wide default for
+      exact-pairs mode) -- all optional, all backward-compatible. New
+      `GET /api/calculators/batch-methods` returns `{"methods": [{"key",
+      "label"}, ...], "default": "IS_6403"}` so the frontend never
+      hard-codes a method name or label.
+    - **Frontend.** `api/client.ts`: `batchMethods()` fetcher, `method`
+      added to `runBatch`/`runBatchCases` payload types. `BatchAnalysis.
+      tsx`: new "Calculation method" dropdown (fetched from `/batch-
+      methods` on mount, defaults to the backend's default, disabled when
+      only one method exists -- which is the case today, with a small
+      "(only one verified method available today)" note so this doesn't
+      read as broken), sent as `method` on both grid and exact-pairs runs.
+      Results table gained a "Method" column (between Status and Soil
+      type -- shown for BOTH success and error rows) and `method` is now a
+      sortable/searchable field in `utils/batchResults.ts`. Did NOT build a
+      per-case method-override UI in the exact-pairs textarea (unlike Step
+      3's `| depth, γ, c, φ` syntax) -- with only one real method, there is
+      nothing meaningful to override TO yet; the backend/API already
+      support a per-case `method` key so this is a pure frontend addition
+      whenever a second method exists, not a backend change.
+    - **Method + soil replacement / Exact B×D / Grid mode -- verified
+      together, no cross-contamination.** New test confirms a case with
+      both `method` and `replacement` set produces a shear result that
+      differs from an identical case with no replacement (replacement
+      depth deliberately set past the footing depth so the founding layer
+      itself changes -- see the test's own comment on why a shallower
+      replacement depth would coincidentally produce IDENTICAL shear
+      values for a phi=0 founding layer, which is correct engineering
+      behavior, not a bug, but a misleading thing to assert on). Exact B×D
+      and Grid cross-product generation are both unchanged and re-verified
+      under the new `method` param.
+    - **Individual vs Batch regression (mandatory, Test 9).** `test_
+      is6403_method_matches_direct_calculator_call` calls
+      `bearing_capacity_is6403_shear()` directly and via `run_batch_matrix
+      (method="IS_6403")` with identical inputs -- results match exactly
+      (not just close), same as the pre-existing Step 2 test this mirrors.
+    - **Tests -- 16 new, all executed.** `backend/tests/test_batch_method_
+      selection.py`: default-method behavior (grid + exact-pairs), Batch ==
+      direct-calculator match, registry-has-exactly-one-method (documents
+      the audit finding as a real assertion, not just a comment), unsupported
+      method rejected (grid / exact-pairs batch-level / exact-pairs
+      case-level), malformed method name, method-name normalization
+      (`is:6403`/`is-6403`/`is 6403` all resolve), case-level override
+      plumbing, Exact B×D + method, Grid + method, method + replacement (no
+      contamination), governing-label reflects method used, error rows
+      still carry the requested method. No `pytest` in this sandbox (same
+      network restriction noted throughout this doc) -- ran with the exact
+      technique playbook #90-92 already established: a minimal pytest-shim
+      (`raises`/`mark.parametrize`) plus a plain script executing every
+      `test_*` function directly. **Result: 62/62 passing** -- 46 pre-
+      existing Step 2/3/4 tests (`test_batch_analysis.py`) unchanged and
+      still green (confirms zero regression), plus all 16 new Step 5 tests.
+    - **Explicitly NOT done this step** (all out of scope per the brief):
+      formula versioning/configuration, custom coefficients, a second real
+      bearing-capacity method (none exists in a batch-safe form yet --
+      Terzaghi was deliberately excluded, see audit above), settlement
+      method selection (architecturally not supported without rewriting
+      the multi-layer engine), any "best method" recommendation, DOCX
+      report redesign (report builders already read fields via `.get()`,
+      confirmed unaffected by the new `method` field), row virtualization.
+    - **Verified overall:** `python3 -m py_compile` on the full backend
+      tree -- clean. `tsc --ignoreConfig --noEmit --skipLibCheck --jsx
+      react-jsx` on the 3 changed frontend files -- zero `TS1xxx` errors
+      (only the expected `TS7026`/`TS2875` `node_modules`-missing noise, per
+      this doc's own established convention). **Not yet run against a live
+      Render deploy or a real borehole** -- treat the next deploy as the
+      real test: confirm the "Calculation method" dropdown loads from
+      `/api/calculators/batch-methods`, shows just IS:6403, and both grid
+      and exact-pairs runs still produce identical numbers to before this
+      step (no `method` sent = old behavior).
+    - `backend/` changed: `app/services/calculators.py` (`BEARING_METHOD_
+      REGISTRY`, `BEARING_METHOD_LABELS`, `DEFAULT_BEARING_METHOD`,
+      `_validate_bearing_method`, `_run_one_batch_case`/`run_batch_matrix`/
+      `run_batch_cases` all method-aware), `app/schemas.py` (`method` on
+      `BatchRunRequest`/`BatchCaseInput`/`BatchCasesRequest`), `app/routers/
+      calculators.py` (`method`/`default_method` passed through, new
+      `GET /batch-methods`). `frontend/` changed: `src/api/client.ts`,
+      `src/pages/BatchAnalysis.tsx`, `src/utils/batchResults.ts`. New:
+      `backend/tests/test_batch_method_selection.py`.
 
 ---
 

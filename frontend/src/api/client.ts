@@ -107,6 +107,12 @@ export const api = {
 
   availableCalculators: () => request<any>('/api/calculators/available'),
 
+  // Step 5 (Calculation Method Selection, Aug 2026) -- the bearing-capacity
+  // methods Batch Analysis actually supports, read from the backend instead
+  // of hard-coded on the frontend (see routers/calculators.py's
+  // /batch-methods docstring for why the list is currently just one entry).
+  batchMethods: () => request<{ methods: { key: string; label: string }[]; default: string }>('/api/calculators/batch-methods'),
+
   runCalculator: (calculator_type: string, inputs: Record<string, any>) =>
     request<any>('/api/calculators/run', { method: 'POST', body: JSON.stringify({ calculator_type, inputs }) }),
 
@@ -117,14 +123,16 @@ export const api = {
     consolidation_type?: string; rigidity_factor?: number
     overrides?: Record<string, number | string>
     replacement?: Record<string, number | string | boolean> | null
+    method?: string | null
   }) => request<any>('/api/calculators/batch', { method: 'POST', body: JSON.stringify(payload) }),
 
   runBatchCases: (payload: {
     borehole_id: string
-    cases: { case_id: string; width_m: number; depth_m: number; length_m?: number | null; overrides?: Record<string, number | string>; replacement?: Record<string, number | string | boolean> | null }[]
+    cases: { case_id: string; width_m: number; depth_m: number; length_m?: number | null; overrides?: Record<string, number | string>; replacement?: Record<string, number | string | boolean> | null; method?: string | null }[]
     shape?: string; fos?: number; allowable_settlement_mm?: number
     consolidation_type?: string; rigidity_factor?: number
     overrides?: Record<string, number | string>
+    method?: string | null
   }) => request<any>('/api/calculators/batch-cases', { method: 'POST', body: JSON.stringify(payload) }),
 
   runLiquefaction: (payload: {

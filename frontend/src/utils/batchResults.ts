@@ -95,6 +95,7 @@ export const SORTABLE_FIELDS: Record<string, (c: BatchRow) => number | string> =
   replacement_enabled: (c) => (c.replacement_enabled ? 1 : 0),
   replacement_depth_m: (c) => (c.replacement_depth_m ?? -Infinity),
   status: (c) => getCaseStatus(c),
+  method: (c) => c.method ?? '',
 }
 
 // Stable sort (Array.prototype.sort is spec-guaranteed stable in every
@@ -135,7 +136,7 @@ export function filterRows(rows: BatchRow[], filters: RowFilters): BatchRow[] {
     if (q) {
       const haystack = [
         c.case_id, c.width_m, c.length_m, c.depth_m, c.founding_layer,
-        c.soil_type, c.governing, c.error, c.replacement_depth_m,
+        c.soil_type, c.governing, c.error, c.replacement_depth_m, c.method,
       ]
       if (!haystack.some((v) => v != null && String(v).toLowerCase().includes(q))) return false
     }

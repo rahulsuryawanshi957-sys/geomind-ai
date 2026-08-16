@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import CalculationLog, BoreholeProfile
 from app.schemas import CalculatorRequest, BatchRunRequest, BatchCasesRequest, LiquefactionRequest, PileCapacityRequest, PileCommandRequest, LateralCapacityRequest, RetainingWallRequest, RockBearingCapacityRequest, GroundImprovementRequest, RockSocketPileRequest, PileGroupRequest
-from app.services.calculators import CALCULATOR_REGISTRY, run_batch_matrix, run_batch_cases, run_liquefaction_analysis, MAX_BATCH_CASES
+from app.services.calculators import CALCULATOR_REGISTRY, run_batch_matrix, run_batch_cases, run_liquefaction_analysis, MAX_BATCH_CASES, BEARING_METHOD_REGISTRY, BEARING_METHOD_LABELS, DEFAULT_BEARING_METHOD
 from app.services.pile_calculator import run_pile_capacity, parse_pile_command, run_lateral_capacity, run_pile_group_analysis
 from app.services.retaining_wall_calculator import run_retaining_wall_analysis
 from app.services.rock_bearing_capacity import run_rock_bearing_capacity
@@ -152,6 +152,22 @@ def run_calculator(req: CalculatorRequest, db: Session = Depends(get_db)):
     return result
 
 
+@router.get("/batch-methods")
+def batch_methods():
+    """Step 5 (Calculation Method Selection, Aug 2026) -- the bearing-capacity
+    methods Batch Analysis actually supports, for the frontend's method
+    dropdown to read instead of hard-coding names. See
+    services/calculators.py's BEARING_METHOD_REGISTRY docstring for the
+    audit of why this list currently has exactly one entry."""
+    return {
+        "methods": [
+            {"key": key, "label": BEARING_METHOD_LABELS.get(key, key)}
+            for key in BEARING_METHOD_REGISTRY
+        ],
+        "default": DEFAULT_BEARING_METHOD,
+    }
+
+
 @router.post("/batch")
 def run_batch(req: BatchRunRequest, db: Session = Depends(get_db)):
     profile = db.query(BoreholeProfile).filter(BoreholeProfile.id == req.borehole_id).first()
@@ -172,6 +188,7 @@ def run_batch(req: BatchRunRequest, db: Session = Depends(get_db)):
             rigidity_factor=req.rigidity_factor,
             overrides=req.overrides,
             replacement=req.replacement.model_dump() if req.replacement else None,
+            method=req.method,
         )
     except ValueError as e:
         raise HTTPException(422, str(e))
@@ -215,6 +232,7 @@ def run_batch_cases_endpoint(req: BatchCasesRequest, db: Session = Depends(get_d
             consolidation_type=req.consolidation_type,
             rigidity_factor=req.rigidity_factor,
             overrides=req.overrides,
+            default_method=req.method,
         )
     except ValueError as e:
         raise HTTPException(422, str(e))
