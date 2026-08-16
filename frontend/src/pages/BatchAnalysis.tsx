@@ -49,6 +49,37 @@ function parseNumberList(input: string): number[] {
     .filter((n) => !isNaN(n) && n > 0)
 }
 
+// Exact B x D pair mode (Step 2, Aug 2026) -- bulk paste, one case per line.
+// Accepts "B, D" (case ID auto-generated C001, C002, ...) or
+// "CaseID, B, D" (explicit ID) -- lines can mix both styles. This is the
+// "practical bulk-entry method" the brief asked for instead of a
+// click-Add-Case-100-times UI, kept as a plain textarea consistent with how
+// widths/depths are already entered as comma lists elsewhere on this page.
+function parseCases(input: string): { case_id: string; width_m: number; depth_m: number }[] {
+  const lines = input.split('\n').map((l) => l.trim()).filter(Boolean)
+  const cases: { case_id: string; width_m: number; depth_m: number }[] = []
+  let autoIdx = 1
+  for (const line of lines) {
+    const parts = line.split(/[,\t]/).map((p) => p.trim()).filter((p) => p !== '')
+    if (parts.length < 2) continue
+    let case_id: string, width_m: number, depth_m: number
+    if (parts.length >= 3 && isNaN(parseFloat(parts[0]))) {
+      case_id = parts[0]
+      width_m = parseFloat(parts[1])
+      depth_m = parseFloat(parts[2])
+    } else {
+      width_m = parseFloat(parts[0])
+      depth_m = parseFloat(parts[1])
+      case_id = `C${String(autoIdx).padStart(3, '0')}`
+    }
+    autoIdx++
+    if (!isNaN(width_m) && !isNaN(depth_m) && width_m > 0 && depth_m > 0) {
+      cases.push({ case_id, width_m, depth_m })
+    }
+  }
+  return cases
+}
+
 // Optional manual pins. Any field left blank is auto-sourced by the backend
 // (founding layer -> nearest neighbour -> borehole average). Anything filled
 // here overrides that auto-sourcing for every combination in the batch.
@@ -82,8 +113,10 @@ const CLAY_LAMBDA_TABLE: { label: string; min: number; max: number }[] = [
 export default function BatchAnalysis() {
   const [boreholes, setBoreholes] = useState<any[]>([])
   const [selectedBoreholeId, setSelectedBoreholeId] = useState('')
+  const [mode, setMode] = useState<'grid' | 'exact'>('grid')
   const [widthsInput, setWidthsInput] = useState('1.5, 2, 2.5, 3')
   const [depthsInput, setDepthsInput] = useState('1.5, 2, 2.5')
+  const [casesInput, setCasesInput] = useState('1.5, 1.5\n2.0, 1.5\n2.0, 2.0\n2.5, 2.0')
   const [lengthOverride, setLengthOverride] = useState('')
   const [shape, setShape] = useState('square')
   const [fos, setFos] = useState('2.5')
@@ -133,6 +166,9 @@ export default function BatchAnalysis() {
   const widths = parseNumberList(widthsInput)
   const depths = parseNumberList(depthsInput)
   const comboCount = widths.length * depths.length
+  const exactCases = parseCases(casesInput)
+  const exactCaseIds = exactCases.map((c) => c.case_id)
+  const exactDuplicateIds = [...new Set(exactCaseIds.filter((id, i) => exactCaseIds.indexOf(id) !== i))]
   const activeLayerOverrideCount = Object.values(layerSoilTypeOverrides).filter((v) => v).length
   const activeOverrideCount = Object.values(overrides).filter((v) => v !== '' && v != null).length + activeLayerOverrideCount
 
@@ -214,6 +250,37 @@ export default function BatchAnalysis() {
     }
   }
 
+  async function runExactPairsBatch() {
+    setError(''); setResult(null); setProgress(0)
+    if (!selectedBoreholeId) { setError('Select a borehole first.'); return }
+    if (exactCases.length === 0) { setError('Enter at least one case (width, depth per line).'); return }
+    if (exactCases.length > 400) { setError(`${exactCases.length} cases is too many (max 400 at once) — split into smaller batches.`); return }
+    if (exactDuplicateIds.length > 0) { setError(`Duplicate case ID(s): ${exactDuplicateIds.join(', ')} — case IDs must be unique.`); return }
+
+    setLoading(true)
+    setProgressLabel(`Running ${exactCases.length} case${exactCases.length !== 1 ? 's' : ''}...`)
+    try {
+      const overridesPayload = buildOverridesPayload()
+      const r = await api.runBatchCases({
+        borehole_id: selectedBoreholeId,
+        cases: exactCases,
+        shape,
+        fos: parseFloat(fos) || 2.5,
+        allowable_settlement_mm: parseFloat(allowableSettlement) || 25,
+        consolidation_type: consolidationType,
+        rigidity_factor: parseFloat(rigidityFactor) || 1,
+        overrides: overridesPayload,
+      })
+      setResult(r)
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+      setProgress(0)
+      setProgressLabel('')
+    }
+  }
+
   return (
     <div className="p-6 md:p-8">
       <h1 className="font-display text-xl font-semibold text-slate-50 mb-1 flex items-center gap-2">
@@ -280,17 +347,57 @@ export default function BatchAnalysis() {
             </div>
 
             <div className="glass p-5 space-y-3">
-              <div>
-                <label className="text-xs text-slate-400 mb-1 block">Footing widths B (m) — comma-separated</label>
-                <input className="gm-input w-full" value={widthsInput} onChange={(e) => setWidthsInput(e.target.value)} placeholder="e.g. 1.5, 2, 2.5, 3" />
+              <div className="flex gap-1.5 p-0.5 rounded-lg bg-white/[0.04] mb-1">
+                <button
+                  onClick={() => setMode('grid')}
+                  className={`flex-1 text-xs py-1.5 rounded-md transition-colors ${mode === 'grid' ? 'bg-violet-500/20 text-violet-300' : 'text-slate-400 hover:text-slate-300'}`}
+                >
+                  Grid (cross-product)
+                </button>
+                <button
+                  onClick={() => setMode('exact')}
+                  className={`flex-1 text-xs py-1.5 rounded-md transition-colors ${mode === 'exact' ? 'bg-violet-500/20 text-violet-300' : 'text-slate-400 hover:text-slate-300'}`}
+                >
+                  Exact B×D pairs
+                </button>
               </div>
-              <div>
-                <label className="text-xs text-slate-400 mb-1 block">Foundation depths D (m) — comma-separated</label>
-                <input className="gm-input w-full" value={depthsInput} onChange={(e) => setDepthsInput(e.target.value)} placeholder="e.g. 1.5, 2, 2.5" />
-              </div>
-              <p className="text-[11px] text-slate-500">
-                {comboCount > 0 ? `${widths.length} widths × ${depths.length} depths = ${comboCount} combination${comboCount !== 1 ? 's' : ''}` : 'Enter at least one width and one depth.'} (max 400 at once)
-              </p>
+
+              {mode === 'grid' ? (
+                <>
+                  <div>
+                    <label className="text-xs text-slate-400 mb-1 block">Footing widths B (m) — comma-separated</label>
+                    <input className="gm-input w-full" value={widthsInput} onChange={(e) => setWidthsInput(e.target.value)} placeholder="e.g. 1.5, 2, 2.5, 3" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-400 mb-1 block">Foundation depths D (m) — comma-separated</label>
+                    <input className="gm-input w-full" value={depthsInput} onChange={(e) => setDepthsInput(e.target.value)} placeholder="e.g. 1.5, 2, 2.5" />
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    {comboCount > 0 ? `${widths.length} widths × ${depths.length} depths = ${comboCount} combination${comboCount !== 1 ? 's' : ''}` : 'Enter at least one width and one depth.'} (max 400 at once)
+                  </p>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <label className="text-xs text-slate-400 mb-1 block">
+                      Exact cases — one per line: "B, D" (case ID auto-generated) or "CaseID, B, D"
+                    </label>
+                    <textarea
+                      className="gm-input w-full font-mono text-xs"
+                      rows={6}
+                      value={casesInput}
+                      onChange={(e) => setCasesInput(e.target.value)}
+                      placeholder={'1.5, 1.5\n2.0, 1.5\n2.0, 2.0\n2.5, 2.0'}
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    {exactCases.length > 0 ? `${exactCases.length} exact case${exactCases.length !== 1 ? 's' : ''} — only these are run, no automatic combinations.` : 'Enter at least one case.'} (max 400 at once)
+                  </p>
+                  {exactDuplicateIds.length > 0 && (
+                    <p className="text-[11px] text-rose-400">Duplicate case ID(s): {exactDuplicateIds.join(', ')} — must be unique.</p>
+                  )}
+                </>
+              )}
 
               <div>
                 <label className="text-xs text-slate-400 mb-1 block">Footing length L (blank = square, L=B)</label>
@@ -338,18 +445,20 @@ export default function BatchAnalysis() {
                 </p>
               </div>
 
-              <button onClick={runBatch} disabled={loading} className="gm-btn-primary w-full mt-2 flex items-center justify-center gap-2">
-                {loading ? <><Loader2 size={14} className="animate-spin" /> {progress}%</> : `Run Batch (${comboCount || 0})`}
+              <button onClick={mode === 'grid' ? runBatch : runExactPairsBatch} disabled={loading} className="gm-btn-primary w-full mt-2 flex items-center justify-center gap-2">
+                {loading ? <><Loader2 size={14} className="animate-spin" /> {mode === 'grid' ? `${progress}%` : 'Running...'}</> : `Run Batch (${mode === 'grid' ? (comboCount || 0) : exactCases.length})`}
               </button>
 
               {loading && (
                 <div className="space-y-1">
-                  <div className="h-1.5 rounded-full bg-white/[0.08] overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-violet-500 to-cyan-400 transition-all duration-300 ease-out"
-                      style={{ width: `${progress}%` }}
-                    />
-                  </div>
+                  {mode === 'grid' && (
+                    <div className="h-1.5 rounded-full bg-white/[0.08] overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-violet-500 to-cyan-400 transition-all duration-300 ease-out"
+                        style={{ width: `${progress}%` }}
+                      />
+                    </div>
+                  )}
                   <p className="text-[11px] text-slate-500">{progressLabel}</p>
                 </div>
               )}
@@ -411,6 +520,7 @@ export default function BatchAnalysis() {
                     Gross: {result.critical_combination.gross_recommended_sbc} {result.unit}
                   </div>
                   <div className="text-xs text-slate-400 mt-1">
+                    {result.critical_combination.case_id && <>Case {result.critical_combination.case_id}: </>}
                     B = {result.critical_combination.width_m}m, D = {result.critical_combination.depth_m}m ({result.critical_combination.founding_layer}) — governed by {result.critical_combination.governing}
                   </div>
                   <TheorySection
@@ -463,7 +573,7 @@ export default function BatchAnalysis() {
                   const q = tableSearch.trim().toLowerCase()
                   let rows: any[] = q
                     ? result.combinations.filter((c: any) =>
-                        [c.width_m, c.length_m, c.depth_m, c.founding_layer, c.soil_type, c.governing, c.error]
+                        [c.case_id, c.width_m, c.length_m, c.depth_m, c.founding_layer, c.soil_type, c.governing, c.error]
                           .some((v) => v != null && String(v).toLowerCase().includes(q)))
                     : result.combinations
                   if (sortCol && SORTABLE[sortCol]) {
@@ -499,6 +609,7 @@ export default function BatchAnalysis() {
                   <table className="w-full text-xs border-collapse">
                     <thead>
                       <tr className="border-b border-white/[0.08] text-slate-400">
+                        {result.mode === 'exact_pairs' && <th className="text-left py-2 pr-3">Case ID</th>}
                         <SortTh col="width_m">B (m)</SortTh>
                         <SortTh col="length_m">L (m)</SortTh>
                         <SortTh col="depth_m">D (m)</SortTh>
@@ -513,12 +624,21 @@ export default function BatchAnalysis() {
                       </tr>
                     </thead>
                     <tbody>
-                      {displayedCombos.length === 0 && (
-                        <tr><td colSpan={11} className="py-6 text-center text-slate-500">No rows match "{tableSearch}".</td></tr>
-                      )}
+                      {(() => {
+                        const totalCols = result.mode === 'exact_pairs' ? 12 : 11
+                        return displayedCombos.length === 0 && (
+                          <tr><td colSpan={totalCols} className="py-6 text-center text-slate-500">No rows match "{tableSearch}".</td></tr>
+                        )
+                      })()}
                       {displayedCombos.map((c: any, i: number) => {
-                        const rowKey = `${c.width_m}_${c.length_m}_${c.depth_m}`
-                        const isCritical = result.critical_combination && c.width_m === result.critical_combination.width_m && c.depth_m === result.critical_combination.depth_m && !c.error
+                        const totalCols = result.mode === 'exact_pairs' ? 12 : 11
+                        const errorColSpan = result.mode === 'exact_pairs' ? 8 : 7
+                        const rowKey = c.case_id ?? `${c.width_m}_${c.length_m}_${c.depth_m}`
+                        const isCritical = result.critical_combination && !c.error && (
+                          c.case_id != null
+                            ? c.case_id === result.critical_combination.case_id
+                            : (c.width_m === result.critical_combination.width_m && c.depth_m === result.critical_combination.depth_m)
+                        )
                         const hasDetail = !c.error && (c.settlement_layer_report?.length > 0 || c.shear_steps?.length > 0)
                         const isExpanded = expandedRows.has(rowKey)
                         const toggleExpanded = () => {
@@ -531,12 +651,13 @@ export default function BatchAnalysis() {
                         return (
                           <Fragment key={rowKey}>
                           <tr className={`border-b border-white/[0.04] ${isCritical ? 'bg-violet-500/10' : ''}`}>
+                            {result.mode === 'exact_pairs' && <td className="py-1.5 pr-3 text-slate-300 whitespace-nowrap">{c.case_id ?? '—'}</td>}
                             <td className="py-1.5 pr-3 text-slate-300 whitespace-nowrap">{c.width_m}</td>
                             <td className="py-1.5 pr-3 text-slate-300 whitespace-nowrap">{c.length_m}</td>
                             <td className="py-1.5 pr-3 text-slate-300 whitespace-nowrap">{c.depth_m}</td>
                             <td className="py-1.5 pr-3 text-slate-400 whitespace-nowrap" title="Raw layer boundaries -- the calculation itself always starts at D, not necessarily this layer's own top">{c.founding_layer ?? '—'}</td>
                             {c.error ? (
-                              <td colSpan={7} className="py-1.5 text-rose-400">{c.error}</td>
+                              <td colSpan={errorColSpan} className="py-1.5 text-rose-400">{c.error}</td>
                             ) : (
                               <>
                                 <td className="py-1.5 pr-3 text-slate-400 whitespace-nowrap">{c.soil_type === 'cohesive' ? 'Clay' : 'Granular'}</td>
@@ -557,7 +678,7 @@ export default function BatchAnalysis() {
                           </tr>
                           {hasDetail && (
                             <tr className={isExpanded ? 'table-row' : 'hidden print:table-row'}>
-                              <td colSpan={11} className="py-3 pl-6 pr-3 bg-white/[0.02] print:bg-transparent text-[11px] text-slate-400 print:text-black">
+                              <td colSpan={totalCols} className="py-3 pl-6 pr-3 bg-white/[0.02] print:bg-transparent text-[11px] text-slate-400 print:text-black">
                                 {c.influence_zone_note && (
                                   <div className="mb-2"><span className="text-slate-500 print:text-black font-medium">Influence Zone ({c.influence_zone_mode}):</span> {c.influence_zone_note}</div>
                                 )}

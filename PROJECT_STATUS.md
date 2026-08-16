@@ -223,10 +223,12 @@ reading the same data — one looks at the ground, the other sizes a foundation.
 
 ## Known limitations / honest gaps
 
-- Batch engine's width × depth grid is a cross-product only (every width against every
-  depth) — no way yet to submit an arbitrary explicit list of (width, depth) pairs that
-  skips some combinations. (Multi-layer stratification across the borehole IS handled
-  now, per-depth, since the v2 redesign — see "What's built" above.)
+- ~~Batch engine's width × depth grid is a cross-product only~~ -- **resolved 15 Aug
+  2026:** `POST /api/calculators/batch-cases` (exact-pairs mode) now runs an arbitrary
+  explicit list of `{case_id, width_m, depth_m}` cases, no cross-product forced. Grid
+  mode (cross-product) still exists unchanged as the default/simple workflow -- see
+  changelog #90. (Multi-layer stratification across the borehole IS handled now,
+  per-depth, since the v2 redesign — see "What's built" above.)
 - Batch engine's neighbour/average fallback for a missing field treats every field the
   same way (nearest layer above+below, averaged) — it doesn't know that, say, borrowing
   specific gravity from a totally different soil type two layers away is less trustworthy
@@ -3308,6 +3310,139 @@ scoped).
       matters.
     - `backend/` changed: `app/routers/calculators.py`. `frontend/` changed:
       `src/pages/CombinedReport.tsx`, `src/api/client.ts`.
+
+90. **Batch Analysis Step 2 -- exact B×D pairs, testing foundation, validation
+    hardening, water-table bug fix -- 15 Aug 2026.** Followed a two-step
+    brief: Step 1 was an audit-only pass (no code changed, full report
+    covering current architecture, gaps vs a target spec, file-by-file plan
+    -- delivered as a standalone markdown file, not folded into this doc).
+    Step 2 implemented exactly the scope that audit's Step-2 follow-up
+    prompt specified -- explicitly NOT soil replacement, formula versioning,
+    PASS/FAIL against a structural load, or settlement-engine unification,
+    all deliberately deferred to future steps.
+    - **Testing foundation (done first, per the brief).** `backend/
+      requirements-dev.txt` (new, pytest only -- NOT installed on Render;
+      `render.yaml`'s buildCommand only installs `requirements.txt`, so
+      prod stays lean; run locally/CI with `pip install -r requirements.txt
+      -r requirements-dev.txt` then `pytest` from `backend/`).
+      `backend/tests/test_batch_analysis.py` (new, 24 tests) -- written to
+      lock down grid mode's CURRENT behavior before touching it (cross-
+      product generation, shear matching the single calculator exactly,
+      settlement fields present, overrides never mutating the original
+      layer objects, the 400-case cap), then extended to cover every new
+      piece (exact pairs, the water-table fix, duplicate-ID rejection,
+      per-case error isolation, case-level override scoping, B/D
+      validation). No live pytest run in this sandbox (no network to `pip
+      install` it) -- instead ran the exact same 24 test functions with a
+      minimal hand-written `pytest.raises`/`pytest.mark.parametrize`
+      stand-in module, executed directly against the real
+      `app.services.calculators` code: **24/24 passed**, both right after
+      writing them (against the old code, proving they're valid tests of
+      real behavior) and again after every subsequent change (proving
+      nothing regressed). Treat an actual `pytest` run in a real dev/CI
+      environment as the next real check on these.
+    - **Backend validation hardening.** New `_validate_positive_finite()`
+      in `calculators.py` -- rejects missing/non-numeric/NaN/Infinity/
+      zero/negative B, D, L with a clear message, but invents NO
+      engineering range limits (per the brief's explicit instruction --
+      e.g. does not decide phi must be under some threshold). Applied
+      per-case (inside the shared case engine, see below), so one bad
+      value becomes a per-case `error`, not a whole-batch 500 or a silently
+      wrong number -- verified directly: negative width, and NaN depth,
+      both produce a clean per-row error string, batch still returns
+      normally for the other rows.
+    - **Water-table override bug fixed.** The audit found the override
+      reached `run_settlement_multilayer` but NOT
+      `bearing_capacity_is6403_shear` -- both now resolve the SAME
+      effective water table once, per case, before either call. Verified
+      with a real before/after comparison (not just code reading): at a
+      depth where the water-table correction actually has a visible effect
+      (phi≠0 -- at phi=0 the correction multiplies a zero N-gamma term and
+      is invisible by coincidence, which is *why* the original bug went
+      unnoticed), shear_sbc now genuinely changes when the override is
+      applied, and matches calling `bearing_capacity_is6403_shear()`
+      directly with that same overridden value.
+    - **Exact B×D pair mode -- new, additive, grid mode fully preserved.**
+      New `POST /api/calculators/batch-cases` endpoint (sibling to the
+      unchanged `/batch`), new `BatchCasesRequest`/`BatchCaseInput` schemas,
+      new `run_batch_cases()` in `calculators.py`. Runs EXACTLY the given
+      `{case_id, width_m, depth_m}` cases -- no cross-product generation.
+      Duplicate `case_id`s rejected up front with a clear error; duplicate
+      (B, D) pairs under different IDs are allowed and preserved (a
+      legitimate re-run-with-different-override case), verified both ways.
+      A case's own `overrides` win over the request's batch-wide
+      `overrides` for any field both specify -- verified two different
+      cases with different per-case overrides produce different results,
+      and don't leak into each other.
+    - **Shared per-case engine -- refactor, not duplication.** Both grid
+      mode and exact-pairs mode now call ONE shared function,
+      `_run_one_batch_case()`, for their actual shear+settlement
+      calculation -- extracted out of what used to be `run_batch_matrix`'s
+      loop body. This is the single place the water-table fix and B/D
+      validation live, so the two modes can never silently drift apart.
+      Grid mode's own output is unchanged by this refactor (that's what
+      the "lock down current behavior first" tests exist to prove) --
+      confirmed via `test_grid_mode_produces_full_cross_product` and
+      `test_batch_shear_matches_direct_single_calculator_call` both passing
+      identically before and after.
+    - **400-case cap -- unchanged, now one shared constant.** New
+      `MAX_BATCH_CASES = 400` in `calculators.py`, imported by
+      `routers/calculators.py` for BOTH `/batch`'s pre-check (previously a
+      bare literal `400`) and the new `/batch-cases`'s pre-check -- the
+      audit's "two independent magic numbers" finding is now one definition.
+      Cap value itself deliberately NOT raised, per the brief.
+    - **Report consumers -- verified compatible, zero changes needed.**
+      The audit flagged `report_builder.py` (Auto Report) and
+      `combined_report_builder.py` (Combined Report) as downstream
+      consumers of Batch's result shape. Both were re-checked this step:
+      they only ever read fields via `.get(...)`, so the new `case_id` per
+      row and the new top-level `mode` field are silently ignored, not
+      breaking anything. Exact-pairs results are logged under the SAME
+      `calculator_type="batch_matrix"` as grid mode specifically so both
+      report builders' existing `batch_matrix`-keyed logic picks them up
+      automatically. Verified for real, not just read: built an actual
+      combined-report DOCX and an actual auto-report DOCX from a real
+      `run_batch_cases()` result -- both generated successfully, no errors,
+      no changes needed to either report file.
+    - **Frontend.** `BatchAnalysis.tsx`: a Grid/Exact-pairs toggle at the
+      top of the input panel; Grid mode's own inputs and behavior are
+      byte-for-byte the same as before. Exact-pairs mode is a textarea,
+      one case per line -- `"B, D"` (case ID auto-generated `C001`,
+      `C002`, ...) or `"CaseID, B, D"` (explicit ID), lines can mix both --
+      a practical bulk-entry method for 100+ cases without a
+      click-Add-Case-100-times UI or a new UI framework, per the brief.
+      Client-side duplicate-ID detection shows an error before the request
+      even goes out. Results table gains a "Case ID" column (only shown
+      when `result.mode === "exact_pairs"`); row keys, the critical-
+      combination highlight, and the search filter all now use `case_id`
+      when present instead of the `(width, depth)` composite key, so
+      duplicate-(B,D)-different-ID cases don't collide in the UI.
+      `client.ts` gained `runBatchCases()`; `runBatch()` is untouched.
+    - **Verified overall:** `python3 -m py_compile` clean on all 4 changed/
+      new backend files. `tsc --ignoreConfig --noEmit --skipLibCheck`
+      clean (no TS1xxx syntax errors) on the changed frontend files. 24/24
+      hand-run regression tests passing, including report-consumer
+      compatibility checks that actually built DOCX files rather than just
+      reading the report code. **Not yet run against a live Render deploy,
+      a real borehole, or an actual `pytest` invocation** -- treat the next
+      deploy as the real test: run both grid mode (confirm nothing changed)
+      and exact-pairs mode (paste a real set of cases) against a real
+      saved borehole, and set up `pytest` in a real environment to run
+      `test_batch_analysis.py` properly.
+    - **Deliberately NOT done this step** (all explicitly out of scope
+      per the brief): soil replacement, formula configuration/versioning,
+      PASS/FAIL against an applied structural load, per-case
+      `CalculationLog` rows (traceability stays at the "whole request" level
+      for now), raising the 400-case cap, method selection (Terzaghi vs
+      IS:6403) for Batch. See the standalone audit report for the full
+      gap list and recommended order for these.
+    - `backend/` changed: `app/services/calculators.py` (refactored
+      `run_batch_matrix`, new `_run_one_batch_case`, `run_batch_cases`,
+      `_validate_positive_finite`, `MAX_BATCH_CASES`), `app/schemas.py`
+      (`BatchCaseInput`, `BatchCasesRequest`), `app/routers/calculators.py`
+      (`/batch-cases` endpoint, shared cap constant), `requirements-dev.txt`
+      (new), `tests/test_batch_analysis.py` (new). `frontend/` changed:
+      `src/pages/BatchAnalysis.tsx`, `src/api/client.ts`.
 
 ---
 

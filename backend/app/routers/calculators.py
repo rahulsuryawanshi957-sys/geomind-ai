@@ -3,8 +3,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import CalculationLog, BoreholeProfile
-from app.schemas import CalculatorRequest, BatchRunRequest, LiquefactionRequest, PileCapacityRequest, PileCommandRequest, LateralCapacityRequest, RetainingWallRequest, RockBearingCapacityRequest, GroundImprovementRequest, RockSocketPileRequest, PileGroupRequest
-from app.services.calculators import CALCULATOR_REGISTRY, run_batch_matrix, run_liquefaction_analysis
+from app.schemas import CalculatorRequest, BatchRunRequest, BatchCasesRequest, LiquefactionRequest, PileCapacityRequest, PileCommandRequest, LateralCapacityRequest, RetainingWallRequest, RockBearingCapacityRequest, GroundImprovementRequest, RockSocketPileRequest, PileGroupRequest
+from app.services.calculators import CALCULATOR_REGISTRY, run_batch_matrix, run_batch_cases, run_liquefaction_analysis, MAX_BATCH_CASES
 from app.services.pile_calculator import run_pile_capacity, parse_pile_command, run_lateral_capacity, run_pile_group_analysis
 from app.services.retaining_wall_calculator import run_retaining_wall_analysis
 from app.services.rock_bearing_capacity import run_rock_bearing_capacity
@@ -159,14 +159,57 @@ def run_batch(req: BatchRunRequest, db: Session = Depends(get_db)):
         raise HTTPException(404, "Borehole profile not found.")
     if not profile.layers:
         raise HTTPException(422, "This borehole has no soil layers recorded.")
-    if len(req.widths_m) * len(req.depths_m) > 400:
-        raise HTTPException(422, "Grid too large (max 400 combinations at once) -- narrow the width/depth lists.")
+    if len(req.widths_m) * len(req.depths_m) > MAX_BATCH_CASES:
+        raise HTTPException(422, f"Grid too large (max {MAX_BATCH_CASES} combinations at once) -- narrow the width/depth lists.")
 
     try:
         result = run_batch_matrix(
             layers=list(profile.layers), water_table_depth_m=profile.water_table_depth_m,
             widths_m=req.widths_m, depths_m=req.depths_m,
             length_m=req.length_m, shape=req.shape, fos=req.fos,
+            allowable_settlement_mm=req.allowable_settlement_mm,
+            consolidation_type=req.consolidation_type,
+            rigidity_factor=req.rigidity_factor,
+            overrides=req.overrides,
+        )
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+
+    log = CalculationLog(
+        calculator_type="batch_matrix",
+        inputs_json=json.dumps(req.model_dump()),
+        result_json=json.dumps(result),
+    )
+    db.add(log)
+    db.commit()
+
+    result["borehole_id"] = profile.borehole_id
+    return result
+
+
+@router.post("/batch-cases")
+def run_batch_cases_endpoint(req: BatchCasesRequest, db: Session = Depends(get_db)):
+    """Exact B x D pair mode (Step 2, Aug 2026) -- sibling to /batch (grid
+    mode, unchanged above). Logs under the SAME calculator_type="batch_matrix"
+    as grid mode, deliberately -- both report_builder.py's build_batch_report_docx
+    and combined_report_builder.py's _add_batch_matrix_section only read
+    result fields via .get(), so they already handle this result shape
+    (extra `case_id` per row, extra top-level `mode` field) with no changes
+    needed there; keeping the same calculator_type is what makes that work
+    automatically rather than needing a second set of report sections."""
+    profile = db.query(BoreholeProfile).filter(BoreholeProfile.id == req.borehole_id).first()
+    if not profile:
+        raise HTTPException(404, "Borehole profile not found.")
+    if not profile.layers:
+        raise HTTPException(422, "This borehole has no soil layers recorded.")
+    if len(req.cases) > MAX_BATCH_CASES:
+        raise HTTPException(422, f"Too many cases (max {MAX_BATCH_CASES} at once) -- split into smaller batches.")
+
+    try:
+        result = run_batch_cases(
+            layers=list(profile.layers), water_table_depth_m=profile.water_table_depth_m,
+            cases=[c.model_dump() for c in req.cases],
+            shape=req.shape, fos=req.fos,
             allowable_settlement_mm=req.allowable_settlement_mm,
             consolidation_type=req.consolidation_type,
             rigidity_factor=req.rigidity_factor,

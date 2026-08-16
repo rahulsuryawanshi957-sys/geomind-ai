@@ -588,6 +588,151 @@ def _weighted_overburden(layers: list, depth_m: float, field: str = "bulk_densit
     return (weighted / total_t) if total_t > 0 else None
 
 
+# Shared cap for how many (width, depth) combinations / exact-pair cases a
+# single Batch request may contain -- ONE definition, used by BOTH grid mode
+# (run_batch_matrix) and exact-pairs mode (run_batch_cases), and imported by
+# routers/calculators.py for both endpoints' pre-checks, so the limit can
+# never drift out of sync between the two modes (Step 2, Aug 2026 -- the
+# audit flagged this as two independent hardcoded "400"s; now there's one).
+MAX_BATCH_CASES = 400
+
+
+def _validate_positive_finite(name: str, value) -> float:
+    """Software/input validation only -- NOT an engineering judgement call.
+    Rejects what can never be a valid footing dimension (missing, non-numeric,
+    NaN/Infinity, zero, or negative) without imposing any engineering range
+    limit (e.g. this does NOT decide phi must be under some threshold -- the
+    audit was explicit that no such invented limits belong here). Raises
+    ValueError with a clear message; callers catch this the same way they
+    already catch every other per-case ValueError (missing soil data, etc.),
+    so one bad value becomes a per-case error, not a whole-batch crash."""
+    if value is None:
+        raise ValueError(f"{name} is required.")
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{name} must be a number (got {value!r}).")
+    if math.isnan(value) or math.isinf(value):
+        raise ValueError(f"{name} must be a finite number (got {value}).")
+    if value <= 0:
+        raise ValueError(f"{name} must be greater than zero (got {value}).")
+    return float(value)
+
+
+def _run_one_batch_case(
+    layers: list, water_table_depth_m: float | None,
+    width_m: float, depth_m: float, length_m: float | None,
+    shape: str, fos: float, allowable_settlement_mm: float,
+    consolidation_type: str, rigidity_factor: float, overrides: dict,
+    case_id: str | None = None,
+) -> dict:
+    """One (width, depth) case's shear + settlement calculation -- the SHARED
+    per-case engine used by both run_batch_matrix (grid/cross-product mode)
+    and run_batch_cases (exact-pairs mode), added in the Step 2 refactor (Aug
+    2026) specifically so the two modes can never silently drift apart in
+    behavior; grid mode's own regression tests (test_batch_analysis.py) lock
+    in that this refactor did not change grid mode's output at all.
+
+    Bug fix included here (Step 2): the water table used by the shear call
+    and the settlement call is now resolved ONCE, consistently -- previously
+    (see PROJECT_STATUS.md audit) `bearing_capacity_is6403_shear` always got
+    the borehole's raw `water_table_depth_m`, while `run_settlement_multilayer`
+    got the overridden value if one was given, silently disagreeing with each
+    other whenever an override was in play.
+
+    Never raises past this point -- a `ValueError`/`ZeroDivisionError` from
+    anywhere inside becomes an `"error"` key on the returned row instead,
+    same as this logic behaved before the refactor (grid mode) and required
+    for exact-pairs mode per Step 2 (one bad case must not kill the batch).
+    """
+    row = {"width_m": width_m, "depth_m": depth_m}
+    if case_id is not None:
+        row["case_id"] = case_id
+    try:
+        width_m = _validate_positive_finite("width_m", width_m)
+        depth_m = _validate_positive_finite("depth_m", depth_m)
+        L = _validate_positive_finite("length_m", length_m if length_m else width_m)
+        row["width_m"], row["depth_m"], row["length_m"] = width_m, depth_m, L
+
+        founding = _founding_layer(layers, depth_m)
+        row["founding_layer"] = f"{founding.from_m}-{founding.to_m}m" + (f" ({founding.classification})" if founding.classification else "")
+
+        def field(name):
+            if overrides.get(name) is not None:
+                return overrides[name]
+            val, _ = _resolve_field(layers, founding, name)
+            if val is None:
+                raise ValueError(f"No layer in this borehole has '{name}' -- add it as a manual override to run this batch.")
+            return val
+
+        cohesion = field("cohesion_t_m2")
+        phi = field("friction_angle_deg")
+        gamma_base = field("bulk_density_t_m3")
+        sg = field("specific_gravity")
+        wc = field("moisture_content_pct")
+
+        if overrides.get("gamma_avg_above_t_m3") is not None:
+            gamma_above = overrides["gamma_avg_above_t_m3"]
+        else:
+            gamma_above = _weighted_overburden(layers, depth_m, "bulk_density_t_m3") or gamma_base
+
+        _founding_class = (getattr(founding, "classification", None) or "").strip().upper()
+        _layer_forced = (overrides.get("layer_soil_type") or {}).get(str(getattr(founding, "id", None)))
+        if _layer_forced in ("cohesive", "noncohesive"):
+            soil_type = _layer_forced
+        elif overrides.get("soil_type"):
+            soil_type = overrides["soil_type"]
+        elif _founding_class:
+            soil_type = "cohesive" if _founding_class[0] in ("C", "M") else "noncohesive"
+        else:
+            soil_type = "cohesive" if founding.compression_index_cc is not None else "noncohesive"
+
+        # Water-table bug fix (Step 2): resolved ONCE, used by BOTH calls below.
+        effective_water_table_depth_m = (
+            overrides["water_table_depth_m"] if overrides.get("water_table_depth_m") is not None
+            else water_table_depth_m
+        )
+        if effective_water_table_depth_m is None:
+            raise ValueError("No water table depth available -- provide one on the borehole or as an override.")
+
+        shear = bearing_capacity_is6403_shear(
+            length_m=L, width_m=width_m, depth_m=depth_m,
+            cohesion_t_m2=cohesion, phi_deg=phi,
+            gamma_avg_above_t_m3=gamma_above, gamma_at_base_t_m3=gamma_base,
+            specific_gravity=sg, moisture_content_pct=wc,
+            water_table_depth_m=effective_water_table_depth_m, shape=shape, fos=fos,
+        )
+
+        settlement = run_settlement_multilayer(
+            layers=layers, length_m=L, width_m=width_m, depth_m=depth_m,
+            allowable_settlement_mm=allowable_settlement_mm, rigidity_factor=rigidity_factor,
+            consolidation_type=consolidation_type,
+            include_elastic=bool(overrides.get("include_elastic", False)),
+            lambda_correction=overrides.get("lambda_correction"),
+            elastic_modulus_t_m2=overrides.get("elastic_modulus_t_m2"),
+            overrides=overrides,
+            water_table_depth_m=effective_water_table_depth_m,
+        )
+
+        shear_val, settlement_val = shear["result"], settlement["result"]
+        recommended = min(shear_val, settlement_val)
+        row.update({
+            "soil_type": soil_type,
+            "shear_sbc": shear_val,
+            "settlement_sbc": settlement_val,
+            "settlement_layers": settlement.get("layers_used", []),
+            "settlement_layer_report": settlement.get("layer_report", []),
+            "influence_zone_mode": settlement.get("influence_zone_mode"),
+            "influence_zone_note": settlement.get("influence_zone_note"),
+            "water_table_correction_note": settlement.get("water_table_correction_note"),
+            "recommended_sbc": round(recommended, 2),
+            "gross_recommended_sbc": round(recommended + gamma_above * depth_m, 2),
+            "shear_steps": shear.get("steps", []),
+            "governing": "shear (IS:6403)" if shear_val <= settlement_val else "settlement (IS:8009)",
+        })
+    except (ValueError, ZeroDivisionError) as e:
+        row["error"] = str(e)
+    return row
+
+
 def run_batch_matrix(
     layers: list, water_table_depth_m: float | None,
     widths_m: list[float], depths_m: list[float], length_m: float | None,
@@ -614,100 +759,46 @@ def run_batch_matrix(
     A combination that still can't be resolved (e.g. truly no layer anywhere
     in the borehole has cohesion, and no override was given) is captured as a
     per-combination "error" instead of aborting the whole batch.
+
+    Step 2 (Aug 2026) refactor: the actual per-combination calculation now
+    lives in the shared `_run_one_batch_case()` helper (also used by the new
+    `run_batch_cases()` exact-pairs mode) -- this function is now just the
+    cross-product loop + validation + result aggregation around that shared
+    engine. Grid mode's OWN behavior is unchanged by this refactor (locked in
+    by test_batch_analysis.py's regression tests); the only real behavior
+    change bundled in is the water-table-override bug fix (see
+    `_run_one_batch_case`'s docstring) and per-value validation (B/D must be
+    positive, finite numbers -- software validation only, no engineering
+    range limits invented).
     """
     overrides = overrides or {}
     if not layers:
         raise ValueError("This borehole has no soil layers recorded.")
     if not widths_m or not depths_m:
         raise ValueError("Provide at least one footing width and one depth.")
-    if water_table_depth_m is None:
+    if water_table_depth_m is None and overrides.get("water_table_depth_m") is None:
         raise ValueError("This borehole has no water table depth recorded -- required for both SBC methods.")
+    if len(widths_m) * len(depths_m) > MAX_BATCH_CASES:
+        raise ValueError(f"Grid too large (max {MAX_BATCH_CASES} combinations at once) -- narrow the width/depth lists.")
 
     layers = sorted(layers, key=lambda l: l.from_m)
-    combos = []
-
-    for w in widths_m:
-        for d in depths_m:
-            L = length_m if length_m else w
-            row = {"width_m": w, "depth_m": d, "length_m": L}
-            try:
-                founding = _founding_layer(layers, d)
-                row["founding_layer"] = f"{founding.from_m}-{founding.to_m}m" + (f" ({founding.classification})" if founding.classification else "")
-
-                def field(name):
-                    if overrides.get(name) is not None:
-                        return overrides[name]
-                    val, _ = _resolve_field(layers, founding, name)
-                    if val is None:
-                        raise ValueError(f"No layer in this borehole has '{name}' -- add it as a manual override to run this batch.")
-                    return val
-
-                cohesion = field("cohesion_t_m2")
-                phi = field("friction_angle_deg")
-                gamma_base = field("bulk_density_t_m3")
-                sg = field("specific_gravity")
-                wc = field("moisture_content_pct")
-
-                if overrides.get("gamma_avg_above_t_m3") is not None:
-                    gamma_above = overrides["gamma_avg_above_t_m3"]
-                else:
-                    gamma_above = _weighted_overburden(layers, d, "bulk_density_t_m3") or gamma_base
-
-                _founding_class = (getattr(founding, "classification", None) or "").strip().upper()
-                _layer_forced = (overrides.get("layer_soil_type") or {}).get(str(getattr(founding, "id", None)))
-                if _layer_forced in ("cohesive", "noncohesive"):
-                    soil_type = _layer_forced
-                elif overrides.get("soil_type"):
-                    soil_type = overrides["soil_type"]
-                elif _founding_class:
-                    soil_type = "cohesive" if _founding_class[0] in ("C", "M") else "noncohesive"
-                else:
-                    soil_type = "cohesive" if founding.compression_index_cc is not None else "noncohesive"
-
-                shear = bearing_capacity_is6403_shear(
-                    length_m=L, width_m=w, depth_m=d,
-                    cohesion_t_m2=cohesion, phi_deg=phi,
-                    gamma_avg_above_t_m3=gamma_above, gamma_at_base_t_m3=gamma_base,
-                    specific_gravity=sg, moisture_content_pct=wc,
-                    water_table_depth_m=water_table_depth_m, shape=shape, fos=fos,
-                )
-
-                settlement = run_settlement_multilayer(
-                    layers=layers, length_m=L, width_m=w, depth_m=d,
-                    allowable_settlement_mm=allowable_settlement_mm, rigidity_factor=rigidity_factor,
-                    consolidation_type=consolidation_type,
-                    include_elastic=bool(overrides.get("include_elastic", False)),
-                    lambda_correction=overrides.get("lambda_correction"),
-                    elastic_modulus_t_m2=overrides.get("elastic_modulus_t_m2"),
-                    overrides=overrides,
-                    water_table_depth_m=overrides.get("water_table_depth_m", water_table_depth_m),
-                )
-
-                shear_val, settlement_val = shear["result"], settlement["result"]
-                recommended = min(shear_val, settlement_val)
-                row.update({
-                    "soil_type": soil_type,
-                    "shear_sbc": shear_val,
-                    "settlement_sbc": settlement_val,
-                    "settlement_layers": settlement.get("layers_used", []),
-                    "settlement_layer_report": settlement.get("layer_report", []),
-                    "influence_zone_mode": settlement.get("influence_zone_mode"),
-                    "influence_zone_note": settlement.get("influence_zone_note"),
-                    "water_table_correction_note": settlement.get("water_table_correction_note"),
-                    "recommended_sbc": round(recommended, 2),
-                    "gross_recommended_sbc": round(recommended + gamma_above * d, 2),
-                    "shear_steps": shear.get("steps", []),
-                    "governing": "shear (IS:6403)" if shear_val <= settlement_val else "settlement (IS:8009)",
-                })
-            except (ValueError, ZeroDivisionError) as e:
-                row["error"] = str(e)
-            combos.append(row)
+    combos = [
+        _run_one_batch_case(
+            layers=layers, water_table_depth_m=water_table_depth_m,
+            width_m=w, depth_m=d, length_m=length_m,
+            shape=shape, fos=fos, allowable_settlement_mm=allowable_settlement_mm,
+            consolidation_type=consolidation_type, rigidity_factor=rigidity_factor,
+            overrides=overrides,
+        )
+        for w in widths_m for d in depths_m
+    ]
 
     valid = [c for c in combos if "error" not in c]
     critical = min(valid, key=lambda c: c["recommended_sbc"]) if valid else None
 
     return {
         "unit": "t/m²",
+        "mode": "grid",
         "combinations": combos,
         "total": len(combos),
         "successful": len(valid),
@@ -722,6 +813,85 @@ def run_batch_matrix(
             "depth -- a genuinely borehole-wide quantity, not one layer's property.",
             "This is the shear (IS:6403) vs settlement (IS:8009) governing check only, same rule "
             "as the single calculators -- verify structural and other checks separately.",
+        ],
+    }
+
+
+def run_batch_cases(
+    layers: list, water_table_depth_m: float | None, cases: list[dict],
+    shape: str = "square", fos: float = 2.5, allowable_settlement_mm: float = 25,
+    consolidation_type: str = "NCS", rigidity_factor: float = 1.0,
+    overrides: dict | None = None,
+) -> dict:
+    """
+    Exact B x D pair mode (Step 2, Aug 2026) -- runs EXACTLY the given cases,
+    no cross-product. Sibling to run_batch_matrix (grid mode, unchanged),
+    sharing the same per-case engine (`_run_one_batch_case`) so the two modes
+    can never silently diverge in behavior or formulas.
+
+    `cases` is a list of dicts, each with at least `case_id`, `width_m`,
+    `depth_m`, and optionally `length_m` and a per-case `overrides` dict.
+    A case's own `overrides` win over the batch-wide `overrides` for any
+    field both specify (case-level overrides layered on top of batch-wide
+    defaults) -- neither ever mutates the original borehole/lab data, same
+    read-only guarantee as grid mode (nothing here calls back into a
+    SoilLayer object; every property is read via getattr and returned in a
+    fresh dict).
+
+    Case IDs must be unique within one request (validated up front, before
+    any calculation runs) -- this is a request-shape rule, not an engineering
+    check, so it fails the whole request with a clear message rather than
+    becoming a per-case error. Duplicate (width, depth) PAIRS under different
+    case IDs are allowed and preserved (not deduplicated) -- that's a
+    legitimate use (e.g. re-running one case with a different override).
+    """
+    batch_overrides = overrides or {}
+    if not layers:
+        raise ValueError("This borehole has no soil layers recorded.")
+    if not cases:
+        raise ValueError("Provide at least one case.")
+    if water_table_depth_m is None and batch_overrides.get("water_table_depth_m") is None:
+        raise ValueError("This borehole has no water table depth recorded -- required for both SBC methods.")
+    if len(cases) > MAX_BATCH_CASES:
+        raise ValueError(f"Too many cases (max {MAX_BATCH_CASES} at once) -- split into smaller batches.")
+
+    seen_ids = set()
+    for c in cases:
+        cid = c.get("case_id")
+        if not cid:
+            raise ValueError("Every case needs a case_id.")
+        if cid in seen_ids:
+            raise ValueError(f"Duplicate case_id '{cid}' -- case IDs must be unique within a batch.")
+        seen_ids.add(cid)
+
+    layers = sorted(layers, key=lambda l: l.from_m)
+    combos = []
+    for c in cases:
+        case_overrides = {**batch_overrides, **(c.get("overrides") or {})}
+        combos.append(_run_one_batch_case(
+            layers=layers, water_table_depth_m=water_table_depth_m,
+            width_m=c.get("width_m"), depth_m=c.get("depth_m"), length_m=c.get("length_m"),
+            shape=shape, fos=fos, allowable_settlement_mm=allowable_settlement_mm,
+            consolidation_type=consolidation_type, rigidity_factor=rigidity_factor,
+            overrides=case_overrides, case_id=c.get("case_id"),
+        ))
+
+    valid = [c for c in combos if "error" not in c]
+    critical = min(valid, key=lambda c: c["recommended_sbc"]) if valid else None
+
+    return {
+        "unit": "t/m²",
+        "mode": "exact_pairs",
+        "combinations": combos,
+        "total": len(combos),
+        "successful": len(valid),
+        "critical_combination": critical,
+        "warnings": [
+            "Each case auto-picks its founding layer by depth from this borehole, same fallback "
+            "rules as grid mode -- check 'founding_layer' per row.",
+            "Only the EXACT cases given were run -- no automatic combinations were generated.",
+            "This is the shear (IS:6403) vs settlement (IS:8009) governing check only, same rule "
+            "as grid mode and the single calculators -- verify structural and other checks separately.",
         ],
     }
 

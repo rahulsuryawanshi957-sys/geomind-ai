@@ -118,6 +118,14 @@ export const api = {
     overrides?: Record<string, number | string>
   }) => request<any>('/api/calculators/batch', { method: 'POST', body: JSON.stringify(payload) }),
 
+  runBatchCases: (payload: {
+    borehole_id: string
+    cases: { case_id: string; width_m: number; depth_m: number; length_m?: number | null; overrides?: Record<string, number | string> }[]
+    shape?: string; fos?: number; allowable_settlement_mm?: number
+    consolidation_type?: string; rigidity_factor?: number
+    overrides?: Record<string, number | string>
+  }) => request<any>('/api/calculators/batch-cases', { method: 'POST', body: JSON.stringify(payload) }),
+
   runLiquefaction: (payload: {
     borehole_id: string
     earthquake_magnitude_mw: number

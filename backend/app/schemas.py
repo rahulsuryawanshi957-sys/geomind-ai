@@ -78,6 +78,36 @@ class BatchRunRequest(BaseModel):
     # n_value, compression_index_cc, initial_void_ratio_e0, elastic_modulus_t_m2, soil_type
 
 
+class BatchCaseInput(BaseModel):
+    """One exact case for Batch's exact-pairs mode (Step 2, Aug 2026)."""
+    case_id: str
+    width_m: float
+    depth_m: float
+    length_m: float | None = None
+    overrides: dict = {}  # case-level -- wins over the request's batch-wide `overrides`
+    # for any field both specify; same allowed field names as BatchRunRequest.overrides.
+
+
+class BatchCasesRequest(BaseModel):
+    """
+    Batch exact-pairs mode (Step 2, Aug 2026) -- runs EXACTLY the given
+    (case_id, width_m, depth_m) cases, no cross-product. Sibling to
+    BatchRunRequest (grid/cross-product mode, unchanged) -- see
+    run_batch_cases() in services/calculators.py for the engine, which
+    shares its actual per-case calculation with run_batch_matrix so the two
+    modes can never silently diverge. A case's own `overrides` win over this
+    request's batch-wide `overrides` for any field both specify.
+    """
+    borehole_id: str
+    cases: list[BatchCaseInput]
+    shape: str = "square"
+    fos: float = 2.5
+    allowable_settlement_mm: float = 25
+    consolidation_type: str = "NCS"
+    rigidity_factor: float = 1.0
+    overrides: dict = {}  # batch-wide defaults, same field names as BatchRunRequest.overrides
+
+
 class LiquefactionRequest(BaseModel):
     """
     Liquefaction analysis request -- reads the borehole's own soil layers
