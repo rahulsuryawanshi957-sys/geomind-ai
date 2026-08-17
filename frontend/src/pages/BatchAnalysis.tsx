@@ -975,7 +975,9 @@ export default function BatchAnalysis() {
                             ? c.case_id === result.critical_combination.case_id
                             : (c.width_m === result.critical_combination.width_m && c.depth_m === result.critical_combination.depth_m)
                         )
-                        const hasDetail = !c.error && (c.settlement_layer_report?.length > 0 || c.shear_steps?.length > 0 || c.replacement_enabled)
+                        const hasDetail = true  // Step 7: every case now has at least overrides/soil/parameter
+                        // trace to show (set before any calculation can fail -- see calculators.py), so the
+                        // "Full calc" / audit trail expander is available for error rows too, not just successes.
                         const isExpanded = expandedRows.has(rowKey)
                         const toggleExpanded = () => {
                           setExpandedRows(prev => {
@@ -1030,6 +1032,73 @@ export default function BatchAnalysis() {
                           {hasDetail && (
                             <tr className={isExpanded ? 'table-row' : 'hidden print:table-row'}>
                               <td colSpan={totalCols} className="py-3 pl-6 pr-3 bg-white/[0.02] print:bg-transparent text-[11px] text-slate-400 print:text-black">
+                                {/* Step 7 (Full Calculation Traceability, Aug 2026) -- Audit Trail.
+                                    Always rendered when present, success OR error, since a case that
+                                    failed partway through still has useful trace up to the failure
+                                    point (see calculators.py's _run_one_batch_case). Kept compact --
+                                    small labeled lists, not a raw JSON dump. */}
+                                {c.error && (
+                                  <div className="mb-3 text-rose-400">
+                                    <span className="text-slate-500 print:text-black font-medium">Error:</span> {c.error}
+                                  </div>
+                                )}
+                                <div className="mb-3">
+                                  <div className="uppercase tracking-wide text-slate-500 print:text-black mb-1">Audit Trail</div>
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <div>
+                                      <div className="text-slate-500 print:text-black mb-0.5">Inputs & overrides</div>
+                                      <div>
+                                        {c.case_id && <>Case <span className="text-slate-300 print:text-black">{c.case_id}</span> — </>}
+                                        B={c.width_m}m, D={c.depth_m}m{c.length_m ? `, L=${c.length_m}m` : ''}
+                                      </div>
+                                      <div>
+                                        {Object.keys(c.overrides_applied || {}).length > 0
+                                          ? `Manual overrides: ${Object.entries(c.overrides_applied).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(', ')}`
+                                          : 'No manual overrides — every value below came from the borehole itself.'}
+                                      </div>
+                                      <div>Method: {methodLabelMap[c.method] ?? c.method}{c.configuration_id ? ` · Configuration: ${c.configuration_id}` : ' · Configuration: Default'}</div>
+                                      {c.soil_type_source && <div>Soil type ({c.soil_type === 'cohesive' ? 'Clay' : 'Granular'}) — source: {c.soil_type_source}</div>}
+                                    </div>
+                                    <div>
+                                      <div className="text-slate-500 print:text-black mb-0.5">Soil profile — original vs. effective</div>
+                                      {c.original_soil_profile?.length > 0 && (
+                                        <div>Original: {c.original_soil_profile.map((l: any, li: number) => `${l.from_m}–${l.to_m}m${l.classification ? ` (${l.classification})` : ''}`).join(', ')}</div>
+                                      )}
+                                      {c.effective_soil_profile?.length > 0 && (
+                                        <div>
+                                          Effective: {c.effective_soil_profile.map((l: any, li: number) =>
+                                            `${l.from_m}–${l.to_m}m${l.classification ? ` (${l.classification})` : ''}${l.source === 'replacement' ? ' [replaced]' : ''}`
+                                          ).join(', ')}
+                                        </div>
+                                      )}
+                                      {c.founding_layer && <div>Founding layer: {c.founding_layer}</div>}
+                                    </div>
+                                  </div>
+                                  {c.parameter_trace && Object.keys(c.parameter_trace).length > 0 && (
+                                    <div className="mt-2">
+                                      <div className="text-slate-500 print:text-black mb-0.5">Parameters used</div>
+                                      <table className="text-[10.5px] border-collapse">
+                                        <thead>
+                                          <tr className="border-b border-white/10 print:border-black text-slate-500 print:text-black">
+                                            <th className="text-left py-0.5 pr-4">Parameter</th>
+                                            <th className="text-left py-0.5 pr-4">Value</th>
+                                            <th className="text-left py-0.5">Source</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {Object.entries(c.parameter_trace).map(([k, v]: [string, any]) => (
+                                            <tr key={k} className="border-b border-white/[0.04] print:border-black/20">
+                                              <td className="py-0.5 pr-4 whitespace-nowrap">{k}</td>
+                                              <td className="py-0.5 pr-4 whitespace-nowrap">{v.value ?? '—'}</td>
+                                              <td className="py-0.5 whitespace-nowrap">{v.source}</td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  )}
+                                </div>
+
                                 {c.configuration_id && (
                                   <div className="mb-2">
                                     <span className="text-slate-500 print:text-black font-medium">Configuration:</span>{' '}

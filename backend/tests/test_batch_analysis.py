@@ -440,7 +440,10 @@ def test_replacement_on_effective_profile_contains_replacement_layer():
     assert row["replacement_enabled"] is True
     assert row["replacement_depth_m"] == 1.0
     profile = row["effective_soil_profile"]
-    assert profile[0] == {"from_m": 0.0, "to_m": 1.0, "source": "replacement"}
+    # Step 7 (Aug 2026) added a `classification` key to each profile entry --
+    # check individual keys rather than full-dict equality so this test
+    # doesn't need updating every time a new lightweight trace field is added.
+    assert profile[0]["from_m"] == 0.0 and profile[0]["to_m"] == 1.0 and profile[0]["source"] == "replacement"
     assert profile[1]["from_m"] == 1.0 and profile[1]["source"] == "original"
     assert row["replacement_soil_properties"]["cohesion_t_m2"] == 0.5
     assert row["replacement_soil_properties"]["friction_angle_deg"] == 35.0

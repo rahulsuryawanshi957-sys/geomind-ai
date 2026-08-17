@@ -399,6 +399,20 @@ foundation combinations, in ~1 hour instead of a full day. Phases:
     row. See changelog #94 for the full audit, architecture, and all 24 new tests
     (86/86 total passing, zero regression).
     **Next step (Step 7) is Full Calculation Traceability** — not started.
+10. **✅ DONE — Full Calculation Traceability & Reproducibility, Step 7, 17 Aug
+    2026.** Every Batch case now traces end-to-end (inputs → original soil →
+    overrides → replacement → method → configuration/version → effective
+    parameters → intermediate values → result → status/error) with zero
+    engineering-formula changes. Closed 4 real gaps found by audit: raw
+    overrides weren't stored on the row; original (pre-replacement) soil
+    profile wasn't recorded at all; no record of WHICH source (override vs.
+    layer vs. computed) produced each geotechnical parameter; no record of
+    why a case was classified cohesive vs. granular. New "Audit Trail"
+    section in the Batch results expandable row detail, shown for success
+    AND error cases. See changelog #96 for the full audit, what was and
+    wasn't built, and all 21 new tests (107/107 total passing, zero
+    regression).
+    **Next step (Step 8) is Performance + Final Regression** — not started.
 
 If you're picking this up fresh: **ask Raahi which phase they're on** before assuming:
 they may have skipped ahead or asked for something adjacent (this has happened before —
@@ -4133,6 +4147,205 @@ scoped).
       `POST /configurations`, `POST /configurations/{id}/archive`). New:
       `backend/tests/test_configurations.py`. `frontend/` changed:
       `src/api/client.ts`, `src/pages/BatchAnalysis.tsx`.
+
+95. **Out-of-band UI additions (not a numbered roadmap step) -- Aug 2026.**
+    Two small requests handled directly, between Step 6 and Step 7:
+    - **Archive button for saved configurations**, in Batch Analysis's
+      "Parameter configuration" dropdown -- the `POST /configurations/{id}/
+      archive` endpoint already existed from Step 6, but had no UI. Selecting
+      a configuration now shows an "Archive" button next to the dropdown;
+      confirms first, then archives and refreshes the list. Purely additive
+      to `BatchAnalysis.tsx` -- no backend change needed.
+    - **Settings page -- "Data Management" + "Clear local cache".** Two
+      distinct destructive-action sections, deliberately kept separate since
+      they touch different things: "Data Management" permanently deletes
+      SERVER-side data (borehole profiles, uploaded documents, chat history,
+      calculation history) via checkboxes-per-category with a live item
+      count, one confirm dialog listing exactly what's selected, then
+      sequential deletion with progress (`Deleting X... (n/total)`) -- since
+      documents/boreholes/conversations have no bulk-delete-ALL endpoint,
+      each is deleted in a loop via its existing single-item delete
+      endpoint; calculation history DOES have a real bulk-delete-all
+      endpoint (`deleteAllCalculations`) so that one's a single call.
+      "Clear local cache" only ever touches THIS BROWSER (`localStorage`) --
+      theme preference, saved-calculation list, login session -- and
+      reloads; server data is completely untouched by it. No backend
+      changes for either -- built entirely on top of existing delete
+      endpoints (`deleteBorehole`, `deleteDocument`, `deleteConversation`,
+      `deleteAllCalculations`), all of which existed but were unused by any
+      frontend page until now.
+    - `frontend/` changed: `src/pages/BatchAnalysis.tsx`,
+      `src/pages/SettingsPage.tsx`. `backend/` unchanged (both endpoints
+      used already existed).
+
+96. **Step 7 -- Full Calculation Traceability & Reproducibility -- 17 Aug
+    2026.** Every Batch case is now traceable end-to-end: inputs → original
+    soil → overrides → replacement → method → configuration/version →
+    effective parameters → intermediate calculation values → final result →
+    status/error -- without changing a single engineering formula.
+    - **Audit first (done before any code change).** Went through every
+      field `_run_one_batch_case` already returned (from Steps 2-6) against
+      the brief's target flow. Already fully traceable: case_id, B/D/L,
+      replacement (enabled/depth/properties, though only recorded when ON),
+      method, configuration_id + resolved_parameters (fos/settlement/
+      rigidity/consolidation), founding_layer, soil_type, all final result
+      fields, shear_steps, settlement_layer_report -- and, critically,
+      historical reproducibility ALREADY existed at the storage level: every
+      batch run's full result (all combos, with every one of those fields)
+      is stored verbatim in `CalculationLog.result_json`, unmodified by
+      later configuration/method changes, since Step 2. **Gaps found:** (1)
+      the raw overrides dict a case actually ran with was never stored on
+      the row itself, only implicitly reflected in derived values: no way
+      to see "was cohesion overridden, and to what?" after the fact; (2)
+      the ORIGINAL soil profile (before Step 3 replacement) was never
+      recorded at all -- only the post-replacement `effective_soil_profile`,
+      and only when replacement was ON, so a non-replacement case had NO
+      soil-profile trace whatsoever; (3) for the five geotechnical
+      parameters `field()` resolves (cohesion, phi, bulk density, specific
+      gravity, moisture content) plus overburden and water table, there was
+      no record of WHICH source (override vs. founding layer vs. computed)
+      produced the value actually used; (4) no record of why a case was
+      classified cohesive vs. granular.
+    - **What was built -- all four gaps closed, in `_run_one_batch_case`
+      only (no other function's calculation logic touched):**
+      `overrides_applied` (the exact override dict this case ran with, set
+      before the try block so it's present on error rows too);
+      `original_soil_profile` (lightweight from_m/to_m/classification list
+      of the UNMODIFIED borehole, now on every case, not just replacement
+      ones -- set as literally the first line inside the try block, so it
+      survives any later failure); `effective_soil_profile` now recorded
+      unconditionally too (previously replacement-only) -- with replacement
+      off, every entry's `source` reads "original" and the ranges match
+      `original_soil_profile` exactly, which is itself a useful "confirm
+      nothing was silently altered" signal; `parameter_trace` (a dict per
+      case: for each of cohesion/phi/bulk density/specific gravity/moisture
+      content/overburden/water table, `{"source": "override"|"founding
+      layer"|"computed (...)"|"borehole", "value": ...}`) -- populated
+      inside `field()` and the two manual overburden/water-table branches as
+      each value is resolved, and assigned onto the row BEFORE the "no
+      water table" validity check so even that failure keeps a useful
+      partial trace; `soil_type_source` (one of four possible strings:
+      per-layer override / override / founding layer classification /
+      inferred from compression index).
+    - **Error trace (brief section 13).** Every field set BEFORE a case's
+      failure point survives onto its error row; nothing set AFTER is
+      fabricated. A width/depth validation failure keeps only
+      `overrides_applied` + `original_soil_profile` (the two things that
+      literally cannot fail); a failure deep inside (e.g. missing water
+      table) keeps those PLUS the full `parameter_trace`, since soil
+      resolution and per-parameter sourcing had already completed by then.
+      Verified directly by two dedicated tests
+      (`test_error_case_retains_partial_trace`,
+      `test_error_deep_in_calculation_retains_more_context`).
+    - **Historical reproducibility (mandatory, section 14).** Nothing new
+      needed here beyond what the audit found already existed --
+      `CalculationLog.result_json` is an immutable snapshot per batch run,
+      and every row inside it now carries the fuller trace above. A case
+      run against configuration v1 keeps `configuration_id: "...V1"` and
+      its own `resolved_parameters` forever, regardless of v2/v3 being
+      created later -- verified directly
+      (`test_old_trace_unaffected_by_a_later_differently_configured_run`,
+      mirroring Step 6's own `test_v1_resolution_unaffected_by_v2_creation`).
+    - **Status model (section 12).** Left as the existing 2-state SUCCESS/
+      ERROR (see Step 4's already-documented "Known limitations" entry on
+      this) -- deliberately did NOT invent a 3rd INVALID state or an
+      engineering PASS/FAIL based on SBC magnitude, both explicitly
+      forbidden by the brief. Distinguishing "bad input" from "genuine
+      calculation failure" precisely would require restructuring how
+      several existing functions raise `ValueError` (both categories
+      currently raise it identically) -- out of scope for a traceability
+      step that must not touch calculation-engine internals; documented as
+      a known limitation, not silently worked around.
+    - **Performance (section 20).** `original_soil_profile`/
+      `effective_soil_profile` stay deliberately lightweight (3 keys per
+      layer: from_m, to_m, classification/source) -- not the full stored
+      SoilLayer objects -- so even a 100+-case batch (already load-bearing
+      via Step 2's `MAX_BATCH_CASES` cap and this step's own 100-case test)
+      doesn't balloon the response. No new endpoint, no new caching layer,
+      no per-case lazy-fetch needed -- the trace rides along in the exact
+      same response Batch already returns, exactly as the brief's "prefer
+      summary in main table, detail loaded when case is opened" principle
+      suggests, except here the "detail" is cheap enough to just always
+      include and let the frontend's existing expand/collapse row hide it.
+    - **Frontend.** The already-existing "Full calc" expandable row detail
+      (Steps 4/5/6) gained a new "Audit Trail" section at the top -- Inputs
+      & overrides, Method/Configuration, Soil profile (original vs.
+      effective side by side), and a Parameters table (name / value /
+      source) -- shown for BOTH success and error rows now (previously the
+      expand button only appeared for successful cases with existing detail
+      to show; every case has SOME trace now, so the button always
+      appears). Kept as small labeled lists/a compact table, never a raw
+      JSON dump, per the brief's explicit instruction. No new page, no
+      redesign of the existing Combined Report / History pages -- those
+      already work unmodified against the enriched row dicts since they
+      only ever read specific keys via `.get()`, confirmed by inspection
+      (report_builder.py's `combos = [c for c in ... if "error" not in c]`
+      is the only place that touches row shape, and it's unaffected).
+    - **Tests -- 21 new, all executed.** `backend/tests/test_traceability.py`
+      covers all 19 items from the brief's mandatory test list: basic trace
+      presence; input snapshot; original soil identifiable and distinct
+      from effective; replacement traceable without mutating original;
+      override vs. layer-sourced distinguishable (and the "no overrides at
+      all" case); method recorded; configuration + resolved parameters
+      recorded; a later differently-configured run never mutates an earlier
+      case's own trace; intermediate values (shear_steps/
+      settlement_layer_report) present; final result fields are the single
+      source of truth (recommended_sbc derives from shear_sbc/
+      settlement_sbc, not a separate copy); error trace (both a
+      before-parameter-resolution failure and a deeper one); case isolation
+      across two cases with different overrides/replacement; Grid mode;
+      Exact-pairs mode; a 100-case batch with per-case distinct overrides,
+      checked index-by-index for zero cross-contamination; three direct
+      Step 3/5/6 regression checks. One existing Step 3 test
+      (`test_replacement_on_effective_profile_contains_replacement_layer`)
+      needed a one-line update -- it asserted `effective_soil_profile[0] ==
+      {...}` by exact dict equality, which broke once this step added a
+      `classification` key to every profile entry; changed to check
+      individual keys instead of full-dict equality (a test-design fix, not
+      a behavior change -- the underlying values it checks are identical).
+      Ran with the same pytest-shim technique as every prior Batch step
+      (no `pytest` in this sandbox). **Result: 107/107 passing** -- all 86
+      pre-existing Step 2-6 tests green (zero regression beyond the one
+      intentional test-assertion update above), plus 21 new Step 7 tests.
+    - **Explicitly NOT implemented** (all out of scope per the brief, all
+      deliberate): new engineering formulas or calculation methods;
+      engineering PASS/FAIL based on structural demand/SBC magnitude; a 3rd
+      INVALID status state (documented limitation, not silently added); a
+      formula/code editor of any kind; unrelated report redesign (DOCX
+      reports untouched and unaffected); a dedicated "load a past batch run
+      back into the results view" feature -- historical data already
+      supports this (result_json has everything), but building the
+      Combined-Report-side UI for it wasn't part of this step's scope and
+      isn't mentioned in the brief's frontend section, which only asks for
+      the live-result Audit Trail view built here.
+    - **Known issues.** 2-state status model only (see above). No UI to
+      re-open a PAST batch run's case-by-case Audit Trail from Combined
+      Report / calculation history yet -- the DATA fully supports it
+      (nothing more to store), it just isn't wired to a page yet. The new
+      Audit Trail section repeats some information already shown elsewhere
+      in the expanded row (e.g. effective_soil_profile also appears under
+      the existing "Soil Replacement" sub-heading when replacement is ON) --
+      accepted as minor, harmless duplication rather than restructuring the
+      existing detail layout for this step.
+    - **Verified overall:** `python3 -m py_compile` on the full backend tree
+      -- clean. `tsc --ignoreConfig --noEmit --skipLibCheck --jsx
+      react-jsx` on `BatchAnalysis.tsx` -- zero `TS1xxx` errors (same
+      convention as every prior step). Confirmed report builders read batch
+      rows only via `.get()`/specific keys -- new trace fields are inert to
+      them, no report regression possible from this step's changes. **Not
+      yet run against a live Render deploy or a real borehole** -- treat
+      the next deploy as the real test: open a Batch run, expand a case
+      (success AND a deliberately-invalid one), confirm the Audit Trail
+      section renders sensibly and every number matches what the existing
+      columns/sections already showed.
+    - `backend/` changed: `app/services/calculators.py`
+      (`_run_one_batch_case` -- `overrides_applied`, `original_soil_profile`,
+      always-on `effective_soil_profile`, `parameter_trace`,
+      `soil_type_source`; no other function touched). New:
+      `backend/tests/test_traceability.py`. One-line fix in
+      `backend/tests/test_batch_analysis.py` (see above). `frontend/`
+      changed: `src/pages/BatchAnalysis.tsx` (Audit Trail section in the
+      expandable row detail).
 
 ---
 

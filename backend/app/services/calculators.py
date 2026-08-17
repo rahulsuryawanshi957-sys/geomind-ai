@@ -897,8 +897,31 @@ def _run_one_batch_case(
         "fos": fos, "allowable_settlement_mm": allowable_settlement_mm,
         "rigidity_factor": rigidity_factor, "consolidation_type": consolidation_type,
     }
+    # Step 7 (Full Calculation Traceability & Reproducibility, Aug 2026):
+    # the RAW overrides dict this case actually ran with (batch-wide +
+    # case-level already merged by the caller -- see run_batch_cases) --
+    # set unconditionally, success or error, so even a case that fails
+    # before founding-layer resolution still shows exactly what inputs it
+    # was given. This is intentionally the small input dict, not the (much
+    # larger) soil profile -- see `original_soil_profile`/
+    # `effective_soil_profile` below for that, and PROJECT_STATUS.md's
+    # Step 7 section for why these stay as lightweight per-row summaries
+    # rather than a duplicated full profile dump (performance -- section 20
+    # of the brief).
+    row["overrides_applied"] = dict(overrides) if overrides else {}
     bearing_fn = BEARING_METHOD_REGISTRY[method]
     try:
+        # Step 7: the ORIGINAL soil profile this case started from, before
+        # any Step 3 replacement is applied -- a lightweight summary (layer
+        # ranges + classification only, not every stored property), always
+        # present regardless of whether replacement is used, so a case's
+        # trace can always show "original -> effective" side by side (brief
+        # section 4). Never touches `layers` itself -- read-only.
+        row["original_soil_profile"] = [
+            {"from_m": l.from_m, "to_m": l.to_m, "classification": getattr(l, "classification", None)}
+            for l in sorted(layers, key=lambda x: x.from_m)
+        ]
+
         width_m = _validate_positive_finite("width_m", width_m)
         depth_m = _validate_positive_finite("depth_m", depth_m)
         L = _validate_positive_finite("length_m", length_m if length_m else width_m)
@@ -918,23 +941,42 @@ def _run_one_batch_case(
             row["replacement_soil_properties"] = {
                 k: v for k, v in validated_replacement.items() if k != "enabled"
             }
-            row["effective_soil_profile"] = [
-                {
-                    "from_m": l.from_m, "to_m": l.to_m,
-                    "source": "replacement" if getattr(l, "id", None) == _REPLACEMENT_SOIL_ID else "original",
-                }
-                for l in sorted(calc_layers, key=lambda x: x.from_m)
-            ]
+        # Step 7: EFFECTIVE profile is now recorded for EVERY case (not just
+        # replacement-enabled ones, unlike pre-Step-7) -- when replacement is
+        # off this is identical in content to `original_soil_profile` above
+        # (every layer's `source` is "original"), which is itself useful
+        # confirmation that nothing was silently altered. Same lightweight
+        # shape as `original_soil_profile` -- not the full layer objects.
+        row["effective_soil_profile"] = [
+            {
+                "from_m": l.from_m, "to_m": l.to_m,
+                "classification": getattr(l, "classification", None),
+                "source": "replacement" if getattr(l, "id", None) == _REPLACEMENT_SOIL_ID else "original",
+            }
+            for l in sorted(calc_layers, key=lambda x: x.from_m)
+        ]
 
         founding = _founding_layer(calc_layers, depth_m)
         row["founding_layer"] = f"{founding.from_m}-{founding.to_m}m" + (f" ({founding.classification})" if founding.classification else "")
 
+        # Step 7: per-parameter trace -- for each geotechnical input this
+        # case actually used, record WHERE it came from (an explicit
+        # override, or read off the founding layer) and what value resulted.
+        # There's no separate "original vs effective" split beyond this for
+        # these fields (unlike Step 6's fos/etc, which have a real
+        # default-vs-configuration distinction) -- an override IS the only
+        # alternative to a layer-sourced value, so `source` is that
+        # distinction. Populated by `field()` as it resolves each one.
+        parameter_trace = {}
+
         def field(name):
             if overrides.get(name) is not None:
+                parameter_trace[name] = {"source": "override", "value": overrides[name]}
                 return overrides[name]
             val, _ = _resolve_field(calc_layers, founding, name)
             if val is None:
                 raise ValueError(f"No layer in this borehole has '{name}' -- add it as a manual override to run this batch.")
+            parameter_trace[name] = {"source": "founding layer", "value": val}
             return val
 
         cohesion = field("cohesion_t_m2")
@@ -945,25 +987,42 @@ def _run_one_batch_case(
 
         if overrides.get("gamma_avg_above_t_m3") is not None:
             gamma_above = overrides["gamma_avg_above_t_m3"]
+            parameter_trace["gamma_avg_above_t_m3"] = {"source": "override", "value": gamma_above}
         else:
             gamma_above = _weighted_overburden(calc_layers, depth_m, "bulk_density_t_m3") or gamma_base
+            parameter_trace["gamma_avg_above_t_m3"] = {"source": "computed (weighted overburden above founding depth)", "value": gamma_above}
 
         _founding_class = (getattr(founding, "classification", None) or "").strip().upper()
         _layer_forced = (overrides.get("layer_soil_type") or {}).get(str(getattr(founding, "id", None)))
         if _layer_forced in ("cohesive", "noncohesive"):
             soil_type = _layer_forced
+            row["soil_type_source"] = "per-layer override (forced on this specific layer)"
         elif overrides.get("soil_type"):
             soil_type = overrides["soil_type"]
+            row["soil_type_source"] = "override"
         elif _founding_class:
             soil_type = "cohesive" if _founding_class[0] in ("C", "M") else "noncohesive"
+            row["soil_type_source"] = "founding layer classification"
         else:
             soil_type = "cohesive" if founding.compression_index_cc is not None else "noncohesive"
+            row["soil_type_source"] = "inferred (founding layer has a compression index -- treated as cohesive)"
 
         # Water-table bug fix (Step 2): resolved ONCE, used by BOTH calls below.
-        effective_water_table_depth_m = (
-            overrides["water_table_depth_m"] if overrides.get("water_table_depth_m") is not None
-            else water_table_depth_m
-        )
+        if overrides.get("water_table_depth_m") is not None:
+            effective_water_table_depth_m = overrides["water_table_depth_m"]
+            parameter_trace["water_table_depth_m"] = {"source": "override", "value": effective_water_table_depth_m}
+        else:
+            effective_water_table_depth_m = water_table_depth_m
+            parameter_trace["water_table_depth_m"] = {"source": "borehole", "value": effective_water_table_depth_m}
+
+        # Step 7: assign the trace BEFORE the validity check below, so even
+        # the "no water table at all" failure still leaves a useful partial
+        # trace on the row (brief section 13) -- everything resolved up to
+        # this point (soil, replacement, per-parameter sourcing) really did
+        # happen and is worth keeping, even though the calculation itself
+        # never ran.
+        row["parameter_trace"] = parameter_trace
+
         if effective_water_table_depth_m is None:
             raise ValueError("No water table depth available -- provide one on the borehole or as an override.")
 
