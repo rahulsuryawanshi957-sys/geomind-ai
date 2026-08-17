@@ -51,6 +51,29 @@ class ClauseFinderRequest(BaseModel):
 class CalculatorRequest(BaseModel):
     calculator_type: str
     inputs: dict
+    configuration_id: str | None = None  # Step 6 -- optional saved parameter configuration; its
+    # overrides (fos/allowable_settlement_mm/rigidity_factor/consolidation_type) are merged into
+    # `inputs` for any keyword the target calculator function actually accepts, WITHOUT
+    # overwriting a key `inputs` already explicitly set (explicit inputs always win). None ->
+    # untouched pre-Step-6 behavior. See services/configurations.py.
+
+
+class CalcConfigurationCreateRequest(BaseModel):
+    """
+    Step 6 (Formula Configuration & Versioning) -- create a new, immutable
+    configuration VERSION. Always creates a new row; never edits one in
+    place (see services/configurations.build_new_version). `base_configuration_id`
+    is optional -- omit it to base the new version on the untouched DEFAULT
+    (merge base = no overrides); give an existing configuration_id to base
+    it on that version's own resolved overrides instead (e.g. creating v2
+    from v1 without repeating everything v1 already set).
+    """
+    method: str
+    config_name: str
+    parameters: dict  # only fos/allowable_settlement_mm/rigidity_factor/consolidation_type -- see
+    # services/configurations.py's ALLOWED_PARAMETERS
+    project_name: str | None = None
+    base_configuration_id: str | None = None
 
 
 class SoilReplacementInput(BaseModel):
@@ -114,6 +137,11 @@ class BatchRunRequest(BaseModel):
     # default (IS:6403), so pre-Step-5 requests behave identically. See
     # services/calculators.py BEARING_METHOD_REGISTRY for the currently supported method(s)
     # and PROJECT_STATUS.md's Step 5 section for why only IS:6403 is exposed to Batch today.
+    configuration_id: str | None = None  # Step 6 -- a saved, named parameter configuration
+    # (fos/allowable_settlement_mm/rigidity_factor/consolidation_type overrides) for the WHOLE
+    # grid. None -> the untouched DEFAULT (this request's own fos/allowable_settlement_mm/
+    # rigidity_factor/consolidation_type fields above, unchanged) -- so pre-Step-6 requests
+    # behave identically. See services/configurations.py.
 
 
 class BatchCaseInput(BaseModel):
@@ -127,6 +155,8 @@ class BatchCaseInput(BaseModel):
     replacement: SoilReplacementInput | None = None  # Step 3 -- case-specific, independent of every other case
     method: str | None = None  # Step 5 -- case-level bearing-capacity method override. None ->
     # falls back to the request's batch-wide `method` (see BatchCasesRequest.method below).
+    configuration_id: str | None = None  # Step 6 -- case-level configuration override. None ->
+    # falls back to the request's batch-wide `configuration_id` (see BatchCasesRequest below).
 
 
 class BatchCasesRequest(BaseModel):
@@ -149,6 +179,10 @@ class BatchCasesRequest(BaseModel):
     overrides: dict = {}  # batch-wide defaults, same field names as BatchRunRequest.overrides
     method: str | None = None  # Step 5 -- batch-wide default bearing-capacity method (None -> IS:6403).
     # A case's own `method` (BatchCaseInput.method) overrides this for that case only.
+    configuration_id: str | None = None  # Step 6 -- batch-wide default parameter configuration.
+    # A case's own `configuration_id` (BatchCaseInput.configuration_id) overrides this for that
+    # case only. None -> the untouched DEFAULT (this request's own fos/allowable_settlement_mm/
+    # rigidity_factor/consolidation_type fields above). See services/configurations.py.
 
 
 class LiquefactionRequest(BaseModel):

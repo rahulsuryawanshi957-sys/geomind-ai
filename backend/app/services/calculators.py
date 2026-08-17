@@ -852,7 +852,7 @@ def _run_one_batch_case(
     shape: str, fos: float, allowable_settlement_mm: float,
     consolidation_type: str, rigidity_factor: float, overrides: dict,
     case_id: str | None = None, replacement: dict | None = None,
-    method: str = DEFAULT_BEARING_METHOD,
+    method: str = DEFAULT_BEARING_METHOD, configuration_id: str | None = None,
 ) -> dict:
     """One (width, depth) case's shear + settlement calculation -- the SHARED
     per-case engine used by both run_batch_matrix (grid/cross-product mode)
@@ -882,6 +882,21 @@ def _run_one_batch_case(
     # this function only ever sees a known-good registry key, so a plain
     # dict lookup below is safe and never itself raises for a bad name.
     row["method"] = method
+    # Step 6 (Formula Configuration & Versioning): `configuration_id` reaching
+    # here is ALREADY resolved+validated by the router (see services/
+    # configurations.py's resolve_effective_params -- this file stays
+    # DB-session-free, same reasoning as Step 5's `method`) -- `fos`/
+    # `allowable_settlement_mm`/`rigidity_factor`/`consolidation_type` above
+    # are already the EFFECTIVE values (configuration overrides already
+    # merged in by the caller). This is recorded here purely so the result
+    # row is traceable/reproducible -- it plays no role in the calculation
+    # itself, which only ever sees the plain scalar values above, exactly as
+    # every calculation did before Step 6 existed.
+    row["configuration_id"] = configuration_id
+    row["resolved_parameters"] = {
+        "fos": fos, "allowable_settlement_mm": allowable_settlement_mm,
+        "rigidity_factor": rigidity_factor, "consolidation_type": consolidation_type,
+    }
     bearing_fn = BEARING_METHOD_REGISTRY[method]
     try:
         width_m = _validate_positive_finite("width_m", width_m)
@@ -998,7 +1013,7 @@ def run_batch_matrix(
     shape: str = "square", fos: float = 2.5, allowable_settlement_mm: float = 25,
     consolidation_type: str = "NCS", rigidity_factor: float = 1.0,
     overrides: dict | None = None, replacement: dict | None = None,
-    method: str | None = None,
+    method: str | None = None, configuration_id: str | None = None,
 ) -> dict:
     """
     Batch/matrix engine (Phase 3, v2): for every (width, depth) combination,
@@ -1050,6 +1065,17 @@ def run_batch_matrix(
     there is no per-combination method override here -- use exact-pairs
     mode for that. An unsupported method name is rejected up front with a
     ValueError (-> HTTP 422 at the router), before any combination runs.
+
+    `configuration_id` (Step 6, Aug 2026 -- Formula Configuration &
+    Versioning): purely a RECORD-KEEPING passthrough -- this function never
+    looks it up, validates it, or uses it in any calculation. The ROUTER
+    already resolved it (via services/configurations.py, which needs a DB
+    session this file deliberately never takes) into the actual `fos`/
+    `allowable_settlement_mm`/`rigidity_factor`/`consolidation_type` values
+    above BEFORE calling this function -- those plain scalars are the only
+    thing that affects the calculation, exactly as before Step 6 existed.
+    This string is only carried through onto each result row so the
+    calculation stays traceable to which named configuration produced it.
     """
     overrides = overrides or {}
     if not layers:
@@ -1070,6 +1096,7 @@ def run_batch_matrix(
             shape=shape, fos=fos, allowable_settlement_mm=allowable_settlement_mm,
             consolidation_type=consolidation_type, rigidity_factor=rigidity_factor,
             overrides=overrides, replacement=replacement, method=resolved_method,
+            configuration_id=configuration_id,
         )
         for w in widths_m for d in depths_m
     ]
@@ -1103,6 +1130,7 @@ def run_batch_cases(
     shape: str = "square", fos: float = 2.5, allowable_settlement_mm: float = 25,
     consolidation_type: str = "NCS", rigidity_factor: float = 1.0,
     overrides: dict | None = None, default_method: str | None = None,
+    configuration_id: str | None = None,
 ) -> dict:
     """
     Exact B x D pair mode (Step 2, Aug 2026) -- runs EXACTLY the given cases,
@@ -1145,6 +1173,24 @@ def run_batch_cases(
     case starts calculating, so an unsupported method name in ANY case
     fails the whole request with a clear error rather than silently
     skipping just that case.
+
+    `configuration_id` / per-case `c["fos"]`, `c["allowable_settlement_mm"]`,
+    `c["rigidity_factor"]`, `c["consolidation_type"]`, `c["configuration_id"]`
+    (Step 6, Aug 2026 -- Formula Configuration & Versioning): same
+    router-resolves/this-function-just-records pattern as `method`/Step 5.
+    This function NEVER looks up a configuration -- the router already
+    resolved each case's effective (fos, allowable_settlement_mm,
+    rigidity_factor, consolidation_type) via services/configurations.py
+    (which needs a DB session this file deliberately never takes) and, for
+    any case that doesn't carry its own override, simply repeats the
+    batch-wide effective value into that case dict before calling this
+    function. So a case dict's own `fos` (etc.) key, when present, is used
+    AS THE EFFECTIVE VALUE for that case -- falling back to this function's
+    own `fos` (etc.) parameter (the batch-wide default) only if the case
+    dict omits the key entirely. `configuration_id` (batch-wide default) and
+    each case's own `c["configuration_id"]` are pure record-keeping strings,
+    exactly like `method`/Step 5's `case_methods` -- carried onto the result
+    row, never used in any calculation.
     """
     batch_overrides = overrides or {}
     if not layers:
@@ -1178,10 +1224,14 @@ def run_batch_cases(
         combos.append(_run_one_batch_case(
             layers=layers, water_table_depth_m=water_table_depth_m,
             width_m=c.get("width_m"), depth_m=c.get("depth_m"), length_m=c.get("length_m"),
-            shape=shape, fos=fos, allowable_settlement_mm=allowable_settlement_mm,
-            consolidation_type=consolidation_type, rigidity_factor=rigidity_factor,
+            shape=shape,
+            fos=c.get("fos", fos),
+            allowable_settlement_mm=c.get("allowable_settlement_mm", allowable_settlement_mm),
+            consolidation_type=c.get("consolidation_type", consolidation_type),
+            rigidity_factor=c.get("rigidity_factor", rigidity_factor),
             overrides=case_overrides, case_id=c.get("case_id"),
             replacement=c.get("replacement"), method=case_methods[c.get("case_id")],
+            configuration_id=c.get("configuration_id", configuration_id),
         ))
 
     valid = [c for c in combos if "error" not in c]

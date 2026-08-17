@@ -390,7 +390,15 @@ foundation combinations, in ~1 hour instead of a full day. Phases:
    multi-layer settlement engine already picks granular/cohesive PER LAYER
    internally, not once per case. See changelog #93 for the full audit trace, what
    was and wasn't built, and all 16 new tests (62/62 total passing, zero regression).
-   **Next step (Step 6) is Formula Configuration & Versioning** — not started.
+10. **✅ DONE — Formula Configuration & Versioning, Step 6, 16 Aug 2026.** Lets a
+    project save a NAMED, VERSIONED, reusable bundle of already-request-level
+    parameters (FOS, allowable settlement, rigidity factor, consolidation type) --
+    NOT a formula/code editor, no internal IS-code coefficient exposed. Immutable
+    versions (`CalcConfiguration` table), Batch + individual-calculator integration,
+    full result-level reproducibility via a `resolved_parameters` snapshot on every
+    row. See changelog #94 for the full audit, architecture, and all 24 new tests
+    (86/86 total passing, zero regression).
+    **Next step (Step 7) is Full Calculation Traceability** — not started.
 
 If you're picking this up fresh: **ask Raahi which phase they're on** before assuming:
 they may have skipped ahead or asked for something adjacent (this has happened before —
@@ -3958,6 +3966,173 @@ scoped).
       `GET /batch-methods`). `frontend/` changed: `src/api/client.ts`,
       `src/pages/BatchAnalysis.tsx`, `src/utils/batchResults.ts`. New:
       `backend/tests/test_batch_method_selection.py`.
+
+94. **Formula Configuration & Versioning -- Step 6 -- 16 Aug 2026.** Lets an
+    engineer save a NAMED, VERSIONED, reusable bundle of calculation
+    parameters -- not a formula/code editor, not a new engineering method.
+    - **Audit (done first).** Checked every calculation function for
+      already-configurable vs hard-coded parameters. Finding: `fos`,
+      `allowable_settlement_mm`, `rigidity_factor` (bearing_capacity_is6403_
+      shear, the settlement functions) and `consolidation_type`
+      (run_settlement_multilayer) were ALL already plain per-request
+      keyword arguments -- BatchRunRequest.fos etc. existed since Step 2,
+      long before this step. Nothing internal (Nc/Nq/Nγ formulas, shape/
+      depth factors, IS-code coefficients) is configurable, was ever
+      exposed, or was even considered for exposure -- see "Critical
+      engineering rule" in this step's brief. **So Step 6's real job wasn't
+      making new things configurable -- it was adding a way to NAME, SAVE,
+      and VERSION a reusable bundle of the four things that already were,**
+      so a project doesn't retype "FOS 3.0, settlement 20mm" every batch
+      run, with full historical reproducibility. No Formula Library existed
+      to reuse or duplicate.
+    - **Architecture.** New `CalcConfiguration` table (`app/models.py`) --
+      one row per IMMUTABLE version (e.g. `IS_6403-PROJECT_A-V2`), never
+      edited in place, only ever inserted. Each row stores its OWN fully-
+      resolved override dict (base version's overrides merged with the new
+      ones AT CREATION TIME) so resolving a configuration later is a single
+      row lookup, never a parent-chain walk. The untouched DEFAULT is NOT a
+      DB row at all -- `configuration_id=None` means "use the request's own
+      values, unchanged" -- so Step 6 shipped with ZERO risk of accidentally
+      changing default behavior (there was nothing to migrate).
+    - **New pure-logic module** `app/services/configurations.py` --
+      deliberately DB-session-free (takes plain rows the caller already
+      fetched, mirroring `calculators.py`'s `layers: list` pattern) so it's
+      unit-testable without sqlalchemy installed, exactly like `calculators.py`.
+      Whitelists exactly 4 overridable parameter names (`ALLOWED_PARAMETERS`)
+      -- everything else is rejected as "Unsupported parameter" even if
+      someone tries to sneak in e.g. `nc_coefficient`.
+    - **`services/calculators.py` stays 100% unaware of configurations.**
+      The ROUTER resolves a configuration_id into plain `fos`/
+      `allowable_settlement_mm`/`rigidity_factor`/`consolidation_type`
+      scalars BEFORE calling `run_batch_matrix`/`run_batch_cases` -- those
+      functions only gained a passthrough `configuration_id` param (recorded
+      onto each result row for traceability, never looked up or used in any
+      calculation) and, for `run_batch_cases`, per-case fos/settlement/
+      rigidity/consolidation now read from `c.get(key, batch_wide_value)`
+      instead of always using the single batch-wide value -- the same
+      "router resolves, calculators.py just records" split Step 5 used for
+      `method`.
+    - **Batch integration -- both modes.** Grid mode: one configuration for
+      the whole grid (`BatchRunRequest.configuration_id`). Exact-pairs mode:
+      batch-wide default (`BatchCasesRequest.configuration_id`) + per-case
+      override (`BatchCaseInput.configuration_id`) -- a case's own
+      configuration is validated against ITS OWN effective method (its
+      `method` override if any, else the batch default), so Step 5's
+      per-case method and Step 6's per-case configuration compose correctly.
+    - **Individual calculator integration.** `CalculatorRequest.
+      configuration_id` -- resolves via the SAME `services/configurations.py`
+      function Batch uses, then injects only the parameters that (a) the
+      configuration actually overrides, (b) the target function actually
+      accepts as a keyword (checked via `inspect.signature`, so e.g. a
+      settlement-only key is never force-fed to the shear function), and
+      (c) the caller's own explicit `inputs` didn't already set (explicit
+      input always wins). Method-compatibility is checked via a small
+      hand-maintained `CALCULATOR_TYPE_TO_METHOD` map -- currently just
+      `{"bearing_capacity_is6403_shear": "IS_6403"}` -- so a configuration
+      can never silently apply itself to an unrelated calculator.
+    - **Reproducibility.** Every Batch result row now carries BOTH
+      `configuration_id` (which named version, if any) AND
+      `resolved_parameters` (the actual fos/allowable_settlement_mm/
+      rigidity_factor/consolidation_type baked in at calculation time, as a
+      plain snapshot dict -- not a live reference). This is what makes
+      archiving a configuration always safe: a past result's own snapshot
+      never depends on whether the configuration row it came from still
+      exists, is still active, or has since grown a v2/v3 -- test asserts
+      this directly (`test_v1_resolution_unaffected_by_v2_creation`,
+      `test_batch_result_row_carries_resolved_snapshot_not_a_live_pointer`).
+    - **Versioning / immutability.** `POST /configurations` always INSERTs a
+      new row; there is no update-in-place endpoint at all, so "attempt to
+      mutate an immutable historical configuration" (Step 6's validation
+      list) is structurally impossible, not just checked-for. Version
+      numbers are never reused, even for an archived configuration in the
+      same name group (`test_next_version_number_never_reused_even_if_
+      archived`). Deletion is soft only -- `POST /configurations/{id}/archive`
+      sets `is_active=False`; the row is never removed, matching the
+      brief's "archive/inactive state" preference over destructive delete.
+    - **Validation.** Unknown configuration_id, unknown method, unsupported
+      parameter name, non-numeric/NaN/infinite/<=0 numeric parameters,
+      invalid `consolidation_type`, and configuration-vs-method mismatch all
+      raise a clear `ValueError` -> HTTP 422 at the router, same pattern
+      Step 5 established for unsupported bearing method names.
+    - **Frontend.** `BatchAnalysis.tsx` gained a "Parameter configuration"
+      dropdown (Default + every active configuration for the currently
+      selected method, refetched whenever the method changes -- switching
+      method also clears the selected configuration, since a configuration
+      only applies to the method it was created for) and a small "Save
+      current FOS/settlement/rigidity/consolidation as a named
+      configuration" form that reuses the EXISTING manual fields already on
+      this page (no separate/duplicate parameter inputs, no formula/code
+      editor of any kind). Results table's expandable row detail now shows
+      which configuration (if any) and its resolved parameters were used
+      for that specific case. `api/client.ts` gained `listConfigurations`/
+      `createConfiguration`/`archiveConfiguration` plus `configuration_id`
+      on the batch/calculator payload types.
+    - **Tests -- 24 new, all executed.** `backend/tests/test_configurations.py`
+      covers: default (no configuration_id) behavior unchanged; creating a
+      configuration from default and from an existing version; base-row/
+      existing-rows never mutated; v2 differs from v1 and v1 stays
+      unchanged after v2 is created; v1's OWN resolution is unaffected by
+      creating v2 (historical reproducibility); unknown/archived
+      configuration rejected; unknown method rejected at creation;
+      configuration-vs-method mismatch rejected at resolution; every
+      invalid-parameter case (unknown key, non-numeric, NaN, infinite,
+      <=0, bad consolidation_type, empty); version numbers never reused
+      (even archived) and never collide across different config names;
+      different Batch cases using different effective FOS actually produces
+      different (and correctly ordered -- higher FOS -> lower SBC) shear
+      results, not just different `configuration_id` labels; a case with no
+      override falls back to the batch-wide value; Individual calculator ==
+      Batch for an identical resolved fos. Ran with the same pytest-shim
+      technique as playbook #90-93 (no `pytest` in this sandbox). **Result:
+      86/86 passing** -- all 62 pre-existing Step 2-5 tests unchanged and
+      still green (zero regression), plus 24 new Step 6 tests.
+    - **Explicitly NOT implemented** (all out of scope per the brief, all
+      deliberate): an unrestricted formula/code editor; arbitrary executable
+      Python/JS expressions; any new engineering method or formula; exposing
+      ANY internal IS-code coefficient, shape/depth factor, or algorithm
+      structure; a large audit-log system (lineage is limited to
+      `source_configuration_id`, `created_at` -- enough to understand
+      history from the stored data, per the brief's own "at minimum"
+      wording); hard delete (archive/soft-delete only); Formula Library
+      integration (none existed to integrate with).
+    - **Known limitations.** No "who created this configuration" field --
+      this app has exactly one shared login (`AppCredential`), no per-user
+      identity to attribute a configuration to; nothing invented here to
+      compensate, since brief section 16 says not to add a large audit
+      system the existing architecture doesn't support. No project entity --
+      `project_name` is free text on `CalcConfiguration`, same convention as
+      `BoreholeProfile.project_name` -- so nothing stops two different
+      configurations claiming the same `project_name`; that's expected,
+      matching how the rest of the app already treats project names as
+      labels, not a managed entity. `GET /configurations` has no pagination
+      -- fine at today's likely scale (a handful of named configs per
+      method), would need revisiting if that assumption changes a lot.
+    - **Verified overall:** `python3 -m py_compile` on the full backend tree
+      -- clean. `tsc --ignoreConfig --noEmit --skipLibCheck --jsx react-jsx`
+      on the changed frontend files -- zero `TS1xxx` errors (same convention
+      as every prior Batch step). **Not yet run against a live Render
+      deploy or a real borehole** -- the new `calc_configurations` table is
+      created automatically by `main.py`'s existing `Base.metadata.create_
+      all(bind=engine)` on next boot, same as every other table in this app
+      -- no manual migration step needed, but this HAS NOT been watched
+      happen on the actual Render Postgres instance yet. Treat the next
+      deploy as the real test: confirm the "Parameter configuration"
+      dropdown loads (empty list is fine and expected on a fresh table),
+      saving a new configuration works end-to-end, and a batch run with no
+      configuration selected still produces byte-for-byte the same numbers
+      as before this step.
+    - `backend/` changed: `app/models.py` (new `CalcConfiguration`), new
+      `app/services/configurations.py`, `app/services/calculators.py`
+      (`configuration_id` passthrough + per-case param overrides in
+      `_run_one_batch_case`/`run_batch_matrix`/`run_batch_cases`),
+      `app/schemas.py` (`configuration_id` on `BatchRunRequest`/
+      `BatchCaseInput`/`BatchCasesRequest`/`CalculatorRequest`, new
+      `CalcConfigurationCreateRequest`), `app/routers/calculators.py`
+      (configuration resolution wired into `/batch`/`/batch-cases`/`/run`,
+      new `GET /configurations`, `GET /configurations/{id}`,
+      `POST /configurations`, `POST /configurations/{id}/archive`). New:
+      `backend/tests/test_configurations.py`. `frontend/` changed:
+      `src/api/client.ts`, `src/pages/BatchAnalysis.tsx`.
 
 ---
 

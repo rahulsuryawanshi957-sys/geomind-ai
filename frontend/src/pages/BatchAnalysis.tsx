@@ -174,6 +174,19 @@ export default function BatchAnalysis() {
   // rather than hard-coded (so a future second method just appears here).
   const [availableMethods, setAvailableMethods] = useState<{ key: string; label: string }[]>([])
   const [batchMethod, setBatchMethod] = useState('IS_6403')
+  // Step 6 (Formula Configuration & Versioning, Aug 2026) -- a saved, named,
+  // versioned bundle of fos/allowable_settlement_mm/rigidity_factor/
+  // consolidation_type overrides. '' (empty string) means Default -- the
+  // request's own fos/etc fields below, unchanged, exactly like before
+  // Step 6 existed. New configurations are created from the manual fields
+  // already on this page, so no separate formula/coefficient inputs exist.
+  const [availableConfigs, setAvailableConfigs] = useState<any[]>([])
+  const [batchConfigId, setBatchConfigId] = useState('')
+  const [showSaveConfigForm, setShowSaveConfigForm] = useState(false)
+  const [newConfigName, setNewConfigName] = useState('')
+  const [newConfigProject, setNewConfigProject] = useState('')
+  const [savingConfig, setSavingConfig] = useState(false)
+  const [saveConfigError, setSaveConfigError] = useState('')
   const [loading, setLoading] = useState(false)
   const [progress, setProgress] = useState(0)
   const [progressLabel, setProgressLabel] = useState('')
@@ -188,13 +201,23 @@ export default function BatchAnalysis() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [replacementFilter, setReplacementFilter] = useState<ReplacementFilter>('all')
 
+  const refreshConfigurations = (method: string) => {
+    api.listConfigurations(method).then(setAvailableConfigs).catch(() => {})
+  }
+
   useEffect(() => {
     api.listBoreholes().then(setBoreholes).catch(() => {})
     api.batchMethods().then((r) => {
       setAvailableMethods(r.methods)
       setBatchMethod(r.default)
+      refreshConfigurations(r.default)
     }).catch(() => {})
   }, [])
+
+  useEffect(() => {
+    if (batchMethod) refreshConfigurations(batchMethod)
+    setBatchConfigId('')  // switching method invalidates any selected configuration (Step 6 section 9)
+  }, [batchMethod])
 
   const selectedBorehole = boreholes.find((b) => b.id === selectedBoreholeId)
 
@@ -298,6 +321,7 @@ export default function BatchAnalysis() {
           overrides: overridesPayload,
           replacement: buildReplacementPayload(),
           method: batchMethod,
+          configuration_id: batchConfigId || null,
         } as any)
         allCombos.push(...r.combinations)
         meta = r
@@ -346,6 +370,7 @@ export default function BatchAnalysis() {
         rigidity_factor: parseFloat(rigidityFactor) || 1,
         overrides: overridesPayload,
         method: batchMethod,
+        configuration_id: batchConfigId || null,
       })
       setResult(r)
     } catch (e: any) {
@@ -545,6 +570,86 @@ export default function BatchAnalysis() {
                   Bearing-capacity method used for shear across this batch. Settlement (IS:8009) always runs
                   the existing multi-layer engine — it isn't a separate selectable method.
                 </p>
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">
+                  Parameter configuration
+                  <span className="text-slate-500 font-normal"> (optional -- overrides FOS / allowable settlement / rigidity / consolidation below)</span>
+                </label>
+                <select
+                  className="gm-input w-full"
+                  value={batchConfigId}
+                  onChange={(e) => setBatchConfigId(e.target.value)}
+                >
+                  <option value="">Default (use the fields below as typed)</option>
+                  {availableConfigs.map((c) => (
+                    <option key={c.configuration_id} value={c.configuration_id}>
+                      {c.config_name} v{c.version}{c.project_name ? ` — ${c.project_name}` : ''}
+                    </option>
+                  ))}
+                </select>
+                {batchConfigId && (
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    {(() => {
+                      const c = availableConfigs.find((x) => x.configuration_id === batchConfigId)
+                      if (!c) return null
+                      return `Overrides: ${Object.entries(c.parameters).map(([k, v]) => `${k}=${v}`).join(', ')} — every other parameter still comes from the fields below.`
+                    })()}
+                  </p>
+                )}
+                <button
+                  type="button"
+                  className="text-xs text-emerald-400 hover:text-emerald-300 mt-1"
+                  onClick={() => { setShowSaveConfigForm((v) => !v); setSaveConfigError('') }}
+                >
+                  {showSaveConfigForm ? 'Cancel' : '+ Save current FOS/settlement/rigidity/consolidation as a named configuration'}
+                </button>
+                {showSaveConfigForm && (
+                  <div className="mt-2 p-3 rounded border border-slate-700 bg-slate-800/50 space-y-2">
+                    <p className="text-[11px] text-slate-500">
+                      Saves the current values of FOS ({fos}), allowable settlement ({allowableSettlement} mm),
+                      rigidity factor ({rigidityFactor}), and consolidation type ({consolidationType}) below as a new,
+                      permanent version — it never changes an existing version, so old results stay reproducible.
+                    </p>
+                    <input
+                      type="text" placeholder="Configuration name (e.g. Project A)" className="gm-input w-full"
+                      value={newConfigName} onChange={(e) => setNewConfigName(e.target.value)}
+                    />
+                    <input
+                      type="text" placeholder="Project name (optional)" className="gm-input w-full"
+                      value={newConfigProject} onChange={(e) => setNewConfigProject(e.target.value)}
+                    />
+                    {saveConfigError && <p className="text-[11px] text-rose-400">{saveConfigError}</p>}
+                    <button
+                      type="button"
+                      className="gm-btn-primary text-xs px-3 py-1.5"
+                      disabled={savingConfig || !newConfigName.trim()}
+                      onClick={async () => {
+                        setSavingConfig(true); setSaveConfigError('')
+                        try {
+                          const created = await api.createConfiguration({
+                            method: batchMethod, config_name: newConfigName.trim(),
+                            project_name: newConfigProject.trim() || null,
+                            parameters: {
+                              fos: parseFloat(fos), allowable_settlement_mm: parseFloat(allowableSettlement),
+                              rigidity_factor: parseFloat(rigidityFactor), consolidation_type: consolidationType,
+                            },
+                          })
+                          refreshConfigurations(batchMethod)
+                          setBatchConfigId(created.configuration_id)
+                          setShowSaveConfigForm(false)
+                          setNewConfigName(''); setNewConfigProject('')
+                        } catch (e: any) {
+                          setSaveConfigError(e?.message || 'Could not save configuration.')
+                        } finally {
+                          setSavingConfig(false)
+                        }
+                      }}
+                    >
+                      {savingConfig ? 'Saving…' : 'Save as new version'}
+                    </button>
+                  </div>
+                )}
               </div>
               <div>
                 <label className="text-xs text-slate-400 mb-1 block">Footing length L (blank = square, L=B)</label>
@@ -897,6 +1002,12 @@ export default function BatchAnalysis() {
                           {hasDetail && (
                             <tr className={isExpanded ? 'table-row' : 'hidden print:table-row'}>
                               <td colSpan={totalCols} className="py-3 pl-6 pr-3 bg-white/[0.02] print:bg-transparent text-[11px] text-slate-400 print:text-black">
+                                {c.configuration_id && (
+                                  <div className="mb-2">
+                                    <span className="text-slate-500 print:text-black font-medium">Configuration:</span>{' '}
+                                    {c.configuration_id} — {c.resolved_parameters ? Object.entries(c.resolved_parameters).map(([k, v]) => `${k}=${v}`).join(', ') : ''}
+                                  </div>
+                                )}
                                 {c.influence_zone_note && (
                                   <div className="mb-2"><span className="text-slate-500 print:text-black font-medium">Influence Zone ({c.influence_zone_mode}):</span> {c.influence_zone_note}</div>
                                 )}

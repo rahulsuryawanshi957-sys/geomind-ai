@@ -113,8 +113,8 @@ export const api = {
   // /batch-methods docstring for why the list is currently just one entry).
   batchMethods: () => request<{ methods: { key: string; label: string }[]; default: string }>('/api/calculators/batch-methods'),
 
-  runCalculator: (calculator_type: string, inputs: Record<string, any>) =>
-    request<any>('/api/calculators/run', { method: 'POST', body: JSON.stringify({ calculator_type, inputs }) }),
+  runCalculator: (calculator_type: string, inputs: Record<string, any>, configuration_id?: string | null) =>
+    request<any>('/api/calculators/run', { method: 'POST', body: JSON.stringify({ calculator_type, inputs, configuration_id }) }),
 
   runBatch: (payload: {
     borehole_id: string
@@ -124,16 +124,31 @@ export const api = {
     overrides?: Record<string, number | string>
     replacement?: Record<string, number | string | boolean> | null
     method?: string | null
+    configuration_id?: string | null
   }) => request<any>('/api/calculators/batch', { method: 'POST', body: JSON.stringify(payload) }),
 
   runBatchCases: (payload: {
     borehole_id: string
-    cases: { case_id: string; width_m: number; depth_m: number; length_m?: number | null; overrides?: Record<string, number | string>; replacement?: Record<string, number | string | boolean> | null; method?: string | null }[]
+    cases: { case_id: string; width_m: number; depth_m: number; length_m?: number | null; overrides?: Record<string, number | string>; replacement?: Record<string, number | string | boolean> | null; method?: string | null; configuration_id?: string | null }[]
     shape?: string; fos?: number; allowable_settlement_mm?: number
     consolidation_type?: string; rigidity_factor?: number
     overrides?: Record<string, number | string>
     method?: string | null
+    configuration_id?: string | null
   }) => request<any>('/api/calculators/batch-cases', { method: 'POST', body: JSON.stringify(payload) }),
+
+  // Step 6 (Formula Configuration & Versioning, Aug 2026) -- saved, named,
+  // versioned parameter configurations (fos/allowable_settlement_mm/
+  // rigidity_factor/consolidation_type overrides). See
+  // routers/calculators.py's configuration endpoints' docstrings.
+  listConfigurations: (method?: string) =>
+    request<any[]>(`/api/calculators/configurations${method ? `?method=${encodeURIComponent(method)}` : ''}`),
+  createConfiguration: (payload: {
+    method: string; config_name: string; parameters: Record<string, number | string>
+    project_name?: string | null; base_configuration_id?: string | null
+  }) => request<any>('/api/calculators/configurations', { method: 'POST', body: JSON.stringify(payload) }),
+  archiveConfiguration: (configuration_id: string) =>
+    request<any>(`/api/calculators/configurations/${encodeURIComponent(configuration_id)}/archive`, { method: 'POST' }),
 
   runLiquefaction: (payload: {
     borehole_id: string

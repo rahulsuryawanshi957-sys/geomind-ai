@@ -159,3 +159,46 @@ class AuthSession(Base):
     token = Column(String, primary_key=True, default=gen_id)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     expires_at = Column(DateTime, nullable=False)
+
+
+class CalcConfiguration(Base):
+    """
+    Step 6 (Formula Configuration & Versioning, Aug 2026) -- a named,
+    versioned, IMMUTABLE bundle of parameter overrides for one calculation
+    method (e.g. "Project A v2" for IS:6403 -> FOS=3.0). Every row here is a
+    single frozen version: creating "the next version" of a configuration
+    always INSERTs a new row, never UPDATEs an existing one -- see
+    app/services/configurations.py for why, and why only a small whitelisted
+    set of already-request-level parameters (fos, allowable_settlement_mm,
+    rigidity_factor, consolidation_type) can ever appear in parameters_json.
+    No internal formula coefficient or IS-code constant is ever stored here.
+
+    `configuration_id` is the stable, human-readable identifier for THIS
+    version specifically (e.g. "IS_6403-PROJECT_A-V2") -- this is what a
+    Batch case, an individual calculation, or a saved result references, so
+    a calculation result stays reproducible even if later versions are
+    created or this row is archived. `config_group_id` links every version
+    of the "same" named configuration together (for listing/UI purposes
+    only -- resolution always goes through `configuration_id`, never the
+    group id, so archiving or adding v3 can never change what v1/v2 meant).
+
+    No FK to a "Project" table -- there isn't one in this app (see
+    BoreholeProfile.project_name, same free-text convention).
+    """
+    __tablename__ = "calc_configurations"
+
+    configuration_id = Column(String, primary_key=True)   # e.g. "IS_6403-PROJECT_A-V2"
+    method = Column(String, nullable=False, index=True)    # e.g. "IS_6403" -- must match BEARING_METHOD_REGISTRY
+    config_group_id = Column(String, nullable=False, index=True)  # e.g. "PROJECT_A" -- groups versions for listing
+    config_name = Column(String, nullable=False)            # e.g. "Project A" (as typed, unslugged)
+    project_name = Column(String, nullable=True)            # optional free-text link to a borehole's project_name
+    version = Column(Integer, nullable=False)                # 1, 2, 3... within (method, config_group_id)
+    parameters_json = Column(Text, nullable=False)           # JSON dict, e.g. {"fos": 3.0} -- fully resolved for
+    # THIS version already (base version's overrides merged in at creation time), so resolving a
+    # configuration_id later never needs to walk a parent chain -- see services/configurations.py.
+    source_configuration_id = Column(String, nullable=True)  # which configuration_id (or null = DEFAULT) this
+    # version was created FROM -- audit lineage only, never read during resolution.
+    is_active = Column(Boolean, default=True)                 # archived (soft-deleted) configs are never offered
+    # for NEW calculations, but past results that already reference this configuration_id are
+    # completely unaffected -- see resolve_configuration()'s docstring on why archiving is always safe.
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)

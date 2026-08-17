@@ -1,10 +1,11 @@
 import json
+import inspect
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models import CalculationLog, BoreholeProfile
-from app.schemas import CalculatorRequest, BatchRunRequest, BatchCasesRequest, LiquefactionRequest, PileCapacityRequest, PileCommandRequest, LateralCapacityRequest, RetainingWallRequest, RockBearingCapacityRequest, GroundImprovementRequest, RockSocketPileRequest, PileGroupRequest
-from app.services.calculators import CALCULATOR_REGISTRY, run_batch_matrix, run_batch_cases, run_liquefaction_analysis, MAX_BATCH_CASES, BEARING_METHOD_REGISTRY, BEARING_METHOD_LABELS, DEFAULT_BEARING_METHOD
+from app.models import CalculationLog, BoreholeProfile, CalcConfiguration
+from app.schemas import CalculatorRequest, BatchRunRequest, BatchCasesRequest, LiquefactionRequest, PileCapacityRequest, PileCommandRequest, LateralCapacityRequest, RetainingWallRequest, RockBearingCapacityRequest, GroundImprovementRequest, RockSocketPileRequest, PileGroupRequest, CalcConfigurationCreateRequest
+from app.services.calculators import CALCULATOR_REGISTRY, run_batch_matrix, run_batch_cases, run_liquefaction_analysis, MAX_BATCH_CASES, BEARING_METHOD_REGISTRY, BEARING_METHOD_LABELS, DEFAULT_BEARING_METHOD, _validate_bearing_method
 from app.services.pile_calculator import run_pile_capacity, parse_pile_command, run_lateral_capacity, run_pile_group_analysis
 from app.services.retaining_wall_calculator import run_retaining_wall_analysis
 from app.services.rock_bearing_capacity import run_rock_bearing_capacity
@@ -12,6 +13,7 @@ from app.services.ground_improvement import run_ground_improvement
 from app.services.rock_socket_pile import run_rock_socket_pile
 from app.services.calculators import _founding_layer, _resolve_field
 from app.services.combined_report_builder import _headline as _history_headline, CALC_TYPE_TITLES
+from app.services import configurations as config_service
 
 router = APIRouter(prefix="/api/calculators", tags=["calculators"])
 
@@ -110,6 +112,19 @@ PLANNED_CALCULATORS = [
     "safe_bearing_capacity", "modulus_subgrade_reaction",
 ]
 
+# Step 6 (Formula Configuration & Versioning, Aug 2026) -- which individual
+# `calculator_type` values a saved configuration can apply to, and which
+# calculation method (a BEARING_METHOD_REGISTRY key) each one corresponds
+# to, for the method-compatibility check in resolve_configuration(). Only
+# calculator types that map to a REAL registered method are here -- this is
+# deliberately a small hand-maintained whitelist, not "every calculator that
+# happens to accept a `fos` kwarg," so a configuration can never silently
+# apply itself to a calculator it wasn't created for. See PROJECT_STATUS.md
+# Step 6 section for why this list has exactly one entry today.
+CALCULATOR_TYPE_TO_METHOD = {
+    "bearing_capacity_is6403_shear": "IS_6403",
+}
+
 
 @router.get("/available")
 def available_calculators():
@@ -128,8 +143,42 @@ def run_calculator(req: CalculatorRequest, db: Session = Depends(get_db)):
     if not fn:
         raise HTTPException(404, f"Unknown calculator '{req.calculator_type}'.")
 
+    inputs = dict(req.inputs)
+    if req.configuration_id:
+        # Step 6: individual-calculator integration -- same resolution
+        # mechanism as Batch (services/configurations.py), so a configuration
+        # created for a method behaves identically whether it's applied from
+        # Batch or from this single-shot calculator (Step 6 brief section 11).
+        method = CALCULATOR_TYPE_TO_METHOD.get(req.calculator_type)
+        if method is None:
+            raise HTTPException(
+                422,
+                f"Calculator '{req.calculator_type}' doesn't support saved configurations "
+                f"(no calculation method is registered for it -- see CALCULATOR_TYPE_TO_METHOD).",
+            )
+        config_row = db.query(CalcConfiguration).filter(
+            CalcConfiguration.configuration_id == req.configuration_id,
+            CalcConfiguration.is_active == True,  # noqa: E712
+        ).first()
+        try:
+            overrides = config_service.resolve_configuration(
+                req.configuration_id, method, [config_row] if config_row else [],
+            )
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        # Only inject a parameter (a) this configuration actually overrides,
+        # (b) the target function actually accepts as a keyword (via
+        # inspect.signature -- e.g. don't try to hand `consolidation_type`
+        # to a shear function that has no such parameter), and (c) the
+        # caller's own `inputs` didn't already explicitly set -- an explicit
+        # input always wins over a saved configuration.
+        accepted_params = set(inspect.signature(fn).parameters)
+        for key, value in overrides.items():
+            if key in accepted_params and key not in inputs:
+                inputs[key] = value
+
     try:
-        result = fn(**req.inputs)
+        result = fn(**inputs)
     except TypeError as e:
         raise HTTPException(422, f"Invalid inputs for {req.calculator_type}: {e}")
     except ValueError as e:
@@ -143,13 +192,16 @@ def run_calculator(req: CalculatorRequest, db: Session = Depends(get_db)):
 
     log = CalculationLog(
         calculator_type=req.calculator_type,
-        inputs_json=json.dumps(req.inputs),
+        inputs_json=json.dumps(inputs),  # merged inputs (any Step 6 configuration overrides already
+        # applied) -- so inputs_json alone is enough to reproduce this exact result later, even if
+        # the configuration is archived or a new version is created afterward.
         result_json=json.dumps(result),
     )
     db.add(log)
     db.commit()
 
     return result
+
 
 
 @router.get("/batch-methods")
@@ -168,6 +220,22 @@ def batch_methods():
     }
 
 
+def _fetch_active_config_rows(db: Session, ids: set) -> dict:
+    """Step 6 -- one query for every distinct configuration_id a request
+    references (batch-wide default + every case's own override), instead of
+    one query per case -- see services/configurations.py's module docstring
+    on why this file (the router) does all DB access, never
+    services/calculators.py or services/configurations.py directly."""
+    ids = {i for i in ids if i}
+    if not ids:
+        return {}
+    rows = db.query(CalcConfiguration).filter(
+        CalcConfiguration.configuration_id.in_(ids),
+        CalcConfiguration.is_active == True,  # noqa: E712 -- SQLAlchemy filter, not a Python bool compare
+    ).all()
+    return {r.configuration_id: r for r in rows}
+
+
 @router.post("/batch")
 def run_batch(req: BatchRunRequest, db: Session = Depends(get_db)):
     profile = db.query(BoreholeProfile).filter(BoreholeProfile.id == req.borehole_id).first()
@@ -179,16 +247,31 @@ def run_batch(req: BatchRunRequest, db: Session = Depends(get_db)):
         raise HTTPException(422, f"Grid too large (max {MAX_BATCH_CASES} combinations at once) -- narrow the width/depth lists.")
 
     try:
+        # Step 5: validate the method BEFORE Step 6 configuration resolution,
+        # so an unsupported method name gets Step 5's clear message rather
+        # than being mistaken for a configuration/method mismatch below.
+        resolved_method = _validate_bearing_method(req.method)
+        # Step 6 (Formula Configuration & Versioning): resolve the batch-wide
+        # configuration (if any) into EFFECTIVE fos/allowable_settlement_mm/
+        # rigidity_factor/consolidation_type -- None -> this request's own
+        # values, unchanged (pre-Step-6 behavior). See services/configurations.py.
+        config_rows = _fetch_active_config_rows(db, {req.configuration_id})
+        effective = config_service.resolve_effective_params(
+            req.configuration_id, resolved_method,
+            [config_rows[req.configuration_id]] if req.configuration_id in config_rows else [],
+            fos=req.fos, allowable_settlement_mm=req.allowable_settlement_mm,
+            rigidity_factor=req.rigidity_factor, consolidation_type=req.consolidation_type,
+        )
         result = run_batch_matrix(
             layers=list(profile.layers), water_table_depth_m=profile.water_table_depth_m,
             widths_m=req.widths_m, depths_m=req.depths_m,
-            length_m=req.length_m, shape=req.shape, fos=req.fos,
-            allowable_settlement_mm=req.allowable_settlement_mm,
-            consolidation_type=req.consolidation_type,
-            rigidity_factor=req.rigidity_factor,
+            length_m=req.length_m, shape=req.shape, fos=effective["fos"],
+            allowable_settlement_mm=effective["allowable_settlement_mm"],
+            consolidation_type=effective["consolidation_type"],
+            rigidity_factor=effective["rigidity_factor"],
             overrides=req.overrides,
             replacement=req.replacement.model_dump() if req.replacement else None,
-            method=req.method,
+            method=req.method, configuration_id=req.configuration_id,
         )
     except ValueError as e:
         raise HTTPException(422, str(e))
@@ -224,15 +307,52 @@ def run_batch_cases_endpoint(req: BatchCasesRequest, db: Session = Depends(get_d
         raise HTTPException(422, f"Too many cases (max {MAX_BATCH_CASES} at once) -- split into smaller batches.")
 
     try:
+        resolved_default_method = _validate_bearing_method(req.method)
+        # Step 6: one query for every configuration_id this request touches
+        # (batch-wide default + every case's own override), then resolve
+        # each -- a case with its own configuration_id is validated against
+        # ITS OWN effective method (case method override, if any, else the
+        # batch default), same "case is independent" pattern as Step 5's
+        # per-case method and Step 3's per-case replacement.
+        all_ids = {req.configuration_id} | {c.configuration_id for c in req.cases if c.configuration_id}
+        config_rows = _fetch_active_config_rows(db, all_ids)
+
+        batch_effective = config_service.resolve_effective_params(
+            req.configuration_id, resolved_default_method,
+            [config_rows[req.configuration_id]] if req.configuration_id in config_rows else [],
+            fos=req.fos, allowable_settlement_mm=req.allowable_settlement_mm,
+            rigidity_factor=req.rigidity_factor, consolidation_type=req.consolidation_type,
+        )
+
+        case_dicts = []
+        for c in req.cases:
+            cd = c.model_dump()
+            case_method = c.method or resolved_default_method
+            if c.configuration_id:
+                matching = [config_rows[c.configuration_id]] if c.configuration_id in config_rows else []
+                case_effective = config_service.resolve_effective_params(
+                    c.configuration_id, case_method, matching,
+                    fos=batch_effective["fos"], allowable_settlement_mm=batch_effective["allowable_settlement_mm"],
+                    rigidity_factor=batch_effective["rigidity_factor"], consolidation_type=batch_effective["consolidation_type"],
+                )
+            else:
+                case_effective = batch_effective
+            cd["fos"] = case_effective["fos"]
+            cd["allowable_settlement_mm"] = case_effective["allowable_settlement_mm"]
+            cd["rigidity_factor"] = case_effective["rigidity_factor"]
+            cd["consolidation_type"] = case_effective["consolidation_type"]
+            cd["configuration_id"] = c.configuration_id or req.configuration_id
+            case_dicts.append(cd)
+
         result = run_batch_cases(
             layers=list(profile.layers), water_table_depth_m=profile.water_table_depth_m,
-            cases=[c.model_dump() for c in req.cases],
-            shape=req.shape, fos=req.fos,
-            allowable_settlement_mm=req.allowable_settlement_mm,
-            consolidation_type=req.consolidation_type,
-            rigidity_factor=req.rigidity_factor,
+            cases=case_dicts,
+            shape=req.shape, fos=batch_effective["fos"],
+            allowable_settlement_mm=batch_effective["allowable_settlement_mm"],
+            consolidation_type=batch_effective["consolidation_type"],
+            rigidity_factor=batch_effective["rigidity_factor"],
             overrides=req.overrides,
-            default_method=req.method,
+            default_method=req.method, configuration_id=req.configuration_id,
         )
     except ValueError as e:
         raise HTTPException(422, str(e))
@@ -247,6 +367,114 @@ def run_batch_cases_endpoint(req: BatchCasesRequest, db: Session = Depends(get_d
 
     result["borehole_id"] = profile.borehole_id
     return result
+
+
+# ---------------------------------------------------------------------------
+# Step 6 (Formula Configuration & Versioning, Aug 2026) -- CRUD for saved,
+# named, versioned parameter configurations. See services/configurations.py
+# for the validation/resolution logic (deliberately DB-session-free) and
+# PROJECT_STATUS.md's Step 6 section for the full audit of what's safe to
+# expose here (a small whitelist of already-request-level parameters --
+# fos/allowable_settlement_mm/rigidity_factor/consolidation_type -- NEVER an
+# internal formula coefficient or IS-code constant).
+# ---------------------------------------------------------------------------
+
+@router.get("/configurations")
+def list_configurations(method: str | None = None, db: Session = Depends(get_db)):
+    """Every ACTIVE (non-archived) configuration version, newest first,
+    optionally filtered to one method -- for the frontend's configuration
+    dropdown. The untouched DEFAULT is never a row here (see
+    services/configurations.py's resolve_configuration docstring) -- the
+    frontend adds its own "Default" option with configuration_id=null."""
+    query = db.query(CalcConfiguration).filter(CalcConfiguration.is_active == True)  # noqa: E712
+    if method:
+        query = query.filter(CalcConfiguration.method == method)
+    rows = query.order_by(CalcConfiguration.config_group_id, CalcConfiguration.version.desc()).all()
+    return [
+        {
+            "configuration_id": r.configuration_id, "method": r.method,
+            "config_group_id": r.config_group_id, "config_name": r.config_name,
+            "project_name": r.project_name, "version": r.version,
+            "parameters": json.loads(r.parameters_json),
+            "source_configuration_id": r.source_configuration_id,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in rows
+    ]
+
+
+@router.get("/configurations/{configuration_id}")
+def get_configuration(configuration_id: str, db: Session = Depends(get_db)):
+    row = db.query(CalcConfiguration).filter(CalcConfiguration.configuration_id == configuration_id).first()
+    if not row:
+        raise HTTPException(404, f"Unknown configuration '{configuration_id}'.")
+    return {
+        "configuration_id": row.configuration_id, "method": row.method,
+        "config_group_id": row.config_group_id, "config_name": row.config_name,
+        "project_name": row.project_name, "version": row.version,
+        "parameters": json.loads(row.parameters_json),
+        "source_configuration_id": row.source_configuration_id,
+        "is_active": row.is_active,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
+
+
+@router.post("/configurations")
+def create_configuration(req: CalcConfigurationCreateRequest, db: Session = Depends(get_db)):
+    """Create a new, immutable configuration VERSION -- always an INSERT,
+    never an UPDATE (see services/configurations.build_new_version and
+    PROJECT_STATUS.md Step 6 section 'Delete / Edit rules'). If
+    `base_configuration_id` names an existing ACTIVE version, the new
+    version's overrides start from that version's own overrides (letting a
+    later change create v2 without repeating everything v1 already set) --
+    otherwise the new version starts from the untouched DEFAULT."""
+    base_row = None
+    if req.base_configuration_id:
+        base_row = db.query(CalcConfiguration).filter(
+            CalcConfiguration.configuration_id == req.base_configuration_id,
+            CalcConfiguration.is_active == True,  # noqa: E712
+        ).first()
+        if not base_row:
+            raise HTTPException(422, f"Unknown (or archived) base configuration '{req.base_configuration_id}'.")
+
+    existing_group_rows = db.query(CalcConfiguration).filter(CalcConfiguration.method == req.method).all()
+
+    try:
+        fields = config_service.build_new_version(
+            method=req.method, config_name=req.config_name, parameters=req.parameters,
+            project_name=req.project_name, base_row=base_row, existing_group_rows=existing_group_rows,
+        )
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+
+    row = CalcConfiguration(**fields)
+    db.add(row)
+    db.commit()
+    return {
+        "configuration_id": row.configuration_id, "method": row.method,
+        "config_group_id": row.config_group_id, "config_name": row.config_name,
+        "project_name": row.project_name, "version": row.version,
+        "parameters": json.loads(row.parameters_json),
+        "source_configuration_id": row.source_configuration_id,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
+
+
+@router.post("/configurations/{configuration_id}/archive")
+def archive_configuration(configuration_id: str, db: Session = Depends(get_db)):
+    """Soft-delete only -- sets is_active=False so it stops being OFFERED
+    for new calculations, but the row itself is never removed or edited.
+    Always safe even if the configuration has already been used: every
+    calculation result already carries its own resolved-parameter snapshot
+    (`resolved_parameters` on each Batch row) rather than a live pointer, so
+    archiving can never change what a past result means -- see
+    services/configurations.py's resolve_configuration docstring."""
+    row = db.query(CalcConfiguration).filter(CalcConfiguration.configuration_id == configuration_id).first()
+    if not row:
+        raise HTTPException(404, f"Unknown configuration '{configuration_id}'.")
+    row.is_active = False
+    db.commit()
+    return {"configuration_id": configuration_id, "is_active": False}
 
 
 @router.post("/liquefaction")
