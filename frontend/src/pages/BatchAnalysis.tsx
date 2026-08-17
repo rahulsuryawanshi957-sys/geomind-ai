@@ -187,6 +187,7 @@ export default function BatchAnalysis() {
   const [newConfigProject, setNewConfigProject] = useState('')
   const [savingConfig, setSavingConfig] = useState(false)
   const [saveConfigError, setSaveConfigError] = useState('')
+  const [archivingConfig, setArchivingConfig] = useState(false)
   const [loading, setLoading] = useState(false)
   const [progress, setProgress] = useState(0)
   const [progressLabel, setProgressLabel] = useState('')
@@ -576,18 +577,45 @@ export default function BatchAnalysis() {
                   Parameter configuration
                   <span className="text-slate-500 font-normal"> (optional -- overrides FOS / allowable settlement / rigidity / consolidation below)</span>
                 </label>
-                <select
-                  className="gm-input w-full"
-                  value={batchConfigId}
-                  onChange={(e) => setBatchConfigId(e.target.value)}
-                >
-                  <option value="">Default (use the fields below as typed)</option>
-                  {availableConfigs.map((c) => (
-                    <option key={c.configuration_id} value={c.configuration_id}>
-                      {c.config_name} v{c.version}{c.project_name ? ` — ${c.project_name}` : ''}
-                    </option>
-                  ))}
-                </select>
+                <div className="flex gap-2">
+                  <select
+                    className="gm-input w-full"
+                    value={batchConfigId}
+                    onChange={(e) => setBatchConfigId(e.target.value)}
+                  >
+                    <option value="">Default (use the fields below as typed)</option>
+                    {availableConfigs.map((c) => (
+                      <option key={c.configuration_id} value={c.configuration_id}>
+                        {c.config_name} v{c.version}{c.project_name ? ` — ${c.project_name}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  {batchConfigId && (
+                    <button
+                      type="button"
+                      title="Archive this configuration version -- hides it from this dropdown going forward. Never deletes or changes it, and any past result that used it stays exactly as it was (results store their own resolved values, not a live link back to this configuration)."
+                      className="shrink-0 px-3 rounded border border-rose-800/60 text-rose-400 hover:bg-rose-950/40 hover:text-rose-300 text-xs disabled:opacity-50"
+                      disabled={archivingConfig}
+                      onClick={async () => {
+                        const c = availableConfigs.find((x) => x.configuration_id === batchConfigId)
+                        const label = c ? `${c.config_name} v${c.version}` : batchConfigId
+                        if (!window.confirm(`Archive "${label}"? It'll disappear from this dropdown -- past results that used it are unaffected and stay reproducible. This can't be undone from the UI.`)) return
+                        setArchivingConfig(true)
+                        try {
+                          await api.archiveConfiguration(batchConfigId)
+                          setBatchConfigId('')
+                          refreshConfigurations(batchMethod)
+                        } catch (e: any) {
+                          setSaveConfigError(e?.message || 'Could not archive configuration.')
+                        } finally {
+                          setArchivingConfig(false)
+                        }
+                      }}
+                    >
+                      {archivingConfig ? '…' : 'Archive'}
+                    </button>
+                  )}
+                </div>
                 {batchConfigId && (
                   <p className="text-[11px] text-slate-500 mt-1">
                     {(() => {
