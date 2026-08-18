@@ -4612,6 +4612,81 @@ scoped).
       `src/pages/BatchAnalysis.tsx` (`useMemo` around the sort/filter/
       search pipeline and the batch summary -- no other change).
 
+98. **Step 8 Render build fix -- nullable `batchSummary` TS18047 -- 18 Aug
+    2026.** Step 8's commit (`a2ff499`) built cleanly in this sandbox (no
+    `node_modules` here, so real TypeScript type-checking against the
+    actual `react`/`lucide-react` types never ran locally -- see Step 8's
+    own "Build/test verification" note on this exact limitation) but
+    FAILED Render's real build: `tsc -b` reported three `TS18047: 'summary'
+    is possibly 'null'` errors, all on the same line (`src/pages/
+    BatchAnalysis.tsx:875`).
+    - **Root cause.** Step 8's own `useMemo` fix (see #97 above) declared
+      `const batchSummary = useMemo(() => (result ? buildBatchSummary(...)
+      : null), [result])` -- correctly typed by TypeScript as
+      `BatchSummary | null`. Inside the results-table IIFE, `const summary
+      = batchSummary` inherits that same nullable type. At RUNTIME this
+      whole section only ever renders inside an outer `{result && (...)}`
+      JSX gate, which guarantees `batchSummary` is non-null by the time
+      this code runs -- but that guarantee spans two separate variables
+      (`result` state and the `batchSummary` memo derived from it), which
+      TypeScript's control-flow analysis has no way to see across. Every
+      individual `summary.foo` access (`.total`, `.successful`, etc.)
+      apparently narrows fine on its own, but the three chained accesses on
+      line 875 (`summary.lowestRecommendedSbc.value`, `.row.case_id`,
+      and inside the fallback template `.row.width_m`/`.row.depth_m`
+      collapsed to one further error) go through a nullable
+      *property* (`lowestRecommendedSbc: {...} | null`, from
+      `utils/batchResults.ts`'s own `BatchSummary` type) referenced
+      repeatedly rather than bound to a local variable -- exactly the
+      pattern TypeScript's narrowing is least reliable across.
+    - **Fix (frontend-only, `src/pages/BatchAnalysis.tsx`, nothing else).**
+      Two small, standard null-safety additions, no behavior change:
+      (1) `if (!summary) return null` immediately after `const summary =
+      batchSummary` -- the canonical early-return narrowing idiom, which
+      is unreachable in practice (the outer `{result && (...)}` gate
+      already guarantees this) but makes that guarantee visible to
+      TypeScript; (2) `const highest = summary.highestRecommendedSbc` /
+      `const lowest = summary.lowestRecommendedSbc`, bound ONCE right
+      after, then used in place of every repeated `summary.
+      highestRecommendedSbc`/`summary.lowestRecommendedSbc` access
+      (including inside the `{lowest && (...)}`/`{highest && (...)}` JSX
+      conditionals and their template literals). No `any`, no non-null
+      assertion (`!`) operators, no tsconfig changes, no change to the
+      Step 8 `useMemo` performance fix itself (it's untouched -- this fix
+      is entirely inside the JSX render logic that CONSUMES `batchSummary`,
+      not the memoization that PRODUCES it).
+    - **Preserves exactly the existing runtime behavior**, per the request:
+      same summary values, same numbers, same sort/filter/search (Step 8's
+      `useMemo` optimization is completely unmodified), same Replacement/
+      Status display, same loading/empty-result behavior -- confirmed by
+      inspection: the added early return can never actually execute given
+      the outer JSX gate, and `highest`/`lowest` are exactly the same
+      values `summary.highestRecommendedSbc`/`summary.lowestRecommendedSbc`
+      already were, just read once instead of three/four times.
+    - **Verification.** Could NOT reproduce the exact TS18047 in this
+      sandbox even after the fix, or before it -- confirmed why:
+      `node_modules` isn't installed here (no network), so `tsc -p
+      tsconfig.json` resolves `react`/JSX to untyped `any` throughout the
+      whole project (visible as `TS2307: Cannot find module 'react'` etc.
+      on EVERY file, not just this one), which masks real null-narrowing
+      errors like TS18047 entirely -- this is a pre-existing, repeatedly
+      documented sandbox limitation (see every prior step's "Build/test
+      verification" note), not new to this fix. What WAS verified: (1) the
+      fix follows a textbook-correct, guaranteed TypeScript narrowing
+      pattern (early-return + local-const binding) with no ambiguity about
+      whether it resolves the error class TS18047 represents; (2)
+      `tsc --ignoreConfig --noEmit --skipLibCheck` (this sandbox's usual
+      substitute check) still reports zero `TS1xxx` real syntax errors on
+      the file; (3) the full backend regression suite was re-run as an
+      extra safety check even though no backend file was touched --
+      **118/118 still passing**, confirming zero engineering-calculation
+      impact from a frontend-only JSX/TypeScript fix. **The real
+      confirmation is the next Render deploy** -- treat it as the actual
+      test.
+    - `frontend/` changed: `src/pages/BatchAnalysis.tsx` only (the batch
+      summary IIFE's null-narrowing, as described above). `backend/`
+      unchanged. `PROJECT_STATUS.md` updated (this entry).
+
 ---
 
 ## How to give Raahi an update (workflow reminder for whoever's helping)

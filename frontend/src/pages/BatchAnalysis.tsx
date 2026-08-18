@@ -849,6 +849,27 @@ export default function BatchAnalysis() {
                     applied load in this batch to judge that against. */}
                 {(() => {
                   const summary = batchSummary
+                  // Step 8 Render build fix (18 Aug 2026) -- TypeScript's strict
+                  // null checks (this project's tsconfig has `strict: true`)
+                  // correctly flag that `batchSummary` (a useMemo -- see its
+                  // declaration above) is typed `SummaryType | null`, since TS
+                  // has no way to know it's only ever null when `result` itself
+                  // is null. At RUNTIME this branch only ever executes inside
+                  // the `{result && (...)}` JSX gate around this whole section
+                  // (see above), which guarantees `batchSummary` is non-null
+                  // here -- but that guarantee isn't visible to TS across two
+                  // separate state/memo variables. This guard makes it visible:
+                  // a standard, canonical null-narrowing pattern (not a
+                  // behavior change -- this branch is unreachable in practice).
+                  if (!summary) return null
+                  // Bind the two possibly-absent summary fields to local
+                  // consts ONCE, right after narrowing `summary` itself --
+                  // TypeScript then narrows THESE the same proven way inside
+                  // the `lowest && (...)`/`highest && (...)` JSX below and
+                  // template literals, with no repeated `summary.foo.bar`
+                  // property-chain re-access for TS to lose track of.
+                  const highest = summary.highestRecommendedSbc
+                  const lowest = summary.lowestRecommendedSbc
                   const Stat = ({ label, value, title }: { label: string; value: any; title?: string }) => (
                     <div className="px-3 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.06]" title={title}>
                       <div className="text-[10px] uppercase tracking-wide text-slate-500">{label}</div>
@@ -862,17 +883,17 @@ export default function BatchAnalysis() {
                       <Stat label="Errors" value={summary.errorCount} />
                       <Stat label="Replacement ON" value={summary.replacementOn} />
                       <Stat label="Replacement OFF" value={summary.replacementOff} />
-                      {summary.highestRecommendedSbc && (
+                      {highest && (
                         <Stat
                           label="Highest recommended SBC"
-                          value={`${summary.highestRecommendedSbc.value} (${summary.highestRecommendedSbc.row.case_id ?? `B=${summary.highestRecommendedSbc.row.width_m}, D=${summary.highestRecommendedSbc.row.depth_m}`})`}
+                          value={`${highest.value} (${highest.row.case_id ?? `B=${highest.row.width_m}, D=${highest.row.depth_m}`})`}
                           title="Numerical extreme across this batch only -- not an engineering recommendation. No structural applied load is available in this batch to judge 'best'."
                         />
                       )}
-                      {summary.lowestRecommendedSbc && (
+                      {lowest && (
                         <Stat
                           label="Lowest recommended SBC"
-                          value={`${summary.lowestRecommendedSbc.value} (${summary.lowestRecommendedSbc.row.case_id ?? `B=${summary.lowestRecommendedSbc.row.width_m}, D=${summary.lowestRecommendedSbc.row.depth_m}`})`}
+                          value={`${lowest.value} (${lowest.row.case_id ?? `B=${lowest.row.width_m}, D=${lowest.row.depth_m}`})`}
                           title="Numerical extreme across this batch only -- not an engineering recommendation."
                         />
                       )}
