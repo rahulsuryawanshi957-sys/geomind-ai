@@ -1,4 +1,4 @@
-import { useEffect, useState, Fragment } from 'react'
+import { useEffect, useMemo, useState, Fragment } from 'react'
 import { motion } from 'framer-motion'
 import { LayoutGrid, Layers3, Target, Printer, FileDown, Loader2, SlidersHorizontal, ChevronDown, ChevronUp } from 'lucide-react'
 import { Link } from 'react-router-dom'
@@ -252,6 +252,23 @@ export default function BatchAnalysis() {
   // Step 5 -- key -> display label lookup built from GET /batch-methods, so
   // the results table never hard-codes a method name either.
   const methodLabelMap: Record<string, string> = Object.fromEntries(availableMethods.map((m) => [m.key, m.label]))
+
+  // Step 8 (Performance hardening, Aug 2026) -- memoize the sort/filter/
+  // search pipeline and the summary reduce, both of which scan every row in
+  // `result.combinations` (up to MAX_BATCH_CASES=400). Previously these ran
+  // as inline IIFEs inside the render body, so ANY re-render of this page --
+  // including toggling a single row's expand/collapse via `expandedRows`,
+  // completely unrelated to sorting/filtering/searching -- re-scanned and
+  // re-sorted the full result set every time. useMemo here means that work
+  // now only re-runs when one of its actual inputs changes. Purely a render-
+  // performance fix -- computes the exact same values as before, still via
+  // the same getDisplayedRows/buildBatchSummary functions, so it changes
+  // nothing about what's displayed or how rows are sorted/filtered/counted.
+  const displayedCombos = useMemo(
+    () => result ? getDisplayedRows(result.combinations, { status: statusFilter, replacement: replacementFilter, search: tableSearch }, sortCol, sortDir) : [],
+    [result, statusFilter, replacementFilter, tableSearch, sortCol, sortDir]
+  )
+  const batchSummary = useMemo(() => (result ? buildBatchSummary(result.combinations) : null), [result])
 
   function setOv(key: string, val: string) {
     setOverrides((prev) => ({ ...prev, [key]: val }))
@@ -831,7 +848,7 @@ export default function BatchAnalysis() {
                     "best"/"safe"/"optimal", since there's no structural
                     applied load in this batch to judge that against. */}
                 {(() => {
-                  const summary = buildBatchSummary(result.combinations)
+                  const summary = batchSummary
                   const Stat = ({ label, value, title }: { label: string; value: any; title?: string }) => (
                     <div className="px-3 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.06]" title={title}>
                       <div className="text-[10px] uppercase tracking-wide text-slate-500">{label}</div>
@@ -906,12 +923,6 @@ export default function BatchAnalysis() {
                 </div>
 
                 {(() => {
-                  const displayedCombos = getDisplayedRows(
-                    result.combinations,
-                    { status: statusFilter, replacement: replacementFilter, search: tableSearch },
-                    sortCol, sortDir,
-                  )
-
                   function SortTh({ col, children, className = '' }: { col: string; children: any; className?: string }) {
                     const active = sortCol === col
                     return (

@@ -413,6 +413,29 @@ foundation combinations, in ~1 hour instead of a full day. Phases:
     wasn't built, and all 21 new tests (107/107 total passing, zero
     regression).
     **Next step (Step 8) is Performance + Final Regression** — not started.
+11. **✅ DONE — Performance + Final Regression + Production Hardening, Step
+    8, 17 Aug 2026.** Final hardening pass across the whole Batch Analysis
+    milestone (Steps 2-7) -- no new engineering features, no formula
+    changes. Backend audit found the request paths already free of N+1/
+    duplicate-work patterns (config resolution already batches into one
+    query). One real bottleneck found on the FRONTEND (unmemoized sort/
+    filter/search + summary recompute on every render) -- fixed with a
+    minimal `useMemo`, zero behavior change. Measured performance at 10 /
+    100 / 400 (the real cap) / 500 / 1000 cases with a realistic 5-layer
+    borehole -- fast throughout (400 cases in ~0.1s); found the 400-case
+    response payload (1.66 MB) is worth future attention but didn't
+    implement the fix (a genuine API architecture change, out of this
+    step's minimal-risk scope) -- documented instead. Full regression
+    across every Step 2-7 test file (118/118 passing), a new explicit
+    Individual-vs-Batch check across 3 representative cases, a 400-case
+    zero-cross-contamination data-integrity test, 6 new edge-case tests,
+    and one real pre-existing (not Step 8-introduced) behavior documented
+    rather than silently fixed (depth beyond the recorded soil profile
+    silently extrapolates instead of erroring). **Batch Analysis milestone
+    (Steps 2-8) is COMPLETE.** See changelog #97 for the full audit,
+    performance numbers, regression matrix, and known issues carried
+    forward for a future milestone.
+    **Batch Analysis milestone is now complete — next roadmap area not yet defined.**
 
 If you're picking this up fresh: **ask Raahi which phase they're on** before assuming:
 they may have skipped ahead or asked for something adjacent (this has happened before —
@@ -4346,6 +4369,248 @@ scoped).
       `backend/tests/test_batch_analysis.py` (see above). `frontend/`
       changed: `src/pages/BatchAnalysis.tsx` (Audit Trail section in the
       expandable row detail).
+
+97. **Step 8 -- Performance + Final Regression + Production Hardening -- 17
+    Aug 2026.** The final hardening step for the Batch Analysis milestone
+    (Steps 2-7). No new engineering features, no formula changes -- only
+    performance measurement/fixes where an actual bottleneck was found,
+    plus a full regression pass across everything Steps 2-7 built.
+
+    **Performance audit (done first).** Inspected the actual request paths
+    for `/batch` and `/batch-cases` for the classic bottleneck patterns
+    (repeated DB calls, N+1 queries, repeated config resolution, duplicate
+    calculation): `_fetch_active_config_rows` already batches EVERY
+    configuration_id a request touches (batch-wide default + every case's
+    own override) into ONE query, not one per case -- confirmed by reading
+    `routers/calculators.py` directly, not assumed. `profile.layers` is
+    loaded once via the ORM relationship, not re-queried per case. No
+    duplicate calculation calls found -- each case's shear/settlement runs
+    exactly once. **One real bottleneck found, on the frontend:**
+    `BatchAnalysis.tsx` recomputed the full sort/filter/search pipeline
+    (`getDisplayedRows`) and the summary reduce (`buildBatchSummary`) as
+    plain inline IIFEs inside the render body -- meaning ANY re-render of
+    the page (including toggling a single row's expand/collapse via
+    `expandedRows`, completely unrelated to sorting/filtering) re-scanned
+    and re-sorted the entire result set, up to 400 rows, every time.
+
+    **Optimization made (the only code change from this step's audit):**
+    wrapped both computations in `useMemo` with the actual inputs that
+    should trigger recomputation (`result`, `statusFilter`,
+    `replacementFilter`, `tableSearch`, `sortCol`, `sortDir` for the sort/
+    filter/search pipeline; `result` alone for the summary). Calls the
+    EXACT SAME `getDisplayedRows`/`buildBatchSummary` functions as before,
+    unchanged -- this is purely a "don't redo work whose inputs haven't
+    changed" fix, verified to produce byte-identical output, not a
+    behavior change. `frontend/src/pages/BatchAnalysis.tsx` is the only
+    file this step's optimization touched.
+
+    **Performance measurements (actual numbers, run in this sandbox against
+    the real `run_batch_cases`/`_run_one_batch_case` functions with a
+    realistic 5-layer clay-over-sand borehole, not empty/fake objects):**
+
+    | Cases | Time | Per-case | Response payload (JSON) |
+    |---|---|---|---|
+    | 10 | 0.0048s | 0.48ms | 45 KB |
+    | 100 | 0.034s | 0.34ms | 419 KB |
+    | 400 (actual production `MAX_BATCH_CASES`) | 0.107s | 0.27ms | 1.66 MB |
+    | 500 | 0.140s | 0.28ms | 2.07 MB |
+    | 1000 | 0.258s | 0.26ms | 4.14 MB |
+
+    500 and 1000 were measured by calling the shared per-case engine
+    (`_run_one_batch_case`) directly in a loop, DELIBERATELY bypassing
+    `run_batch_cases`'s own request-level cap -- because that cap
+    (`MAX_BATCH_CASES = 400`, an existing Step 2 limit, unchanged here)
+    already rejects any real request above 400 with a clear `ValueError`
+    on BOTH grid and exact-pairs modes (verified directly --
+    `test_500_and_1000_cases_correctly_rejected_by_existing_cap`). So
+    500/1000-case measurements are informational only (showing the
+    underlying compute scales linearly and stays fast even well past the
+    real ceiling) -- they can never actually be requested through the
+    public API as it exists today.
+
+    **Finding, not fixed:** at the real cap of 400 cases, response payload
+    is 1.66 MB. Broken down: Step 7's new trace fields
+    (`overrides_applied`/`original_soil_profile`/`effective_soil_profile`/
+    `parameter_trace`) contribute ~0.50 MB of that; pre-existing per-case
+    detail (`shear_steps`/`settlement_layer_report`) contributes ~0.55 MB;
+    the rest is the summary fields every row always had. 1.66 MB is not a
+    severe bottleneck in absolute terms (compute itself takes ~0.1s; the
+    number is dominated by JSON size, which loads in well under a second on
+    any real connection) but is large enough to be worth a mobile user's
+    attention on a slow connection. The brief's own "prefer summary in main
+    table, detailed trace loaded when a case is opened" principle (echoed
+    in both Step 7's and this step's briefs) points at the real fix: split
+    the batch response into a lightweight summary array plus a separate
+    per-case detail fetch. **Deliberately NOT implemented this step** --
+    that's a genuine API/architecture change (a new per-case detail
+    endpoint, and `CalculationLog` currently stores one row per BATCH, not
+    per case, so it would need its own lookup path), which is exactly the
+    kind of change the brief's "prefer minimal, low-risk changes" and
+    "STRICT SCOPE -- do not add new ... unrelated UI features" rules argue
+    against doing speculatively. Documented under Known Issues / Future
+    Roadmap below instead, per the brief's own instruction for exactly this
+    situation.
+
+    **Full regression (Steps 2-7, all re-run, not assumed).** Grid mode,
+    Exact B×D mode, soil replacement (on/off/depth/properties/isolation),
+    method selection (default/supported/unsupported), formula configuration
+    (default/project/versioning/immutability), and traceability (inputs/
+    soil/overrides/replacement/method/configuration/intermediate values/
+    final result/errors) -- every one of these already has dedicated tests
+    from its own step (Steps 2-3 in `test_batch_analysis.py`, Step 5 in
+    `test_batch_method_selection.py`, Step 6 in `test_configurations.py`,
+    Step 7 in `test_traceability.py`) and every one of those pre-existing
+    tests was re-run in full, unmodified, this step -- all still passing.
+
+    **Individual vs Batch regression (mandatory, section 7) --
+    re-verified explicitly for THREE representative cases this step**
+    (plain case, a case with an override, and a case simulating a Step-6
+    configured FOS of 3.0) via a new parametrized test that re-derives the
+    same founding-layer-sourced parameters `parameter_trace` itself already
+    recorded and calls `bearing_capacity_is6403_shear` directly with them --
+    all three match the batch's own `shear_sbc` exactly, not approximately.
+
+    **Large-batch data integrity (section 8, "more important than raw
+    speed") -- a single new 400-case test** where every case has a
+    DIFFERENT width, depth, cohesion override, and every 3rd case also has
+    replacement enabled at a different depth -- then EVERY field on EVERY
+    row (case_id, width_m, depth_m, overrides_applied, parameter_trace,
+    replacement_enabled) is checked index-by-index against what that
+    specific case should have produced. Zero cross-contamination found.
+
+    **Edge cases (section 9) -- new tests for the ones not already
+    covered** by Steps 2/3/5/6's own test files (which already covered
+    duplicate case_id, negative width in grid mode, invalid/missing
+    replacement depth and properties, unsupported method, unknown
+    configuration, invalid configuration parameters): empty batch (both
+    grid and exact-pairs -- clear `ValueError`, not a crash); zero/negative
+    depth in exact-pairs mode specifically (case-level error, doesn't
+    affect a good case in the same batch); a case dict missing a required
+    key entirely, not just an invalid value (still a clean per-case error,
+    never an unhandled exception); founding depth far beyond the recorded
+    soil profile.
+
+    **A real, pre-existing (NOT Step 8-introduced) behavior found and
+    documented, per the brief's explicit instruction not to fix formula/
+    calculation-engine behavior without authorization:** `_founding_layer`
+    does not reject a depth beyond the borehole's recorded extent -- it
+    silently extrapolates, treating the deepest logged layer as if it
+    continued forever, rather than erroring. This dates to Step 2 and was
+    never exercised by any existing test until this step's edge-case sweep
+    found it. Documented as a known limitation with a test asserting the
+    ACTUAL behavior (`test_founding_depth_beyond_available_profile_
+    extrapolates_to_deepest_layer`), so a future change to this behavior is
+    caught as a deliberate decision, not an accidental regression -- NOT
+    changed by this step.
+
+    **Error classification / partial-batch-success (section 10).**
+    Confirmed directly: a deliberately-broken case (negative width) inside
+    a 3-case batch produces its own error, while the other two genuinely
+    different cases (different widths) both succeed with their own
+    correct, non-identical results -- proving one failure never corrupts,
+    skips, or bleeds into an unrelated case's result.
+
+    **Security check (section 13).** Grepped every file touched across
+    Steps 2-8 for API keys, tokens, credentials, and private-key markers --
+    none found. Confirmed no debug `print`/`console.log`/`TODO`/`FIXME`
+    artifacts were left in any Step 2-8 file. Error messages returned to
+    the frontend (`row["error"] = str(e)`) are plain, pre-written
+    engineering-validation strings (e.g. "No water table depth available"),
+    never a raw Python stack trace or exception internals -- unchanged
+    behavior from Step 2, re-confirmed here.
+
+    **Code quality (section 14).** No dead code, debug logging, or
+    temporary artifacts found in any file touched by Steps 2-8. One
+    pre-existing artifact NOT introduced by this development work was
+    noticed and is flagged (not removed, per "remove only artifacts
+    introduced by the current development work"): a stray `geomind-latest.
+    zip` sits in the repo root, predating Step 2 -- Raahi should confirm
+    whether it's still needed and remove it manually if not; out of scope
+    for this step to touch.
+
+    **Build/test verification -- exact commands actually run.** Backend:
+    `python3 -m py_compile` across the full `backend/` tree (clean), then
+    every test file via `pytest` from `backend/` per `requirements-dev.txt`'s
+    own documented convention (`pip install -r requirements.txt -r
+    requirements-dev.txt` then `pytest`) -- `pytest` itself isn't installable
+    in this sandbox (no network), so run via the same minimal pytest-shim
+    technique established in Step 5 (a `raises`/`mark.parametrize` shim plus
+    a script executing every `test_*` function) -- **118/118 passing**
+    (86 from Steps 2-6, 21 from Step 7, 11 new this step). Frontend:
+    `package.json`'s only test-adjacent command is `build` (`tsc -b && vite
+    build`) -- no dedicated `npm test`. `npm run build` itself can't run in
+    this sandbox either (no `node_modules`, no network to install), so used
+    the same `tsc --ignoreConfig --noEmit --skipLibCheck --jsx react-jsx`
+    substitute as every prior step -- zero `TS1xxx` (real syntax) errors on
+    the one file this step changed.
+
+    **Render readiness (section 16) -- inspected, not modified.** CORS
+    origins are environment-configurable (`app/config.py`'s
+    `CORS_ORIGINS`), with a sensible non-localhost-only default already
+    including the production frontend URL -- confirmed unchanged and
+    untouched by Steps 2-8. No new environment variable was introduced by
+    this milestone. No development-only debug behavior was added. Actual
+    live-Render verification (confirming the deployed instance itself
+    behaves identically) was NOT possible from this sandbox -- same
+    limitation noted at the end of every prior step's changelog entry.
+
+    **Final regression matrix:**
+
+    | Feature | Verified via | Result |
+    |---|---|---|
+    | Grid Batch | `test_batch_analysis.py` (Steps 2-4, re-run) | PASS |
+    | Exact B×D | `test_batch_analysis.py` (Step 2, re-run) | PASS |
+    | Soil Replacement | `test_batch_analysis.py` (Step 3, re-run) | PASS |
+    | Method Selection | `test_batch_method_selection.py` (Step 5, re-run) | PASS |
+    | Formula Configuration | `test_configurations.py` (Step 6, re-run) | PASS |
+    | Versioning / immutability | `test_configurations.py` (Step 6, re-run) | PASS |
+    | Traceability | `test_traceability.py` (Step 7, re-run) | PASS |
+    | Individual vs Batch | new parametrized test, 3 representative cases | PASS |
+    | 10 / 100 cases | new test, measured + correctness-checked | PASS |
+    | 400 cases (actual cap) | new test, measured + correctness-checked | PASS |
+    | 500 / 1000 cases (request-level) | confirmed correctly REJECTED by existing `MAX_BATCH_CASES` | PASS (by design) |
+    | 500 / 1000 cases (raw compute, bypassing the cap) | measured directly -- informational only | NOT APPLICABLE (never reachable via the public API) |
+    | 400-case data integrity (no cross-contamination) | new test, index-by-index field check | PASS |
+    | Edge cases (empty batch, malformed case, depth beyond profile, etc.) | 6 new tests | PASS |
+    | Partial-batch success / error isolation | new test | PASS |
+    | Frontend build (syntax) | `tsc --noEmit` substitute (no `node_modules` in sandbox) | PASS |
+    | Backend tests | pytest-shim, 118/118 | PASS |
+    | Live Render deploy | -- | NOT TESTED (sandbox has no network to Render) |
+
+    **Explicitly NOT implemented** (all correctly out of scope per the
+    brief, all deliberate): any new calculation method, foundation type,
+    formula, or soil-mechanics module; the payload-size architecture change
+    described above (lazy per-case detail fetch); fixing the
+    depth-beyond-profile extrapolation behavior found during edge-case
+    testing; any change to `main.py`/CORS/deployment configuration (none
+    needed); a broad unrelated refactor of files not touched by Steps 2-8;
+    removing the pre-existing stray zip file (flagged, not removed).
+
+    **Known issues / Future roadmap (carried forward, nothing fixed under
+    this step without authorization):** the 2-state SUCCESS/ERROR status
+    model (Step 4's original limitation, still true); no UI yet to re-open
+    a past batch run's case-by-case Audit Trail from Combined
+    Report/History (Step 7's limitation, still true); `_founding_layer`
+    silently extrapolates beyond the recorded soil profile instead of
+    erroring (newly documented this step); 1.66 MB response payload at the
+    400-case cap, with a lazy-detail-fetch architecture as the identified
+    but unimplemented fix (newly documented this step); stray
+    `geomind-latest.zip` in the repo root predates this milestone and
+    should be reviewed/removed manually by Raahi.
+
+    **Current milestone: Batch Analysis (Steps 2-8) is COMPLETE.** Every
+    step's own regression suite passes together in one run (118/118), the
+    frontend compiles cleanly, and this step's own hardening pass found
+    exactly one real (frontend rendering) bottleneck, fixed it with a
+    minimal low-risk change, and found zero engineering-calculation
+    regressions across the entire milestone.
+
+    - `backend/` changed: none (no backend code changes this step -- the
+      audit found the backend request paths were already free of the N+1/
+      duplicate-work patterns being checked for). New:
+      `backend/tests/test_step8_hardening.py`. `frontend/` changed:
+      `src/pages/BatchAnalysis.tsx` (`useMemo` around the sort/filter/
+      search pipeline and the batch summary -- no other change).
 
 ---
 
