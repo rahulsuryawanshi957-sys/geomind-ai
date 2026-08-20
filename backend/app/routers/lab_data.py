@@ -78,7 +78,24 @@ async def upload_lab_data(
         logger.exception("[lab_data] Failed to parse uploaded workbook.")
         raise HTTPException(500, f"Could not read the Excel file: {e}")
 
-    created_profiles = []
+    # PERFORMANCE / CRASH-SAFETY FIX (21 Aug 2026, see PROJECT_STATUS.md):
+    # a real-world multi-borehole file (4 boreholes x ~52 layers = 208 rows)
+    # was failing with a plain client-side "network error" -- while a
+    # smaller single-borehole file uploaded fine every time. Root cause:
+    # this endpoint used to (1) db.commit() everything, then (2) call
+    # db.refresh() once per profile, then (3) let Pydantic's
+    # BoreholeProfileOut.model_validate(p) walk the ORM `p.layers`
+    # relationship -- which lazy-loads with a FRESH query per profile
+    # because SQLAlchemy expires all attributes after commit() by default.
+    # For 4 boreholes that's 1 commit + 4 refreshes + 4 lazy-load queries
+    # AFTER the slow part (the actual writes) was already done -- extra
+    # round-trips that scale with borehole count, on Render free tier's
+    # already-slow first-request disk I/O. Rare with 1 borehole, real with 4.
+    # Fix: build the ENTIRE response from plain Python data we already have
+    # (input dicts + IDs captured right after flush, before anything
+    # expires) and commit only ONCE at the very end -- zero refreshes, zero
+    # lazy loads, response-building needs no extra DB round-trips at all.
+    created_profiles_out = []
     extra_warnings = []
     for bh_id, data in parsed["boreholes"].items():
         profile = BoreholeProfile(
@@ -94,7 +111,8 @@ async def upload_lab_data(
             source_file_hash=file_hash,
         )
         db.add(profile)
-        db.flush()  # get profile.id before adding layers
+        db.flush()  # populates profile.id / profile.created_at (Python-side defaults) -- captured below before commit() can expire them
+        profile_id, profile_created_at = profile.id, profile.created_at
 
         # from_m/to_m are required (NOT NULL) columns -- any of the three
         # parser tiers (template / office-format / universal fuzzy-match) can
@@ -103,7 +121,7 @@ async def upload_lab_data(
         # IntegrityError (500) instead of failing gracefully. Skip just the
         # bad row and tell the engineer exactly which one, rather than losing
         # the whole borehole over one bad line.
-        good_layers = 0
+        good_layers_out = []
         for i, layer_data in enumerate(data["layers"]):
             from_m, to_m = layer_data.get("from_m"), layer_data.get("to_m")
             if not isinstance(from_m, (int, float)) or not isinstance(to_m, (int, float)):
@@ -118,25 +136,45 @@ async def upload_lab_data(
                     f"To depth ({to_m}m)."
                 )
                 continue
-            db.add(SoilLayer(borehole_id_fk=profile.id, **layer_data))
-            good_layers += 1
+            layer = SoilLayer(borehole_id_fk=profile_id, **layer_data)
+            db.add(layer)
+            db.flush()  # populates layer.id before commit() can expire it
+            good_layers_out.append({"id": layer.id, **layer_data})
 
-        if good_layers == 0:
+        if not good_layers_out:
             extra_warnings.append(
                 f"{bh_id}: NO usable layers found in this file -- borehole profile created empty. "
                 f"This usually means the auto-detect parser mis-read the sheet layout; try "
                 f"RaahiGeo's downloadable template for this file instead."
             )
 
-        created_profiles.append(profile)
+        created_profiles_out.append({
+            "id": profile_id,
+            "borehole_id": bh_id,
+            "project_name": data.get("project_name"),
+            "water_table_depth_m": data.get("water_table_depth_m"),
+            "easting": data.get("easting"),
+            "northing": data.get("northing"),
+            "rl_m": data.get("rl_m"),
+            "date_of_boring": data.get("date_of_boring"),
+            "project_number": data.get("project_number"),
+            "source_filename": file.filename,
+            "created_at": profile_created_at,
+            "layers": good_layers_out,
+        })
 
-    db.commit()
-    for p in created_profiles:
-        db.refresh(p)
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception(f"[lab_data] DB commit failed for upload: {file.filename}")
+        raise HTTPException(500, "Could not save the parsed data to the database. Nothing was saved -- please try again.")
 
-    logger.info(f"[lab_data] Created {len(created_profiles)} borehole profile(s).")
+    logger.info(f"[lab_data] Created {len(created_profiles_out)} borehole profile(s).")
+    # Built entirely from plain dicts captured above -- no ORM attribute
+    # access here, so this can never trigger a surprise lazy-load query.
     return {
-        "created": [BoreholeProfileOut.model_validate(p).model_dump() for p in created_profiles],
+        "created": [BoreholeProfileOut.model_validate(p).model_dump() for p in created_profiles_out],
         "warnings": parsed["warnings"] + extra_warnings,
     }
 

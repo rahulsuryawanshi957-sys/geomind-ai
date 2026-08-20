@@ -4969,6 +4969,58 @@ scoped).
        entry) -- editing a single saved layer's value in place isn't
        possible from the UI.
 
+102. **Multi-borehole upload "Network error" fix -- 21 Aug 2026.** Raahi hit a
+     plain client-side "Network error -- could not reach the server" uploading
+     a real 4-borehole file (`ASL-86-2026BH_1-4.xlsx`, 4 boreholes x ~52
+     layers = 208 rows total) via the office-borehole-log parser tier --
+     confirmed NOT a network/CORS/browser issue (ruled out: health check
+     works, same origin, WiFi, Chrome, and a smaller single-borehole file
+     from the SAME device/network uploaded successfully every time). The
+     parser itself was independently verified fine (parses this exact file
+     correctly in ~4s, zero errors, standalone). **Root cause: the OLD
+     `/api/lab-data/upload` handler did `db.commit()` then called
+     `db.refresh()` once per profile, then let `BoreholeProfileOut.model_
+     validate(p)` lazy-load the ORM `p.layers` relationship per profile --
+     SQLAlchemy expires all attributes after `commit()` by default, so this
+     is 1 commit + N refreshes + N lazy-load queries AFTER the writes were
+     already done, scaling with borehole count.** Fine for 1 borehole, real
+     extra round-trips for 4 -- on Render free tier's slow first-request
+     disk I/O, enough added latency to occasionally get killed by Render's
+     own request/proxy timeout, which the browser can only report as a
+     generic connection failure (not a real HTTP error, since no response
+     ever came back -- this is also why nothing showed in Render's Logs tab
+     when Raahi checked, and why Swagger's `/docs` UI was too complex to use
+     for isolating this on a phone).
+     - **Fix (`routers/lab_data.py`):** build the ENTIRE response from plain
+       Python dicts captured right after each `db.flush()` (before commit can
+       expire anything) instead of from ORM objects post-commit -- zero
+       `db.refresh()` calls, zero lazy-loaded relationship queries,
+       response-building needs no DB round-trips at all. `db.commit()` now
+       happens exactly once, wrapped in try/except -- a genuine commit
+       failure now rolls back and returns a clear 500 message instead of
+       ever risking a silent crash.
+     - **Verification:** re-parsed the real `ASL-86-2026BH_1-4.xlsx` file
+       standalone (confirms parser output shape is unchanged: 4 boreholes,
+       52 layers each, 0 warnings) and separately simulated the new
+       response-building logic against that exact parsed output with a
+       DB-free stand-in for ID generation -- confirms it builds all 4
+       profiles / 208 layers correctly in under 1 millisecond (vs. the old
+       path's N extra round-trips). `py_compile` clean on the whole backend
+       tree. **Not independently re-verified against a live Render deploy
+       with this exact file yet** -- sandbox has no network access to install
+       `sqlalchemy`/`pydantic` for a true end-to-end DB test, so this is
+       verified at the "parse + response-shape" level, not a full live
+       request. Treat Raahi's first real re-upload after deploying this as
+       the actual test.
+     - **Not done / still open:** doesn't address Render's own proxy timeout
+       directly (that's infra, not something app code controls) -- this fix
+       reduces the request's total processing time so it comfortably clears
+       whatever that limit is, but a MUCH larger file (many more boreholes)
+       could in principle still be slow enough to hit it again. If that ever
+       recurs, the next lever is batching the SQLite writes themselves
+       (`bulk_save_objects`), not attempted here since the round-trip
+       reduction alone was the clear, safe first fix.
+
 ---
 
 ## How to give Raahi an update (workflow reminder for whoever's helping)
