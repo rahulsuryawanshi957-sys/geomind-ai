@@ -4895,6 +4895,80 @@ scoped).
        worth knowing if a future report/export assumes everything
        reproducibility-relevant is inside `resolved_parameters`.
 
+101. **Void-ratio (e0) estimation fallback + visible gap in Lab Reports table
+     -- 20 Aug 2026.** Raahi hit `"Layer X: no initial_void_ratio_e0
+     anywhere in this borehole to fall back on"` running Batch on a real
+     project borehole (BH-01, Mokama-Munger Highway PKG-02). Root cause
+     confirmed by inspecting the actual uploaded Excel (`BH_Log_Converter_
+     Master_fixed.xlsx`, `Soil Data` sheet): NOT a parser bug -- the header
+     "Initial Void Ratio e0" is the app's own template column and matched
+     perfectly, but the LAB never filled it in for either UDS sample (rows
+     with Compression Index Cc present -- 0.198 and 0.179 -- but the e0
+     cell immediately next to it left blank). Raahi doesn't have the real
+     consolidation-test e0 either. Two changes, both requested by Raahi:
+     - **`calculators.py` -- new `_estimate_void_ratio_from_phase()`**:
+       when NO layer anywhere on the borehole has a lab e0 (after
+       `_resolve_field`'s existing nearest-layer/borehole-average
+       fallback), estimate it from the standard 3-phase relationship --
+       `e0 = Gs*(1+w)/gamma_bulk - 1` (gamma_w = 1 t/m3) -- using whatever
+       specific_gravity/moisture_content_pct/bulk_density_t_m3 the
+       borehole has (each resolved the same nearest-layer way). Verified
+       against BH-01's actual numbers: layer 2.5-2.8m -> e0 estimated at
+       0.836, layer 5.5-5.8m -> 0.781 (both realistic for CI clay). Mirrors
+       the EXISTING `Cc = 0.3*(e0-0.27)` fallback-of-last-resort pattern a
+       few lines below it exactly -- same "real lab value always wins,
+       estimate is visibly flagged, only used when truly nothing else is
+       available" shape. Still raises the original clear ValueError if
+       Gs/moisture/density aren't available either (nothing left to
+       estimate from) -- this is a fallback, not a way to silently produce
+       a number no matter what.
+     - **Flagging, not hiding, the estimate**: `layers_used` entries and
+       `layer_report` rows for an estimated-e0 layer now say so explicitly
+       (`"e0 estimated via 3-phase relationship (Gs=..., w=..., gamma=...)
+       -- no lab e0 on this borehole"`), a new top-level
+       `has_estimated_void_ratio` boolean, and -- when any layer used the
+       estimate -- a prominent warning inserted FIRST in the `warnings`
+       list naming exactly which layer(s) and recommending the result be
+       treated as provisional until real lab e0 is available. If an
+       estimated e0 also then feeds the existing Cc-from-e0 fallback,
+       BOTH estimates show up, not just one silently built on the other.
+     - **`LabReports.tsx` (the post-upload borehole preview table, what
+       Raahi calls the "lab sheet")**: new "e0 (Void ratio)" column, added
+       right after the existing "Cc" column. When a clay/silt layer
+       (classification starting C or M) has no e0, the cell shows
+       "— (missing)" in amber instead of a plain dash, with a tooltip
+       explaining Batch Analysis will estimate it if possible or error if
+       not -- so a missing e0 is visible right after upload, not only
+       discovered later when a Batch run fails on it.
+     - **Verification.** Reproduced BH-01's exact data shape (Cc present,
+       e0 absent, Gs/moisture/density present) as a new test: confirmed
+       the estimator's output matches the hand-calculation from the chat
+       (0.836 / 0.781) to 2 decimal places, confirmed `run_settlement_
+       multilayer` no longer raises on this shape and correctly sets
+       `has_estimated_void_ratio`/the warning, confirmed a REAL lab e0 on
+       one layer still wins over the estimate for that layer while another
+       layer without one still gets estimated, and confirmed the original
+       clear error still fires when even Gs/moisture/density aren't
+       available. Also re-ran the full existing suite (45/46 + 16/16,
+       same 1 harness-only "failure" as changelog #100) plus entry #100's
+       11 tests -- all still pass, so this change doesn't touch V1/V2 or
+       Annular Raft behavior. `py_compile` clean; `LabReports.tsx` passes
+       a syntax-only `tsc --noEmit` check (see changelog #98/#100 for why
+       that's the ceiling of frontend verification possible in this
+       sandbox).
+     - **Not done / still open:** the estimate uses ONLY the founding
+       layer's own Gs/moisture/density (via `_resolve_field`'s existing
+       nearest-layer search) -- it does not attempt any smarter geological
+       correlation. `BatchAnalysis.tsx`'s "Layers in this borehole" panel
+       (the soil-type override UI) still doesn't show raw e0/Cc values per
+       layer -- only `LabReports.tsx`'s table does; could add later if
+       Raahi wants the same visibility there too. No UI yet to manually
+       type in a real e0 once the lab provides it other than re-uploading
+       a corrected Excel or using Batch's existing `overrides.initial_
+       void_ratio_e0` (whole-batch override, already existed before this
+       entry) -- editing a single saved layer's value in place isn't
+       possible from the UI.
+
 ---
 
 ## How to give Raahi an update (workflow reminder for whoever's helping)

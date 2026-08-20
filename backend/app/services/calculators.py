@@ -1460,6 +1460,31 @@ def _cumulative_overburden_stress(layers: list, z: float, overrides: dict | None
     return total
 
 
+def _estimate_void_ratio_from_phase(layers: list, founding) -> tuple[float | None, str | None]:
+    """Estimate initial void ratio (e0) from the standard 3-phase relationship
+    -- e0 = Gs*(1+w)/gamma_bulk - 1 (gamma_w = 1 t/m3) -- using whatever
+    specific_gravity/moisture_content_pct/bulk_density_t_m3 this borehole
+    already has (via `_resolve_field`'s own nearest-layer fallback for each
+    of the three). This is a LAST-RESORT estimate, only used when NO layer
+    anywhere on the borehole has a lab-measured e0 at all -- a real
+    consolidation-test e0 always wins when one exists (see call site).
+    Added 20 Aug 2026 after Raahi's own lab report (BH-01) had Cc filled in
+    from a consolidation test but the matching e0 column left blank on both
+    UDS samples -- common when e0 wasn't transcribed from the lab sheet into
+    the borehole-log Excel. Returns (None, None) if Gs/w/density aren't
+    available either (nothing left to estimate from)."""
+    gs, gs_note = _resolve_field(layers, founding, "specific_gravity")
+    w_pct, w_note = _resolve_field(layers, founding, "moisture_content_pct")
+    density, density_note = _resolve_field(layers, founding, "bulk_density_t_m3")
+    if gs is None or w_pct is None or density is None:
+        return None, None
+    e0_est = gs * (1 + w_pct / 100) / density - 1
+    return e0_est, (
+        f"Gs={gs:.2f} ({gs_note}), w={w_pct:.1f}% ({w_note}), "
+        f"\u03b3={density:.3f} t/m\u00b3 ({density_note})"
+    )
+
+
 def run_settlement_multilayer(
     layers: list, length_m: float, width_m: float, depth_m: float,
     allowable_settlement_mm: float, rigidity_factor: float = 1.0,
@@ -1689,10 +1714,25 @@ def run_settlement_multilayer(
 
         if is_cohesive:
             e0 = overrides.get("initial_void_ratio_e0")
+            e0_source = "override" if e0 is not None else None
             if e0 is None:
-                e0, _ = _resolve_field(layers, l, "initial_void_ratio_e0")
+                e0, e0_source = _resolve_field(layers, l, "initial_void_ratio_e0")
             if e0 is None:
-                raise ValueError(f"Layer {l.from_m}-{l.to_m}m: no initial_void_ratio_e0 anywhere in this borehole to fall back on.")
+                # No lab-tested e0 anywhere on this borehole -- estimate from the
+                # standard 3-phase relationship (Gs, moisture content, bulk
+                # density), same fallback-of-last-resort pattern as the Cc
+                # estimate below. Only fires when a real lab e0 genuinely
+                # doesn't exist anywhere on the borehole.
+                e0, phase_note = _estimate_void_ratio_from_phase(layers, l)
+                if e0 is not None:
+                    e0_source = f"estimated via 3-phase relationship ({phase_note}) -- no lab e0 on this borehole"
+            if e0 is None:
+                raise ValueError(
+                    f"Layer {l.from_m}-{l.to_m}m: no initial_void_ratio_e0 anywhere in this borehole, "
+                    f"and not enough data (specific gravity, moisture content, bulk density) to estimate "
+                    f"it either -- at least one of those three is also missing everywhere on this borehole."
+                )
+            sl["e0_source"] = e0_source
 
             cc = overrides.get("compression_index_cc")
             cc_source = "override" if cc is not None else None
@@ -1702,7 +1742,9 @@ def run_settlement_multilayer(
                 # No lab-tested Cc anywhere on this borehole -- estimate from void ratio,
                 # same empirical correlation as the reference workbook's Input!Z column
                 # ("VOID RATIO" mode): Cc = 0.3*(e0 - 0.27). Only a fallback of last
-                # resort; a real lab Cc value always wins when one exists.
+                # resort; a real lab Cc value always wins when one exists. Note: if e0
+                # ITSELF was just estimated above, this Cc estimate is now built on an
+                # estimate -- both get flagged in warnings/layer_report, not hidden.
                 cc = 0.3 * (e0 - 0.27)
                 cc_source = f"estimated from void ratio (Cc=0.3*(e0-0.27), e0={e0:.3f}) -- no lab Cc on this borehole"
             sl["cc"], sl["e0"], sl["cc_source"] = cc, e0, cc_source
@@ -1743,8 +1785,9 @@ def run_settlement_multilayer(
             sl["settlement_at_10t"] = 10 / (granular_k * (n_val - 3) * ((width_m + 0.3) / (2 * width_m)) ** 2)
 
         cc_note = f", Cc {sl['cc_source']}" if is_cohesive and sl.get("cc_source", "").startswith("estimated") else ""
+        e0_note = f", e0 {sl['e0_source']}" if is_cohesive and sl.get("e0_source", "").startswith("estimated") else ""
         layer_info.append(f"{l.from_m}-{l.to_m}m ({'cohesive' if is_cohesive else 'granular'}), "
-                           f"{H:.2f}m within influence zone, Iz={sl['Iz']:.3f}, P0={sl['P0']:.2f} t/m²{cc_note}")
+                           f"{H:.2f}m within influence zone, Iz={sl['Iz']:.3f}, P0={sl['P0']:.2f} t/m²{cc_note}{e0_note}")
 
     def _layer_contribution_mm(sl: dict, pressure: float) -> tuple[float, float]:
         """Returns (contribution_mm_before_fox_rigidity, stress_increase_dp) for one sub-layer."""
@@ -1828,6 +1871,23 @@ def run_settlement_multilayer(
             "working": working,
         })
 
+    estimated_e0_layers = [sl for sl in sub_layers if sl.get("e0_source", "").startswith("estimated")]
+    warnings_list = [
+        f"Influence zone: {depth_m}m to {influence_depth:.2f}m below ground ({iz_mode}), split across {len(sub_layers)} real borehole sub-layer(s).",
+        "Elastic (immediate) settlement is " + ("included" if include_elastic else "NOT included (off by default, matching the reference workbook's typical setting)") + ".",
+        f"Settlement method: {SETTLEMENT_METHOD_LABELS[resolved_settlement_method]} -- see layer_report for the per-layer Aw values actually used.",
+        "Silt (MI/MH/ML) is treated as COHESIVE, same as both reference workbooks -- there is no separate 'silt method' in either source Excel.",
+        "Compare against the shear-based SBC (IS:6403) and take the LOWER of the two as the final recommended SBC.",
+    ]
+    if estimated_e0_layers:
+        estimated_ranges = ", ".join(f"{sl['layer'].from_m}-{sl['layer'].to_m}m" for sl in estimated_e0_layers)
+        warnings_list.insert(0,
+            f"\u26a0 Void ratio (e0) was NOT lab-tested for {len(estimated_e0_layers)} layer(s) ({estimated_ranges}) -- "
+            f"estimated from Gs/moisture/bulk density via the standard 3-phase relationship instead (see each "
+            f"layer's entry in layer_report for the exact figures used). Treat this batch's settlement/SBC as "
+            f"provisional until a real consolidation-test e0 is available for these layers."
+        )
+
     return {
         "result": round(sbc, 2),
         "unit": "t/m² (SBC for specified allowable settlement, true multi-layer)",
@@ -1843,13 +1903,8 @@ def run_settlement_multilayer(
         "settlement_method": resolved_settlement_method,
         "settlement_method_label": SETTLEMENT_METHOD_LABELS[resolved_settlement_method],
         "total_settlement_at_recommended_sbc_mm": round(running, 3),
-        "warnings": [
-            f"Influence zone: {depth_m}m to {influence_depth:.2f}m below ground ({iz_mode}), split across {len(sub_layers)} real borehole sub-layer(s).",
-            "Elastic (immediate) settlement is " + ("included" if include_elastic else "NOT included (off by default, matching the reference workbook's typical setting)") + ".",
-            f"Settlement method: {SETTLEMENT_METHOD_LABELS[resolved_settlement_method]} -- see layer_report for the per-layer Aw values actually used.",
-            "Silt (MI/MH/ML) is treated as COHESIVE, same as both reference workbooks -- there is no separate 'silt method' in either source Excel.",
-            "Compare against the shear-based SBC (IS:6403) and take the LOWER of the two as the final recommended SBC.",
-        ],
+        "has_estimated_void_ratio": bool(estimated_e0_layers),
+        "warnings": warnings_list,
     }
 
 

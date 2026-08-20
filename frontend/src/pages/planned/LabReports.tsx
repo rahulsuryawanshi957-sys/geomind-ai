@@ -134,6 +134,7 @@ export default function LabDataImport() {
                       <th className="text-left py-1.5 pr-3">C (t/m²)</th>
                       <th className="text-left py-1.5 pr-3">φ (°)</th>
                   <th className="text-left py-1.5 pr-3">Cc</th>
+                      <th className="text-left py-1.5 pr-3">e0 (Void ratio)</th>
                       <th className="text-left py-1.5 pr-3">Rock Grade</th>
                       <th className="text-left py-1.5 pr-3">Core Rec. %</th>
                       <th className="text-left py-1.5 pr-3">RQD %</th>
@@ -152,6 +153,13 @@ export default function LabDataImport() {
                         <td className="py-1.5 pr-3 text-slate-300">{l.cohesion_t_m2 ?? '—'}</td>
                         <td className="py-1.5 pr-3 text-slate-300">{l.friction_angle_deg ?? '—'}</td>
                         <td className="py-1.5 pr-3 text-slate-300">{l.compression_index_cc ?? '—'}</td>
+                        <td className={`py-1.5 pr-3 ${l.initial_void_ratio_e0 == null && (l.classification || '').toUpperCase().match(/^[CM]/) ? 'text-amber-400' : 'text-slate-300'}`}>
+                          {l.initial_void_ratio_e0 ?? (
+                            (l.classification || '').toUpperCase().match(/^[CM]/)
+                              ? <span title="Clay/silt layer with no void ratio -- Batch Analysis will estimate this from Gs/moisture/density if available, or error if not">— (missing)</span>
+                              : '—'
+                          )}
+                        </td>
                         <td className="py-1.5 pr-3 text-slate-300">{l.weathering_grade || '—'}</td>
                         <td className="py-1.5 pr-3 text-slate-300">{l.core_recovery_pct ?? '—'}</td>
                         <td className="py-1.5 pr-3 text-slate-300">{l.rqd_pct ?? '—'}</td>
