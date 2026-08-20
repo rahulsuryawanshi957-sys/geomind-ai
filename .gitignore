@@ -1,1 +1,9 @@
 .trashed-*
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Local step folders
+step5-new/
