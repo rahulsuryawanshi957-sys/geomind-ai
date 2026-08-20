@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import CalculationLog, BoreholeProfile, CalcConfiguration
 from app.schemas import CalculatorRequest, BatchRunRequest, BatchCasesRequest, LiquefactionRequest, PileCapacityRequest, PileCommandRequest, LateralCapacityRequest, RetainingWallRequest, RockBearingCapacityRequest, GroundImprovementRequest, RockSocketPileRequest, PileGroupRequest, CalcConfigurationCreateRequest
-from app.services.calculators import CALCULATOR_REGISTRY, run_batch_matrix, run_batch_cases, run_liquefaction_analysis, MAX_BATCH_CASES, BEARING_METHOD_REGISTRY, BEARING_METHOD_LABELS, DEFAULT_BEARING_METHOD, _validate_bearing_method
+from app.services.calculators import CALCULATOR_REGISTRY, run_batch_matrix, run_batch_cases, run_liquefaction_analysis, MAX_BATCH_CASES, BEARING_METHOD_REGISTRY, BEARING_METHOD_LABELS, DEFAULT_BEARING_METHOD, _validate_bearing_method, SETTLEMENT_METHOD_REGISTRY, SETTLEMENT_METHOD_LABELS, DEFAULT_SETTLEMENT_METHOD, _validate_settlement_method
 from app.services.pile_calculator import run_pile_capacity, parse_pile_command, run_lateral_capacity, run_pile_group_analysis
 from app.services.retaining_wall_calculator import run_retaining_wall_analysis
 from app.services.rock_bearing_capacity import run_rock_bearing_capacity
@@ -220,6 +220,21 @@ def batch_methods():
     }
 
 
+@router.get("/batch-settlement-methods")
+def batch_settlement_methods():
+    """19 Aug 2026 (second reference workbook -- PROJECT_STATUS.md entry
+    #99) -- the settlement-calculation methods Batch Analysis supports, for
+    the frontend's settlement-method dropdown. Sibling to /batch-methods
+    above (bearing-capacity methods), same shape."""
+    return {
+        "methods": [
+            {"key": key, "label": SETTLEMENT_METHOD_LABELS.get(key, key)}
+            for key in sorted(SETTLEMENT_METHOD_REGISTRY)
+        ],
+        "default": DEFAULT_SETTLEMENT_METHOD,
+    }
+
+
 def _fetch_active_config_rows(db: Session, ids: set) -> dict:
     """Step 6 -- one query for every distinct configuration_id a request
     references (batch-wide default + every case's own override), instead of
@@ -272,6 +287,7 @@ def run_batch(req: BatchRunRequest, db: Session = Depends(get_db)):
             overrides=req.overrides,
             replacement=req.replacement.model_dump() if req.replacement else None,
             method=req.method, configuration_id=req.configuration_id,
+            settlement_method=req.settlement_method,
         )
     except ValueError as e:
         raise HTTPException(422, str(e))
@@ -353,6 +369,7 @@ def run_batch_cases_endpoint(req: BatchCasesRequest, db: Session = Depends(get_d
             rigidity_factor=batch_effective["rigidity_factor"],
             overrides=req.overrides,
             default_method=req.method, configuration_id=req.configuration_id,
+            default_settlement_method=req.settlement_method,
         )
     except ValueError as e:
         raise HTTPException(422, str(e))

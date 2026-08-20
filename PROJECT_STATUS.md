@@ -201,6 +201,18 @@ Settlement has no selectable method either -- the multi-layer engine already pic
 granular/cohesive per layer internally. See changelog #93 for the full audit and the
 16 new tests (62/62 total passing).
 
+**Settlement V1/V2 + Annular Raft (19-20 Aug 2026, changelog #100).** Settlement now DOES
+have a selectable method after all -- "Settlement has no selectable method either" above
+was true only until a second, independently-verified reference workbook
+(SETTLEMENT.xlsx, changelog #99's audit) turned up three genuine, bundled differences
+from the original engine (stress-distribution method, water-table-correction
+granularity, granular-soil constant). `SETTLEMENT_METHOD_REGISTRY` ("V1"/"V2") mirrors
+`BEARING_METHOD_REGISTRY`'s exact pattern; `None`/omitted -> "V1" -> unchanged prior
+behavior. Also added: "annular_raft" as a `bearing_capacity_is6403_shear` shape (Sc=Sq=
+Sgamma=1, same as strip) -- a bearing-capacity-only addition, not part of the V1/V2
+settlement split. Both are batch-wide-default + per-case-override in exact-pairs mode,
+batch-wide-only in grid mode -- same reasoning as Step 5's `method`.
+
 Backend: `run_batch_matrix()` + helpers `_founding_layer()`, `_resolve_field()`,
 `_weighted_overburden()` in `services/calculators.py` (reuses the exact same
 `bearing_capacity_is6403_shear` / `settlement_sbc_is8009_*` functions — no duplicated
@@ -4686,6 +4698,202 @@ scoped).
     - `frontend/` changed: `src/pages/BatchAnalysis.tsx` only (the batch
       summary IIFE's null-narrowing, as described above). `backend/`
       unchanged. `PROJECT_STATUS.md` updated (this entry).
+
+99. **`SETTLEMENT.xlsx` reviewed as a possible second reference workbook --
+    19 Aug 2026, audit only, no code changed.** Raahi uploaded a 4-sheet
+    Excel (`SHEAR BH (01)`, `borehole (01)`, `Settlement sheet`, `UNIT
+    PRES`) asking whether it could be fed into Batch Analysis and used
+    alongside "the other reference excel" already in play (i.e.
+    `SBC_Cal_Fixed.xlsm`, see changelog #16/#17).
+    - **Not usable as a data-import file.** Every layer row in `borehole
+      (01)` and `Settlement sheet` is blank/zero (Layer Start/End depth,
+      Density, Void Ratio, Cc, Corrected SPT all 0 or empty), and the
+      `SHEAR BH (01)` trial rows have negative computed densities and
+      `#DIV/0!` errors -- this is an empty/broken calculation template, not
+      filled site data. Uploading it through the app's lab-data importer
+      (`lab_data.py` / `bh_log_parser.py` / `universal_soil_parser.py`)
+      would create an empty or garbage borehole record, not real data.
+    - **Confirmed by Raahi: this is a genuinely different project/lab's
+      reference sheet, NOT the same file as `SBC_Cal_Fixed.xlsm`.** Raahi
+      then asked for a formula-by-formula diff against the app's actual
+      engine (`bearing_capacity_is6403_shear()` and
+      `run_settlement_multilayer()` in `calculators.py`) instead of against
+      the old `SBC_Cal_Fixed.xlsm` file (not available in this sandbox --
+      it was never checked into the repo, only referenced in past audit
+      notes). Full read-only formula extraction (openpyxl, formulas not
+      values) done on both `SHEAR BH (01)` and `Settlement sheet` tabs.
+      **Five real differences found, no code changed:**
+      1. **Stress-distribution method is fundamentally different.** The app
+         computes the stress increment under the footing using the full
+         Boussinesq rectangular-area influence factor (`_iz()`'s
+         atan/sqrt Newmark formula). This workbook's `Settlement sheet`
+         col-S formula instead uses the simpler **2:1 load-spread
+         approximation**: `dP = q*B*L / ((B+z)*(L+z))`. These two methods
+         diverge increasingly with depth -- this is the single biggest
+         source of disagreement between the two, not a rounding issue.
+      2. **Water-table correction (Aw) granularity differs.** The app
+         computes ONE Aw value for the entire influence zone (based on
+         where the water table falls relative to the founding depth and
+         the influence-zone bottom) and applies that same value to every
+         granular sub-layer. This workbook's col-U formula instead
+         recomputes Aw **per sub-layer**, using that specific sub-layer's
+         own top/bottom against the water table -- so a sand layer fully
+         below the water table correctly gets Aw=1.0 and one fully above
+         gets Aw=0.5, even when a different sand layer in the same
+         influence zone is still transitioning. The app's single
+         zone-wide Aw is a real simplification versus this source.
+      3. **Granular settlement constant differs by ~4.6%.** The app's
+         `settlement_at_10t` formula uses the constant `0.1385`; this
+         workbook's equivalent (`0.772/(N-3)*(2B/(B+0.3))^2`, working
+         directly in kN/m2) implies a constant of `0.1321` once unit
+         conversion (t/m2 vs kN/m2, 1 t/m2 = 9.80665 kN/m2) is applied
+         apples-to-apples -- verified numerically, not just eyeballed.
+      4. **Annular Raft foundation type has no equivalent in the app.**
+         `SHEAR BH (01)` has full Annular Raft support (own Sc/Sq/Sgamma =
+         1/1/1, inner/outer-diameter-derived width). `bearing_capacity_
+         is6403_shear()`'s `shape` param only recognizes
+         strip/rectangular/circular/square (falls back to square for
+         anything else) -- Annular Raft isn't a supported shape at all.
+      5. **phi=0 (pure clay) Nc handling not confirmed present in this
+         workbook.** The app has an explicit fix (Nc=5.14 general / 5.7
+         local at phi=0, avoiding divide-by-zero -- itself a bug fix found
+         auditing `SBC_Cal_Fixed.xlsm`, changelog #16). This workbook's Nc
+         formula (`=(Nq-1)/TAN(phi)`) has no phi=0 branch -- the sheet's
+         own blank-template rows (phi defaulted to 0) show exactly the
+         resulting `#DIV/0!` error, so this source either doesn't handle
+         pure-cohesive soil the same way, or was simply never exercised
+         with phi=0 by whoever built it. Not confirmed either way with
+         Raahi.
+      **Everything else matched cleanly:** Nq/N-gamma Meyerhof-Terzaghi
+      factors, local-shear phi' reduction (`atan(0.67*tan(phi))`), shape
+      factors for strip/square/circular/rectangular, depth factors
+      (dc/dq), the Rw water-table correction shape and boundaries, the
+      general/local shear void-ratio interpolation thresholds (e<0.55 /
+      e>0.75), and the NCS consolidation-settlement formula
+      (`(H/(1+e0))*Cc*log10((P0+dP)/P0)*1000`) -- all matched the app
+      formula-for-formula.
+    - **Not yet named/filed as a tracked reference workbook, and no
+      decision made on which of the 5 differences (if any) to act on.**
+      **Open questions for next session:** (1) what to call this workbook
+      for future reference; (2) for each of the 5 differences above, does
+      Raahi want the app changed to match this source, kept as-is
+      (preferring `SBC_Cal_Fixed.xlsm`'s convention), or investigated
+      further against the actual IS 8009/IS 6403 code text before
+      deciding; (3) whether a filled-in copy of this workbook will
+      eventually be provided to numerically verify results (like the #16
+      audit's 9-decimal-place match) rather than just a formula-shape
+      comparison; (4) any rule for which reference to trust when the two
+      workbooks disagree in the future.
+    - **No code changes, no new tests** -- this was purely a read-only
+      formula comparison to answer Raahi's question. Nothing in
+      `backend/` or `frontend/` was touched.
+
+100. **Settlement V1/V2 method selection + Annular Raft shape -- 19-20 Aug
+     2026, real code change, based on entry #99's diff.** Raahi decided:
+     bundle differences #1+#2+#3 from #99 into a selectable second
+     settlement method ("V2") rather than picking one to silently replace
+     V1 with; add Annular Raft as a foundation shape now; keep phi=0
+     handling as-is (already safe, no change needed there).
+     - **`run_settlement_multilayer()` (`calculators.py`)**: new
+       `settlement_method: str | None = None` param ("V1"/"V2",
+       `_validate_settlement_method`, `SETTLEMENT_METHOD_REGISTRY` --
+       mirrors Step 5's `BEARING_METHOD_REGISTRY` pattern exactly).
+       `None` -> "V1" -> byte-for-byte the same behavior as before this
+       entry (confirmed by test: V1-explicit and settlement_method-omitted
+       give identical results). "V2" switches, together, all three of
+       entry #99's differences:
+       - Stress: new `_iz_2to1()` (shape-aware 2:1 load spread: strip
+         spreads as if infinite length, circular spreads as a square using
+         the diameter, everything else -- rectangular/square/annular raft
+         -- uses the real length) replaces `_iz()` (Boussinesq).
+       - Water correction: new `_aw_factor(water_table_depth_m, top,
+         bottom)` computed PER SUB-LAYER (each sub-layer's own top/bottom)
+         replaces the single zone-wide `Aw` for every granular sub-layer's
+         contribution -- V1's zone-wide `Aw` is untouched and still used
+         when settlement_method is "V1".
+       - Granular constant: `_V2_GRANULAR_K = 1/(9.80665*0.772)` (derived
+         from SETTLEMENT.xlsx's 0.772 constant, unit-converted from kN/m2
+         to t/m2) replaces V1's `0.1385` in the Fig-9 `settlement_at_10t`
+         formula, for V2 only.
+       New `shape: str = "square"` param (V1 ignores it, same as before --
+       no behavior change; V2's `_iz_2to1` needs it). Result dict gains
+       `settlement_method`/`settlement_method_label`; `layer_report` rows
+       gain `water_table_correction_aw`/`water_table_correction_note` per
+       sub-layer (both methods -- V1's is just the same zone-wide value on
+       every row, V2's genuinely varies).
+     - **Bearing capacity (`bearing_capacity_is6403_shear`)**: new
+       `shape == "annular_raft"` branch, Sc=Sq=Sgamma=1.0 (same as strip,
+       per SETTLEMENT.xlsx's `SHEAR BH (01)` tab). No new parameters --
+       exactly like "circular" already does, the caller is expected to
+       pass the EFFECTIVE width (for annular raft: (outer_diameter_m -
+       inner_diameter_m)/2) as `width_m`; this function only ever sees one
+       characteristic width regardless of shape. Confirmed by test:
+       annular_raft and strip give identical results (same Sc/Sq/Sgamma,
+       everything else shape-independent in this function).
+     - **`_run_one_batch_case`, `run_batch_matrix`, `run_batch_cases`**:
+       `settlement_method` threaded through exactly like Step 5's `method`
+       -- grid mode (`run_batch_matrix`) is batch-wide only (no
+       per-combination case concept, same reasoning as `method`); exact-
+       pairs mode (`run_batch_cases`) gets a batch-wide
+       `default_settlement_method` plus an optional per-case
+       `c["settlement_method"]` override, both validated up front (before
+       any case runs) via `_validate_settlement_method`. Every result row
+       now carries `settlement_method` and `settlement_method_label`.
+     - **`schemas.py`**: `settlement_method` added to `BatchRunRequest`,
+       `BatchCaseInput` (per-case override), and `BatchCasesRequest`
+       (batch-wide default) -- all `None`-default, same pre-existing-
+       behavior-preserved pattern as `method`/Step 5.
+     - **`routers/calculators.py`**: new `GET /api/calculators/batch-
+       settlement-methods` endpoint (sibling to the existing `/batch-
+       methods`, same `{methods: [{key,label}], default}` shape) for the
+       frontend to read the method list from instead of hard-coding it;
+       `req.settlement_method` passed through on both `/batch` and
+       `/batch-cases`.
+     - **Frontend (`BatchAnalysis.tsx`, `api/client.ts`)**: new
+       `batchSettlementMethods()` API call; new "Settlement method"
+       dropdown (own state `settlementMethod`/`availableSettlementMethods`,
+       fetched on mount, same pattern as the existing "Calculation method"
+       dropdown for bearing) in both grid and exact-pairs request payloads;
+       "Annular Raft" added to the footing-shape dropdown, with an inline
+       hint (shown only when that shape is selected) that "Footing width
+       B" should be entered as the effective width (Outer dia − Inner
+       dia)/2, same convention already used for "circular" (which now also
+       gets its own inline hint, added for symmetry). Expanded-row detail
+       now shows `· Settlement: <label>` alongside the existing `Method:`
+       line.
+     - **Verification.** No real `pytest` in this sandbox (no network) --
+       used a minimal local stub (`pytest.raises`/`fixture`/`mark.parametrize`
+       as no-ops) to run the EXISTING test suites unmodified:
+       `test_batch_analysis.py` (45/46 passed -- the 1 "failure" is the stub's
+       `parametrize` not actually injecting parameter values, a harness
+       limitation, not a code regression: confirmed by inspecting the test,
+       which needs a real pytest to parametrize `bad_value`) and
+       `test_batch_method_selection.py` (16/16 passed) -- i.e. EVERY
+       pre-existing behavior this change could plausibly have touched is
+       confirmed unchanged. Also wrote and ran 11 new checks for this
+       change specifically (V1-omitted == V1-explicit; V2 genuinely
+       differs from V1 on the same profile; per-layer Aw appears in V2's
+       layer_report; strip and circular shapes work under V2's stress
+       method without error; grid mode's default is V1 and an explicit
+       settlement_method flows through; exact-pairs batch-wide default +
+       per-case override both work; an unsupported settlement method name
+       is rejected up front; annular_raft shape works and matches strip's
+       shape factors exactly) -- all 11 passed. `py_compile` clean on all
+       three changed backend files; the two changed frontend files pass a
+       syntax-only `tsc --noEmit` pass (real type errors would need
+       `node_modules`, not installed here -- same standing limitation as
+       every prior frontend change in this project, see entry #98).
+     - **Not done / still open:** no UI for entering Annular Raft's outer/
+       inner diameter directly (Raahi enters the pre-computed effective
+       width, same as circular's diameter-as-width convention) -- could be
+       added later as two small input fields plus a computed-width display
+       if that turns out to be error-prone in practice. `resolved_
+       parameters`/`parameter_trace` on each batch result row do NOT yet
+       include `settlement_method` (it's a top-level row field instead,
+       alongside the pre-existing `method`) -- consistent with how
+       `method` itself is recorded, so not a new inconsistency, just
+       worth knowing if a future report/export assumes everything
+       reproducibility-relevant is inside `resolved_parameters`.
 
 ---
 

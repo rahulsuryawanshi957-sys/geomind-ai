@@ -174,6 +174,11 @@ export default function BatchAnalysis() {
   // rather than hard-coded (so a future second method just appears here).
   const [availableMethods, setAvailableMethods] = useState<{ key: string; label: string }[]>([])
   const [batchMethod, setBatchMethod] = useState('IS_6403')
+  // 19 Aug 2026 (second reference workbook -- PROJECT_STATUS.md entry #99) --
+  // batch-wide SETTLEMENT method (V1/V2), same read-from-backend pattern as
+  // batchMethod/availableMethods above (Step 5) rather than hard-coded.
+  const [availableSettlementMethods, setAvailableSettlementMethods] = useState<{ key: string; label: string }[]>([])
+  const [settlementMethod, setSettlementMethod] = useState('V1')
   // Step 6 (Formula Configuration & Versioning, Aug 2026) -- a saved, named,
   // versioned bundle of fos/allowable_settlement_mm/rigidity_factor/
   // consolidation_type overrides. '' (empty string) means Default -- the
@@ -212,6 +217,10 @@ export default function BatchAnalysis() {
       setAvailableMethods(r.methods)
       setBatchMethod(r.default)
       refreshConfigurations(r.default)
+    }).catch(() => {})
+    api.batchSettlementMethods().then((r) => {
+      setAvailableSettlementMethods(r.methods)
+      setSettlementMethod(r.default)
     }).catch(() => {})
   }, [])
 
@@ -340,6 +349,7 @@ export default function BatchAnalysis() {
           replacement: buildReplacementPayload(),
           method: batchMethod,
           configuration_id: batchConfigId || null,
+          settlement_method: settlementMethod,
         } as any)
         allCombos.push(...r.combinations)
         meta = r
@@ -389,6 +399,7 @@ export default function BatchAnalysis() {
         overrides: overridesPayload,
         method: batchMethod,
         configuration_id: batchConfigId || null,
+        settlement_method: settlementMethod,
       })
       setResult(r)
     } catch (e: any) {
@@ -585,8 +596,30 @@ export default function BatchAnalysis() {
                   ))}
                 </select>
                 <p className="text-[11px] text-slate-500 mt-1">
-                  Bearing-capacity method used for shear across this batch. Settlement (IS:8009) always runs
-                  the existing multi-layer engine — it isn't a separate selectable method.
+                  Bearing-capacity method used for shear across this batch. See "Settlement method" below for
+                  the settlement (IS:8009) side.
+                </p>
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">
+                  Settlement method
+                </label>
+                <select
+                  className="gm-input w-full"
+                  value={settlementMethod}
+                  onChange={(e) => setSettlementMethod(e.target.value)}
+                >
+                  {(availableSettlementMethods.length ? availableSettlementMethods : [{ key: 'V1', label: 'V1' }]).map((m) => (
+                    <option key={m.key} value={m.key}>{m.label}</option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Settlement (IS:8009) method for this batch. V1 is the original engine (Boussinesq stress,
+                  one water-table correction for the whole influence zone). V2 is a second, independently
+                  verified reference workbook's method (2:1 load-spread stress, a separate water-table
+                  correction for each sub-layer, and its own granular-soil constant) -- see
+                  PROJECT_STATUS.md entry #99 for the full comparison. Pick whichever matches the reference
+                  you're checking this batch against; when unsure, V1 is the longer-established default.
                 </p>
               </div>
               <div>
@@ -703,8 +736,26 @@ export default function BatchAnalysis() {
               <div>
                 <label className="text-xs text-slate-400 mb-1 block">Footing shape</label>
                 <select className="gm-input w-full" value={shape} onChange={(e) => setShape(e.target.value)}>
-                  {['square', 'rectangular', 'strip', 'circular'].map((s) => <option key={s} value={s}>{s}</option>)}
+                  {[
+                    { key: 'square', label: 'square' },
+                    { key: 'rectangular', label: 'rectangular' },
+                    { key: 'strip', label: 'strip' },
+                    { key: 'circular', label: 'circular' },
+                    { key: 'annular_raft', label: 'annular raft' },
+                  ].map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
                 </select>
+                {shape === 'annular_raft' && (
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Annular raft added 19 Aug 2026 (PROJECT_STATUS.md entry #99) — same convention as
+                    "circular" above: enter the EFFECTIVE width in "Footing width B" below, i.e.
+                    (Outer diameter − Inner diameter) / 2, not the outer diameter itself.
+                  </p>
+                )}
+                {shape === 'circular' && (
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    For circular, "Footing width B" below is used as the diameter.
+                  </p>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -1088,7 +1139,7 @@ export default function BatchAnalysis() {
                                           ? `Manual overrides: ${Object.entries(c.overrides_applied).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(', ')}`
                                           : 'No manual overrides — every value below came from the borehole itself.'}
                                       </div>
-                                      <div>Method: {methodLabelMap[c.method] ?? c.method}{c.configuration_id ? ` · Configuration: ${c.configuration_id}` : ' · Configuration: Default'}</div>
+                                      <div>Method: {methodLabelMap[c.method] ?? c.method}{c.configuration_id ? ` · Configuration: ${c.configuration_id}` : ' · Configuration: Default'}{c.settlement_method_label ? ` · Settlement: ${c.settlement_method_label}` : ''}</div>
                                       {c.soil_type_source && <div>Soil type ({c.soil_type === 'cohesive' ? 'Clay' : 'Granular'}) — source: {c.soil_type_source}</div>}
                                     </div>
                                     <div>

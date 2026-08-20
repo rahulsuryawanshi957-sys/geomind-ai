@@ -137,6 +137,9 @@ class BatchRunRequest(BaseModel):
     # default (IS:6403), so pre-Step-5 requests behave identically. See
     # services/calculators.py BEARING_METHOD_REGISTRY for the currently supported method(s)
     # and PROJECT_STATUS.md's Step 5 section for why only IS:6403 is exposed to Batch today.
+    settlement_method: str | None = None  # 19 Aug 2026 -- settlement-engine method for the WHOLE
+    # grid: "V1" (default, None -> V1) or "V2" (second reference workbook -- see
+    # services/calculators.py SETTLEMENT_METHOD_REGISTRY and PROJECT_STATUS.md entry #99).
     configuration_id: str | None = None  # Step 6 -- a saved, named parameter configuration
     # (fos/allowable_settlement_mm/rigidity_factor/consolidation_type overrides) for the WHOLE
     # grid. None -> the untouched DEFAULT (this request's own fos/allowable_settlement_mm/
@@ -155,6 +158,8 @@ class BatchCaseInput(BaseModel):
     replacement: SoilReplacementInput | None = None  # Step 3 -- case-specific, independent of every other case
     method: str | None = None  # Step 5 -- case-level bearing-capacity method override. None ->
     # falls back to the request's batch-wide `method` (see BatchCasesRequest.method below).
+    settlement_method: str | None = None  # 19 Aug 2026 -- case-level settlement-method override
+    # ("V1"/"V2"). None -> falls back to the request's batch-wide `settlement_method`.
     configuration_id: str | None = None  # Step 6 -- case-level configuration override. None ->
     # falls back to the request's batch-wide `configuration_id` (see BatchCasesRequest below).
 
@@ -179,6 +184,9 @@ class BatchCasesRequest(BaseModel):
     overrides: dict = {}  # batch-wide defaults, same field names as BatchRunRequest.overrides
     method: str | None = None  # Step 5 -- batch-wide default bearing-capacity method (None -> IS:6403).
     # A case's own `method` (BatchCaseInput.method) overrides this for that case only.
+    settlement_method: str | None = None  # 19 Aug 2026 -- batch-wide default settlement method
+    # (None -> V1). A case's own `settlement_method` (BatchCaseInput.settlement_method)
+    # overrides this for that case only. See services/calculators.py SETTLEMENT_METHOD_REGISTRY.
     configuration_id: str | None = None  # Step 6 -- batch-wide default parameter configuration.
     # A case's own `configuration_id` (BatchCaseInput.configuration_id) overrides this for that
     # case only. None -> the untouched DEFAULT (this request's own fos/allowable_settlement_mm/

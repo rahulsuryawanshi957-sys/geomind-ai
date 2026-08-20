@@ -113,6 +113,11 @@ export const api = {
   // /batch-methods docstring for why the list is currently just one entry).
   batchMethods: () => request<{ methods: { key: string; label: string }[]; default: string }>('/api/calculators/batch-methods'),
 
+  // 19 Aug 2026 (second reference workbook -- PROJECT_STATUS.md entry #99) --
+  // settlement-calculation methods Batch Analysis supports (V1/V2), sibling
+  // to batchMethods above.
+  batchSettlementMethods: () => request<{ methods: { key: string; label: string }[]; default: string }>('/api/calculators/batch-settlement-methods'),
+
   runCalculator: (calculator_type: string, inputs: Record<string, any>, configuration_id?: string | null) =>
     request<any>('/api/calculators/run', { method: 'POST', body: JSON.stringify({ calculator_type, inputs, configuration_id }) }),
 
@@ -125,16 +130,18 @@ export const api = {
     replacement?: Record<string, number | string | boolean> | null
     method?: string | null
     configuration_id?: string | null
+    settlement_method?: string | null
   }) => request<any>('/api/calculators/batch', { method: 'POST', body: JSON.stringify(payload) }),
 
   runBatchCases: (payload: {
     borehole_id: string
-    cases: { case_id: string; width_m: number; depth_m: number; length_m?: number | null; overrides?: Record<string, number | string>; replacement?: Record<string, number | string | boolean> | null; method?: string | null; configuration_id?: string | null }[]
+    cases: { case_id: string; width_m: number; depth_m: number; length_m?: number | null; overrides?: Record<string, number | string>; replacement?: Record<string, number | string | boolean> | null; method?: string | null; configuration_id?: string | null; settlement_method?: string | null }[]
     shape?: string; fos?: number; allowable_settlement_mm?: number
     consolidation_type?: string; rigidity_factor?: number
     overrides?: Record<string, number | string>
     method?: string | null
     configuration_id?: string | null
+    settlement_method?: string | null
   }) => request<any>('/api/calculators/batch-cases', { method: 'POST', body: JSON.stringify(payload) }),
 
   // Step 6 (Formula Configuration & Versioning, Aug 2026) -- saved, named,

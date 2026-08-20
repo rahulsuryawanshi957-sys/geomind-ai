@@ -219,6 +219,18 @@ def bearing_capacity_is6403_shear(
         Sc, Sq, Sgamma = 1 + 0.2 * width_m / length_m, 1 + 0.2 * width_m / length_m, 1 - 0.4 * width_m / length_m
     elif shape == "circular":
         Sc, Sq, Sgamma = 1.3, 1.2, 0.6
+    elif shape == "annular_raft":
+        # Added 19 Aug 2026 (second reference workbook, SETTLEMENT.xlsx's
+        # `SHEAR BH (01)` tab -- PROJECT_STATUS.md entry #99, difference #4):
+        # shape factors 1/1/1, same as strip. `width_m` here is expected to
+        # already be the ANNULAR effective width -- (outer_diameter_m -
+        # inner_diameter_m) / 2 -- computed by the caller before this
+        # function is called, exactly the same convention this function
+        # already uses for "circular" (caller passes the diameter AS
+        # width_m). This function itself takes no separate outer/inner
+        # diameter inputs -- it only knows the single effective width, same
+        # as every other shape.
+        Sc, Sq, Sgamma = 1.0, 1.0, 1.0
     else:  # square
         Sc, Sq, Sgamma = 1.3, 1.2, 0.8
     steps.append(f"Shape factors ({shape}): Sc={Sc:.2f}, Sq={Sq:.2f}, Sγ={Sgamma:.2f}")
@@ -846,6 +858,67 @@ def _validate_bearing_method(method: str | None) -> str:
     return key
 
 
+SETTLEMENT_METHOD_REGISTRY = {"V1", "V2"}
+SETTLEMENT_METHOD_LABELS = {
+    "V1": "V1 (Boussinesq stress + zone-wide water correction)",
+    "V2": "V2 (2:1 load-spread stress + per-layer water correction)",
+}
+DEFAULT_SETTLEMENT_METHOD = "V1"
+
+# V2's granular (Fig-9 chart) constant, derived from a SECOND, independent lab
+# reference workbook (SETTLEMENT.xlsx, audited 19 Aug 2026, PROJECT_STATUS.md
+# entry #99, difference #3) -- that workbook works directly in kN/m2 and uses
+# the constant 0.772 in `(0.772/(N-3))*(2B/(B+0.3))^2` (mm per kN/m2 of
+# pressure increment). This app's granular formula instead expresses that as
+# "settlement at 10 t/m2" (`10 / (K*(N-3)*((B+0.3)/(2B))^2)`), so K here is
+# back-derived to match 0.772 exactly once unit-converted (1 t/m2 =
+# 9.80665 kN/m2): K = 1 / (9.80665 * 0.772) = 0.13209 (V1's own constant,
+# 0.1385, comes from the ORIGINAL reference workbook, SBC_Cal_Fixed.xlsm --
+# the two sources disagree by ~4.6% here, which is exactly why this is a
+# separate, explicitly-chosen method rather than a silent replacement).
+_V2_GRANULAR_K = 1 / (9.80665 * 0.772)
+
+
+def _validate_settlement_method(method: str | None) -> str:
+    """Resolve a requested settlement-calculation method name to a supported
+    registry key, or raise ValueError with a clear message (mapped to HTTP
+    422 by the router -- a request-shape error, not a per-case calculation
+    error, so this must be called BEFORE any case starts calculating, never
+    from inside `_run_one_batch_case`'s try/except). Mirrors
+    `_validate_bearing_method` exactly (Step 5's pattern), added 19 Aug 2026
+    alongside V2.
+
+    `None` (method not supplied at all) -> the existing default behavior
+    (V1), so every batch run made before V2 existed continues to behave
+    identically.
+    """
+    if method is None:
+        return DEFAULT_SETTLEMENT_METHOD
+    key = str(method).strip().upper()
+    if key not in SETTLEMENT_METHOD_REGISTRY:
+        supported = ", ".join(sorted(SETTLEMENT_METHOD_REGISTRY))
+        raise ValueError(
+            f"Unsupported settlement method '{method}' -- supported methods: {supported}."
+        )
+    return key
+
+
+def _aw_factor(water_table_depth_m: float | None, top: float, bottom: float) -> tuple[float, str]:
+    """Water-table correction factor for ONE sub-layer, using that sub-layer's
+    OWN top/bottom -- V2's per-layer Aw (SETTLEMENT.xlsx col-U formula,
+    PROJECT_STATUS.md entry #99 difference #2), as opposed to V1's single
+    zone-wide Aw (computed once in `run_settlement_multilayer` using the
+    whole influence zone's top/bottom instead of each sub-layer's own)."""
+    if water_table_depth_m is None:
+        return 1.0, "No water table depth given -- Aw = 1.0"
+    if water_table_depth_m <= top:
+        return 0.5, f"Water table at/above this layer's top ({water_table_depth_m}m \u2264 {top:.2f}m) -- Aw = 0.5"
+    if water_table_depth_m >= bottom:
+        return 1.0, f"Water table below this layer's bottom ({water_table_depth_m}m \u2265 {bottom:.2f}m) -- Aw = 1.0"
+    aw = 0.5 + 0.5 * (water_table_depth_m - top) / (bottom - top)
+    return aw, f"Water table within this layer -- Aw = 0.5 + 0.5\u00b7(Dw\u2212top)/thickness = {aw:.3f}"
+
+
 def _run_one_batch_case(
     layers: list, water_table_depth_m: float | None,
     width_m: float, depth_m: float, length_m: float | None,
@@ -853,6 +926,7 @@ def _run_one_batch_case(
     consolidation_type: str, rigidity_factor: float, overrides: dict,
     case_id: str | None = None, replacement: dict | None = None,
     method: str = DEFAULT_BEARING_METHOD, configuration_id: str | None = None,
+    settlement_method: str = DEFAULT_SETTLEMENT_METHOD,
 ) -> dict:
     """One (width, depth) case's shear + settlement calculation -- the SHARED
     per-case engine used by both run_batch_matrix (grid/cross-product mode)
@@ -882,6 +956,11 @@ def _run_one_batch_case(
     # this function only ever sees a known-good registry key, so a plain
     # dict lookup below is safe and never itself raises for a bad name.
     row["method"] = method
+    # 19 Aug 2026 (second reference workbook -- PROJECT_STATUS.md entry #99):
+    # `settlement_method` reaching here is ALREADY validated by the caller
+    # (run_batch_matrix / run_batch_cases, via `_validate_settlement_method`),
+    # same pattern as Step 5's `method` above.
+    row["settlement_method"] = settlement_method
     # Step 6 (Formula Configuration & Versioning): `configuration_id` reaching
     # here is ALREADY resolved+validated by the router (see services/
     # configurations.py's resolve_effective_params -- this file stays
@@ -1043,6 +1122,7 @@ def _run_one_batch_case(
             elastic_modulus_t_m2=overrides.get("elastic_modulus_t_m2"),
             overrides=overrides,
             water_table_depth_m=effective_water_table_depth_m,
+            shape=shape, settlement_method=settlement_method,
         )
 
         shear_val, settlement_val = shear["result"], settlement["result"]
@@ -1056,6 +1136,7 @@ def _run_one_batch_case(
             "influence_zone_mode": settlement.get("influence_zone_mode"),
             "influence_zone_note": settlement.get("influence_zone_note"),
             "water_table_correction_note": settlement.get("water_table_correction_note"),
+            "settlement_method_label": settlement.get("settlement_method_label"),
             "recommended_sbc": round(recommended, 2),
             "gross_recommended_sbc": round(recommended + gamma_above * depth_m, 2),
             "shear_steps": shear.get("steps", []),
@@ -1073,6 +1154,7 @@ def run_batch_matrix(
     consolidation_type: str = "NCS", rigidity_factor: float = 1.0,
     overrides: dict | None = None, replacement: dict | None = None,
     method: str | None = None, configuration_id: str | None = None,
+    settlement_method: str | None = None,
 ) -> dict:
     """
     Batch/matrix engine (Phase 3, v2): for every (width, depth) combination,
@@ -1125,6 +1207,13 @@ def run_batch_matrix(
     mode for that. An unsupported method name is rejected up front with a
     ValueError (-> HTTP 422 at the router), before any combination runs.
 
+    `settlement_method` (19 Aug 2026 -- second reference workbook,
+    PROJECT_STATUS.md entry #99): same pattern as `method` above, but for
+    the SETTLEMENT engine's V1/V2 choice (see `run_settlement_multilayer`'s
+    docstring) -- `None`/omitted uses the existing default (V1), batch-wide
+    only (no per-combination override in grid mode, same reasoning as
+    `method`), validated up front.
+
     `configuration_id` (Step 6, Aug 2026 -- Formula Configuration &
     Versioning): purely a RECORD-KEEPING passthrough -- this function never
     looks it up, validates it, or uses it in any calculation. The ROUTER
@@ -1146,6 +1235,7 @@ def run_batch_matrix(
     if len(widths_m) * len(depths_m) > MAX_BATCH_CASES:
         raise ValueError(f"Grid too large (max {MAX_BATCH_CASES} combinations at once) -- narrow the width/depth lists.")
     resolved_method = _validate_bearing_method(method)
+    resolved_settlement_method = _validate_settlement_method(settlement_method)
 
     layers = sorted(layers, key=lambda l: l.from_m)
     combos = [
@@ -1155,7 +1245,7 @@ def run_batch_matrix(
             shape=shape, fos=fos, allowable_settlement_mm=allowable_settlement_mm,
             consolidation_type=consolidation_type, rigidity_factor=rigidity_factor,
             overrides=overrides, replacement=replacement, method=resolved_method,
-            configuration_id=configuration_id,
+            configuration_id=configuration_id, settlement_method=resolved_settlement_method,
         )
         for w in widths_m for d in depths_m
     ]
@@ -1189,7 +1279,7 @@ def run_batch_cases(
     shape: str = "square", fos: float = 2.5, allowable_settlement_mm: float = 25,
     consolidation_type: str = "NCS", rigidity_factor: float = 1.0,
     overrides: dict | None = None, default_method: str | None = None,
-    configuration_id: str | None = None,
+    configuration_id: str | None = None, default_settlement_method: str | None = None,
 ) -> dict:
     """
     Exact B x D pair mode (Step 2, Aug 2026) -- runs EXACTLY the given cases,
@@ -1250,6 +1340,15 @@ def run_batch_cases(
     each case's own `c["configuration_id"]` are pure record-keeping strings,
     exactly like `method`/Step 5's `case_methods` -- carried onto the result
     row, never used in any calculation.
+
+    `default_settlement_method` / per-case `c["settlement_method"]` (19 Aug
+    2026 -- second reference workbook, PROJECT_STATUS.md entry #99): same
+    pattern as `default_method`/`c["method"]` above, but for the SETTLEMENT
+    engine's V1/V2 choice (see `run_settlement_multilayer`'s docstring) --
+    `default_settlement_method=None` -> V1 for the whole batch; a case's own
+    `c["settlement_method"]` overrides it for that case only. Every case's
+    effective settlement method is validated up front, same as bearing
+    method, before any case starts calculating.
     """
     batch_overrides = overrides or {}
     if not layers:
@@ -1261,9 +1360,11 @@ def run_batch_cases(
     if len(cases) > MAX_BATCH_CASES:
         raise ValueError(f"Too many cases (max {MAX_BATCH_CASES} at once) -- split into smaller batches.")
     resolved_default_method = _validate_bearing_method(default_method)
+    resolved_default_settlement_method = _validate_settlement_method(default_settlement_method)
 
     seen_ids = set()
     case_methods = {}
+    case_settlement_methods = {}
     for c in cases:
         cid = c.get("case_id")
         if not cid:
@@ -1274,6 +1375,11 @@ def run_batch_cases(
         case_method = c.get("method")
         case_methods[cid] = (
             _validate_bearing_method(case_method) if case_method is not None else resolved_default_method
+        )
+        case_settlement_method = c.get("settlement_method")
+        case_settlement_methods[cid] = (
+            _validate_settlement_method(case_settlement_method)
+            if case_settlement_method is not None else resolved_default_settlement_method
         )
 
     layers = sorted(layers, key=lambda l: l.from_m)
@@ -1291,6 +1397,7 @@ def run_batch_cases(
             overrides=case_overrides, case_id=c.get("case_id"),
             replacement=c.get("replacement"), method=case_methods[c.get("case_id")],
             configuration_id=c.get("configuration_id", configuration_id),
+            settlement_method=case_settlement_methods[c.get("case_id")],
         ))
 
     valid = [c for c in combos if "error" not in c]
@@ -1359,7 +1466,8 @@ def run_settlement_multilayer(
     influence_multiplier: float = 1.5, consolidation_type: str = "NCS",
     include_elastic: bool = False, lambda_correction: float | None = None,
     elastic_modulus_t_m2: float | None = None, overrides: dict | None = None,
-    water_table_depth_m: float | None = None,
+    water_table_depth_m: float | None = None, shape: str = "square",
+    settlement_method: str | None = None,
 ) -> dict:
     """
     True multi-layer settlement (replaces the single-representative-layer
@@ -1409,11 +1517,27 @@ def run_settlement_multilayer(
     zone. The report always states whether Automatic or Manual was used.
 
     water_table_depth_m (or overrides["water_table_depth_m"]): depth below
-    ground of the water table. Applies a single Aw correction factor (0.5 at
-    or above founding level, scaling linearly to 1.0 at the base of the
-    influence zone -- same convention as the single-layer granular function)
-    to every granular sub-layer's settlement.
+    ground of the water table. V1 (default) applies a single Aw correction
+    factor (0.5 at or above founding level, scaling linearly to 1.0 at the
+    base of the influence zone -- same convention as the single-layer
+    granular function) to every granular sub-layer's settlement. V2 instead
+    computes Aw separately per sub-layer, using that sub-layer's own top/
+    bottom (see `_aw_factor`).
+
+    settlement_method (Step 19 Aug 2026 -- second reference workbook,
+    PROJECT_STATUS.md entry #99): 'V1' (default, unchanged since this
+    function was written -- Boussinesq stress via `_iz`, one zone-wide Aw,
+    granular constant 0.1385, all verified against `SBC_Cal_Fixed.xlsm`) or
+    'V2' (a second, independent lab's method, verified against
+    SETTLEMENT.xlsx: 2:1 load-spread stress via `_iz_2to1` (shape-aware --
+    strip/circular/rectangular each spread differently), per-sub-layer Aw
+    via `_aw_factor`, and granular constant `_V2_GRANULAR_K`). `None` ->
+    V1, so every call made before V2 existed continues to behave
+    identically. The two methods are BUNDLED, not mix-and-matched --
+    picking V2 changes all three pieces together, since that's what the
+    second reference workbook actually does as one coherent method.
     """
+    resolved_settlement_method = _validate_settlement_method(settlement_method)
     consolidation_type = consolidation_type.upper()
     if consolidation_type not in ("OCS", "NCS"):
         raise ValueError("consolidation_type must be 'OCS' (over-consolidated) or 'NCS' (normally consolidated).")
@@ -1433,7 +1557,24 @@ def run_settlement_multilayer(
         iz_note = f"Automatic Influence Zone = Df + {influence_multiplier}\u00b7B = {influence_depth:.2f} m below ground"
 
     iz_thickness = influence_depth - depth_m
-    if water_table_depth_m is None:
+    if resolved_settlement_method == "V2":
+        # V2: Aw is computed PER SUB-LAYER below (see `_aw_factor` calls in
+        # the pre-compute loop) -- this zone-wide `Aw` is not used for the
+        # granular contribution itself, only kept as a single summary number
+        # for the top-level report/warnings.
+        if water_table_depth_m is None:
+            Aw = 1.0
+        elif water_table_depth_m <= depth_m:
+            Aw = 0.5
+        elif water_table_depth_m >= influence_depth:
+            Aw = 1.0
+        else:
+            Aw = 0.5 + 0.5 * (water_table_depth_m - depth_m) / iz_thickness
+        aw_note = (
+            "V2: Aw is computed separately per granular sub-layer (each layer's own top/bottom "
+            f"vs the water table) -- see each layer's entry in layer_report. Zone-wide average shown here: {Aw:.3f}."
+        )
+    elif water_table_depth_m is None:
         Aw = 1.0
         aw_note = "No water table depth given -- Aw = 1.0 (no correction applied to granular sub-layers)"
     elif water_table_depth_m <= depth_m:
@@ -1486,6 +1627,26 @@ def run_settlement_multilayer(
             + (0.25 * length_m * width_m * z_below_footing / Hc) * (1 / F ** 2 + 1 / G ** 2)
         )
 
+    def _iz_2to1(z_below_footing: float) -> float:
+        """V2's stress-influence factor -- the simple 2:1 load-spread method
+        (dp = q*B*L_eff / ((B+z)*(L_eff+z))), shape-aware exactly as
+        SETTLEMENT.xlsx's `Settlement sheet` col-S formula (PROJECT_STATUS.md
+        entry #99, difference #1): strip footings spread as if infinitely
+        long (L_eff and its +z term both fixed at 1, so only B spreads),
+        circular footings spread as a square using the diameter (L_eff =
+        width_m, so both terms use B), everything else (rectangular/square/
+        annular raft) uses the actual length_m. Returns the same "Iz" shape
+        as `_iz` (dp = Iz * pressure) so the rest of this function doesn't
+        need to know which method produced it."""
+        shape_key = (shape or "square").strip().lower()
+        if shape_key == "strip":
+            l_eff, l_eff_plus_z = 1.0, 1.0
+        elif shape_key == "circular":
+            l_eff, l_eff_plus_z = width_m, width_m + z_below_footing
+        else:
+            l_eff, l_eff_plus_z = length_m, length_m + z_below_footing
+        return (l_eff * width_m) / ((width_m + z_below_footing) * l_eff_plus_z)
+
     # Pre-compute each sub-layer's geometry-dependent factors (independent of
     # applied pressure), so the pressure-solve loop below is cheap per guess.
     layer_soil_type_overrides = overrides.get("layer_soil_type") or {}
@@ -1517,7 +1678,11 @@ def run_settlement_multilayer(
                 is_cohesive = getattr(l, "compression_index_cc", None) is not None
             sl["soil_type_forced"] = False
         sl["is_cohesive"] = is_cohesive
-        sl["Iz"] = _iz(z_below_footing)
+        sl["Iz"] = _iz_2to1(z_below_footing) if resolved_settlement_method == "V2" else _iz(z_below_footing)
+        if resolved_settlement_method == "V2":
+            sl["Aw"], sl["aw_note_layer"] = _aw_factor(water_table_depth_m, top, bottom)
+        else:
+            sl["Aw"], sl["aw_note_layer"] = Aw, aw_note
         sl["P0"] = _cumulative_overburden_stress(layers, z_mid_surface, overrides)
         if sl["P0"] <= 0:
             raise ValueError(f"Layer {l.from_m}-{l.to_m}m: overburden stress works out to zero or negative -- check bulk densities above it.")
@@ -1574,7 +1739,8 @@ def run_settlement_multilayer(
             if n_val <= 3:
                 raise ValueError(f"Layer {l.from_m}-{l.to_m}m: N-value ({n_val}) must be > 3 for the IS:8009 Fig-9 chart to apply.")
             sl["n_val"], sl["n_source"] = n_val, n_source
-            sl["settlement_at_10t"] = 10 / (0.1385 * (n_val - 3) * ((width_m + 0.3) / (2 * width_m)) ** 2)
+            granular_k = _V2_GRANULAR_K if resolved_settlement_method == "V2" else 0.1385
+            sl["settlement_at_10t"] = 10 / (granular_k * (n_val - 3) * ((width_m + 0.3) / (2 * width_m)) ** 2)
 
         cc_note = f", Cc {sl['cc_source']}" if is_cohesive and sl.get("cc_source", "").startswith("estimated") else ""
         layer_info.append(f"{l.from_m}-{l.to_m}m ({'cohesive' if is_cohesive else 'granular'}), "
@@ -1593,9 +1759,10 @@ def run_settlement_multilayer(
             if lambda_correction is not None:
                 contribution *= lambda_correction
         else:
-            # Water-table correction (Aw) applied here -- previously computed
-            # elsewhere but never actually applied to this multi-layer path.
-            contribution = sl["settlement_at_10t"] * dp / (10 * Aw)
+            # Water-table correction (Aw) applied here -- V1 uses the single
+            # zone-wide Aw (same value on every granular sub-layer); V2 uses
+            # this specific sub-layer's own Aw (see `_aw_factor` above).
+            contribution = sl["settlement_at_10t"] * dp / (10 * sl["Aw"])
         return contribution, dp
 
     def total_settlement_mm(pressure: float) -> float:
@@ -1640,7 +1807,7 @@ def run_settlement_multilayer(
             method = "Sand/Gravel -- IS:8009 Fig-9 chart"
             es_note = "not used (granular method)"
             working = (f"Sc = (Settlement-at-10t/m² × Δσ)/(10×Aw) = "
-                       f"({sl['settlement_at_10t']:.3f}×{dp:.3f})/(10×{Aw:.3f}) = {raw_contribution:.2f} mm before Fox/rigidity"
+                       f"({sl['settlement_at_10t']:.3f}×{dp:.3f})/(10×{sl['Aw']:.3f}) = {raw_contribution:.2f} mm before Fox/rigidity"
                        f" -> ×Fox({fox:.3f})×Rigidity({rigidity_factor:.2f}) = {layer_settlement_mm:.2f} mm")
         layer_report.append({
             "from_m": l.from_m, "to_m": l.to_m,
@@ -1654,6 +1821,8 @@ def run_settlement_multilayer(
             "spt_n_source": sl.get("n_source", "n/a"),
             "elastic_modulus_used": es_note,
             "stress_increase_t_m2": round(dp, 3),
+            "water_table_correction_aw": round(sl["Aw"], 3) if not sl["is_cohesive"] else "n/a (cohesive layer)",
+            "water_table_correction_note": sl.get("aw_note_layer", "n/a") if not sl["is_cohesive"] else "n/a (cohesive layer)",
             "layer_settlement_mm": round(layer_settlement_mm, 3),
             "running_settlement_mm": round(running, 3),
             "working": working,
@@ -1671,12 +1840,14 @@ def run_settlement_multilayer(
         "influence_zone_from_m": depth_m,
         "influence_zone_to_m": round(influence_depth, 2),
         "water_table_correction_note": aw_note,
+        "settlement_method": resolved_settlement_method,
+        "settlement_method_label": SETTLEMENT_METHOD_LABELS[resolved_settlement_method],
         "total_settlement_at_recommended_sbc_mm": round(running, 3),
         "warnings": [
             f"Influence zone: {depth_m}m to {influence_depth:.2f}m below ground ({iz_mode}), split across {len(sub_layers)} real borehole sub-layer(s).",
             "Elastic (immediate) settlement is " + ("included" if include_elastic else "NOT included (off by default, matching the reference workbook's typical setting)") + ".",
-            "Water-table correction (Aw) is now applied to every granular sub-layer's settlement -- previously computed but not applied in this multi-layer version.",
-            "Silt (MI/MH/ML) is treated as COHESIVE, same as the reference workbook -- there is no separate 'silt method' in the source Excel.",
+            f"Settlement method: {SETTLEMENT_METHOD_LABELS[resolved_settlement_method]} -- see layer_report for the per-layer Aw values actually used.",
+            "Silt (MI/MH/ML) is treated as COHESIVE, same as both reference workbooks -- there is no separate 'silt method' in either source Excel.",
             "Compare against the shear-based SBC (IS:6403) and take the LOWER of the two as the final recommended SBC.",
         ],
     }
