@@ -72,9 +72,17 @@ class Settings(BaseSettings):
     # value like the one above would raise a validation error at import time
     # and crash the whole app before Uvicorn even binds a port. We parse it
     # ourselves instead, in `cors_origins_list` below.
+    # NOTE (21 Aug 2026): raahigeo.in (+ www) added to the default after this
+    # was found to be the cause of "Network error" on lab-data upload / any
+    # API call when the frontend is loaded from the custom domain -- the
+    # browser blocks the cross-origin request before it ever reaches this
+    # server, and reports that to JS as a generic network failure, not a
+    # CORS error. If CORS_ORIGINS is set explicitly in Render's dashboard for
+    # raahigeo-backend, THIS DEFAULT IS IGNORED -- that env var must be
+    # updated by hand to include raahigeo.in/www.raahigeo.in too.
     cors_origins_raw: str = os.environ.get(
         "CORS_ORIGINS",
-        "https://geomind-ai-1.onrender.com,http://localhost:5173,http://localhost:3000",
+        "https://geomind-ai-1.onrender.com,https://raahigeo.in,https://www.raahigeo.in,http://localhost:5173,http://localhost:3000",
     )
 
     # A second secret, separate from the login password, required specifically

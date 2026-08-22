@@ -38,10 +38,14 @@ Hindi/English mix (Hinglish) — Raahi is not fluent in technical English jargon
   points at **both frontend and backend** -- but one domain can't directly point at two
   separate Render services without subdomains (e.g. `api.raahigeo.in` for the backend); this
   hasn't been confirmed yet (asked Raahi for a screenshot of the Render custom-domain
-  settings, not yet received). **Still unconfirmed:** whether the backend's CORS
-  allowed-origins list includes whatever domain(s) are actually in play. If login or any API
-  call from raahigeo.in fails with a CORS error or "Failed to fetch", check this first (see
-  playbook #43 for a similar past dead-end with cross-checking the wrong Render service URL).
+  settings, not yet received). **Partially resolved 21 Aug 2026 (changelog #103):** the
+  backend's default CORS allowlist was confirmed to be missing raahigeo.in/www.raahigeo.in
+  and has been fixed in code (`backend/app/config.py`, `.env.example`, `render.yaml`). Still
+  needs a manual check: if `CORS_ORIGINS` is set explicitly in Render's dashboard for
+  `raahigeo-backend` (overriding the code default), that env var must be updated by hand too
+  -- not yet confirmed either way. If login or any API call from raahigeo.in still fails
+  with a "Network error" after this deploy, check that env var first (see playbook #43 for a
+  similar past dead-end with cross-checking the wrong Render service URL).
 - **Backend:** https://geomind-ai.onrender.com (Render Web Service, root dir `backend`)
 - **Backend health check:** `/api/health` — reports Gemini key status, DB type, vector store type
 - **Swagger/API docs:** https://geomind-ai.onrender.com/docs
@@ -5020,6 +5024,44 @@ scoped).
        recurs, the next lever is batching the SQLite writes themselves
        (`bulk_save_objects`), not attempted here since the round-trip
        reduction alone was the clear, safe first fix.
+
+103. **CORS gap on custom domain -- "Network error" root cause, 21 Aug 2026.**
+     Raahi reported "Network error" on the DEPLOYED frontend (raahigeo.in) for
+     Lab Data upload / Borehole List and generally. Investigated per the
+     earlier flagged "Still unconfirmed" note under Live deployment above.
+     **Root cause confirmed:** `backend/app/config.py`'s default
+     `CORS_ORIGINS` never included `https://raahigeo.in` / `https://www.
+     raahigeo.in` -- only `geomind-ai-1.onrender.com` + localhost. Any API
+     call from a page loaded at the custom domain was blocked by the browser
+     before it reached the server; the browser reports a CORS block to JS as
+     a generic network failure, which is exactly the "Network error --
+     could not reach the server" message `frontend/src/api/client.ts`'s
+     `uploadLabData()` shows on `xhr.onerror`. `VITE_API_URL`, the frontend
+     API client, the FastAPI backend URL, and the Lab Data upload/Borehole
+     List endpoint logic were all checked and are correct -- not the cause.
+     - **Fix:** added `https://raahigeo.in,https://www.raahigeo.in` to the
+       default `CORS_ORIGINS` list in `backend/app/config.py`, mirrored in
+       `backend/.env.example` and `render.yaml` for consistency. No frontend
+       or endpoint-logic changes -- this was CORS-only, per the instruction
+       to make no unrelated changes.
+     - **Verification:** `py_compile` clean on the whole backend tree.
+       Reproduced `cors_origins_list`'s parsing logic standalone and
+       confirmed both new origins appear in the resulting allowlist when
+       `CORS_ORIGINS` is unset. Confirmed from `main.py` that CORS preflight
+       `OPTIONS` requests already bypass the auth middleware, so no auth-side
+       change was needed.
+     - **Not done / still open -- IMPORTANT:** this fix only changes the
+       **default** used when Render's `raahigeo-backend` service has no
+       `CORS_ORIGINS` env var set. Per the note at the top of `render.yaml`,
+       these services were created manually in the Render dashboard, so if
+       `CORS_ORIGINS` is already set explicitly there, this code change is
+       overridden and Raahi must edit that env var by hand (add
+       `https://raahigeo.in,https://www.raahigeo.in`) for the fix to take
+       effect -- **not independently confirmed against the live Render
+       dashboard**, since this sandbox has no access to it. Treat Raahi's
+       first real re-test from raahigeo.in after deploying as the actual
+       test. Also see `RaahiGeo-Status-Summary.md` (new file, root of repo)
+       for a shorter standalone writeup of this fix.
 
 ---
 

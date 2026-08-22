@@ -20,7 +20,7 @@ services:
       - key: CHAT_MODEL
         value: gemini-3.5-flash
       - key: CORS_ORIGINS
-        value: https://geomind-ai-1.onrender.com,http://localhost:5173,http://localhost:3000
+        value: https://geomind-ai-1.onrender.com,https://raahigeo.in,https://www.raahigeo.in,http://localhost:5173,http://localhost:3000
     healthCheckPath: /api/health
 
   - type: web
