@@ -66,16 +66,20 @@ Gemini has a genuinely free tier). Current models (as of July 2026):
   (large textbooks) can burn through it fast — `ingest.py` paces embedding batches with a
   5s delay between them for this reason. 429 errors are Google's limit, not a bug.
 
-## Persistent storage (optional, currently may or may not be configured — check!)
+## Persistent storage (CONFIRMED configured and working, 22 Aug 2026 -- see #104)
 
-By default, Render's free tier wipes local disk on every restart/redeploy. Two optional
-env vars make things persistent:
-- `CHROMA_API_KEY` (+ `CHROMA_TENANT`, `CHROMA_DATABASE`) → Chroma Cloud (free tier) for
-  the vector store, instead of local disk.
-- `DATABASE_URL` → external Postgres (Supabase/Neon free tier) instead of local SQLite,
-  for conversations/documents/borehole profiles.
-- Check `GET /api/health` response (`vector_store`, `database` fields) to see which mode
-  is currently active.
+Render's free tier wipes local disk on every restart/redeploy by default -- three env
+vars on `raahigeo-backend` make everything persistent instead, and Raahi already has all
+three set:
+- `DATABASE_URL` -> external Postgres (Supabase) instead of local SQLite, for
+  conversations/documents/borehole profiles/calc logs/login. The moment this is Postgres,
+  `app/rag/vectorstore.py` ALSO auto-switches the RAG search index to pgvector inside that
+  same database -- no separate vector store service needed.
+- `SUPABASE_URL` + `SUPABASE_SERVICE_KEY` -> uploaded PDF files go to Supabase Storage
+  (bucket `documents`) instead of local disk.
+- Live-confirmed via `GET /api/health` (22 Aug 2026): `database` = "external Postgres
+  (persistent)", `vector_store` = "pgvector (persistent, same Postgres database)",
+  `file_storage` = "Supabase Storage (persistent)". All three persistent. See #104.
 
 ---
 
@@ -5062,6 +5066,31 @@ scoped).
        first real re-test from raahigeo.in after deploying as the actual
        test. Also see `RaahiGeo-Status-Summary.md` (new file, root of repo)
        for a shorter standalone writeup of this fix.
+
+104. **Persistence confirmed working (Postgres + Supabase Storage) + `/api/health`
+     reporting fix -- 22 Aug 2026.** Raahi asked for borehole/lab data, RAG
+     documents/search index, and uploaded PDFs to survive Render restart/redeploy. On
+     inspection: the entire auto-switching persistence design was already built
+     (`app/database.py`, `app/models.py`, `app/rag/vectorstore.py` + `pgvector_store.py`,
+     `app/services/file_storage.py`) -- nothing there needed code changes. Live check then
+     showed Raahi had ALREADY set `DATABASE_URL`, `SUPABASE_URL`, and
+     `SUPABASE_SERVICE_KEY` on Render's `raahigeo-backend` before this was looked into --
+     so borehole/lab data was already landing in Postgres, not local SQLite.
+     - **Bug found and fixed:** `backend/main.py`'s `/api/health` judged `vector_store`
+       persistence purely off `CHROMA_API_KEY`, so it kept wrongly reporting "local disk
+       (WIPED...)" even though Postgres/pgvector was already correctly active. Fixed to
+       check `DATABASE_URL` being Postgres first. Also added a `file_storage` field
+       (previously not reported at all) so all three persistence pieces (database /
+       vector_store / file_storage) are each independently visible on one endpoint.
+     - **Live-verified after this deploy (commit `7c97fa7`):** `GET /api/health` now shows
+       `database: "external Postgres (persistent)"`, `vector_store: "pgvector (persistent,
+       same Postgres database)"`, `file_storage: "Supabase Storage (persistent)"` -- all
+       three confirmed persistent on the actual live deploy, not just simulated.
+     - **Not done / still open:** the actual restart-survives-upload round-trip test
+       (upload a borehole -> manually restart `raahigeo-backend` on Render -> confirm it's
+       still listed afterwards) was recommended to Raahi as the final real-world
+       confirmation, but not yet independently confirmed back. See
+       `RaahiGeo-Status-Summary.md` for the full writeup.
 
 ---
 
