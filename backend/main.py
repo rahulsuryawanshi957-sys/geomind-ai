@@ -133,7 +133,33 @@ def health():
     Reports enough state to diagnose a broken deploy without needing log
     access: whether the Gemini key is configured, where data is stored, and
     which origins CORS will accept.
+
+    21 Aug 2026 (persistence setup, PROJECT_STATUS.md #104): vector_store
+    previously only checked CHROMA_API_KEY, so it wrongly reported "local
+    disk (WIPED...)" even when DATABASE_URL pointed at Postgres and
+    vectorstore.py had already switched to pgvector (persistent, in the same
+    database) -- see app/rag/vectorstore.py's own docstring for that
+    auto-switch logic. Fixed here to check Postgres first. Also added
+    file_storage, which wasn't reported here at all before, so Raahi has one
+    place to see the persistence status of all three: documents table +
+    borehole data (database), indexed search vectors (vector_store), and the
+    uploaded PDF files themselves (file_storage) -- three genuinely separate
+    things that can each be persistent or not independently.
     """
+    is_postgres = settings.database_url.startswith("postgres")
+    if is_postgres:
+        vector_store_status = "pgvector (persistent, same Postgres database)"
+    elif settings.chroma_api_key:
+        vector_store_status = "Chroma Cloud (persistent)"
+    else:
+        vector_store_status = "local disk (WIPED on restart/redeploy)"
+
+    file_storage_status = (
+        "Supabase Storage (persistent)"
+        if (settings.supabase_url and settings.supabase_service_key)
+        else "local disk (WIPED on restart/redeploy)"
+    )
+
     return {
         "status": "ok",
         "service": "RaahiGeo",
@@ -142,8 +168,9 @@ def health():
         "embedding_model": settings.embedding_model,
         "data_dir": str(settings.data_dir),
         "cors_origins": settings.cors_origins_list,
-        "vector_store": "Chroma Cloud (persistent)" if settings.chroma_api_key else "local disk (WIPED on restart/redeploy)",
-        "database": "external (persistent, check your DATABASE_URL)" if not settings.database_url.startswith("sqlite") else "local SQLite (WIPED on restart/redeploy)",
+        "vector_store": vector_store_status,
+        "database": "external Postgres (persistent)" if is_postgres else "local SQLite (WIPED on restart/redeploy)",
+        "file_storage": file_storage_status,
     }
 
 
